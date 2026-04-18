@@ -1,0 +1,19 @@
+# Environment secrets — never commit
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Uploads (photo storage — use S3 in production)
+backend/uploads/
+
+# Build artifacts
+frontend/dist/
+backend/dist/
+
+# macOS
+.DS_Store
+
+# Docker volumes
+postgres_data/
