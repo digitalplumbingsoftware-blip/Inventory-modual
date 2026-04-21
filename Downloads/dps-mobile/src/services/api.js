@@ -135,4 +135,103 @@ export const createPaymentIntent = async (jobId, amountCents) => {
   return res.data;
 };
 
+// ── Inventory ─────────────────────────────────────────────────────────────────
+export const getItemByBarcode = async (barcode) => {
+  const res = await api.get('/api/inventory/items', { params: { barcode } });
+  return res.data;
+};
+
+export const postInventoryMove = async (data) => {
+  const res = await api.post('/api/inventory/move', data);
+  return res.data;
+};
+
+export const getInventoryLocations = async () => {
+  const res = await api.get('/api/inventory/locations');
+  return res.data;
+};
+
+export const getJobMaterialCost = async (jobId) => {
+  const res = await api.get(`/api/jobs/${jobId}/material-cost`);
+  return res.data;
+};
+
+// ── Pricebook ─────────────────────────────────────────────────────────────────
+export const getPBEngine = async () => {
+  const res = await api.get('/api/pricebook/engine');
+  return res.data;
+};
+
+export const getPBTasks = async (params = {}) => {
+  const res = await api.get('/api/pricebook/tasks', { params });
+  return res.data;
+};
+
+export const getPBCategories = async () => {
+  const res = await api.get('/api/pricebook/categories');
+  return res.data;
+};
+
+// ── Estimates ─────────────────────────────────────────────────────────────────
+export const getEstimates = async (params = {}) => {
+  const res = await api.get('/api/estimates', { params });
+  return res.data;
+};
+
+export const getEstimate = async (id) => {
+  const res = await api.get(`/api/estimates/${id}`);
+  return res.data;
+};
+
+export const createEstimate = async (data) => {
+  const res = await api.post('/api/estimates', data);
+  return res.data;
+};
+
+export const updateEstimate = async (id, data) => {
+  const res = await api.put(`/api/estimates/${id}`, data);
+  return res.data;
+};
+
+export const addEstimateItem = async (estimateId, data) => {
+  const res = await api.post(`/api/estimates/${estimateId}/items`, data);
+  return res.data;
+};
+
+export const removeEstimateItem = async (estimateId, itemId) => {
+  const res = await api.delete(`/api/estimates/${estimateId}/items/${itemId}`);
+  return res.data;
+};
+
+export const signEstimate = async (id, data) => {
+  const res = await api.post(`/api/estimates/${id}/sign`, data);
+  return res.data;
+};
+
+export const sendEstimate = async (id) => {
+  const res = await api.post(`/api/estimates/${id}/send`);
+  return res.data;
+};
+
+export const convertEstimate = async (id) => {
+  const res = await api.post(`/api/estimates/${id}/convert`);
+  return res.data;
+};
+
+// ── Invoices ────────────────────────────────────────────────────────────
+export const getInvoice = async (id) => {
+  const res = await api.get(`/api/invoices/${id}`);
+  return res.data;
+};
+
+export const addInvoiceItem = async (invoiceId, data) => {
+  const res = await api.post(`/api/invoices/${invoiceId}/items`, data);
+  return res.data;
+};
+
+export const removeInvoiceItem = async (invoiceId, itemId) => {
+  const res = await api.delete(`/api/invoices/${invoiceId}/items/${itemId}`);
+  return res.data;
+};
+
 export default api;

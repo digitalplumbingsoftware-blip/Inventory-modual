@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { updateJobStatus, addJobNote, uploadJobPhoto } from './api';
+import { updateJobStatus, addJobNote, uploadJobPhoto, postInventoryMove } from './api';
 
 const QUEUE_KEY = 'dps_offline_queue';
 
@@ -40,6 +40,12 @@ export async function queuePhotoUpload(jobId, uri, mimeType) {
   await saveQueue(queue);
 }
 
+export async function queueInventoryMove(itemId, fromLocation, qty, moveType, jobId) {
+  const queue = await loadQueue();
+  queue.push({ type: 'inventoryMove', itemId, fromLocation, qty, moveType, jobId, ts: Date.now(), retries: 0 });
+  await saveQueue(queue);
+}
+
 // ── Flush queue ───────────────────────────────────────────────────────────────
 export async function flushQueue() {
   const queue = await loadQueue();
@@ -57,11 +63,28 @@ export async function flushQueue() {
         await addJobNote(op.jobId, op.note);
       } else if (op.type === 'photo') {
         await uploadJobPhoto(op.jobId, op.uri, op.mimeType);
+      } else if (op.type === 'inventoryMove') {
+        await postInventoryMove({
+          item_id: op.itemId,
+          from_location: op.fromLocation || null,
+          to_location: null,
+          qty: op.qty,
+          type: op.moveType,
+          job_id: op.jobId,
+        });
       }
       flushed++;
     } catch {
-      // Keep failed ops for next flush attempt
-      remaining.push(op);
+      if (op.type === 'inventoryMove') {
+        const retries = (op.retries || 0) + 1;
+        if (retries < 20) {
+          remaining.push({ ...op, retries });
+        } else {
+          console.error('inventoryMove permanently failed after 20 retries — dropping:', op);
+        }
+      } else {
+        remaining.push(op);
+      }
       failed++;
     }
   }
