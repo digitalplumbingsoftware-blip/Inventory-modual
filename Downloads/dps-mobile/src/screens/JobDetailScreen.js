@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import dayjs from 'dayjs';
 import { C, STATUS } from '../theme';
-import { getJob, updateJobStatus, addJobNote, pingGps, getMyJobs, getJobPhotos, uploadJobPhoto, BASE_URL } from '../services/api';
+import { getJob, updateJobStatus, addJobNote, pingGps, getMyJobs, getJobPhotos, uploadJobPhoto, getJobMaterialCost, BASE_URL } from '../services/api';
 import { queueStatusUpdate, queueNoteAppend, queuePhotoUpload } from '../services/offlineQueue';
 import { useAuth } from '../hooks/useAuth';
 
@@ -24,6 +24,7 @@ export default function JobDetailScreen({ route, navigation }) {
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [materialCost, setMaterialCost] = useState(null);
 
   // Track connectivity
   useEffect(() => {
@@ -51,6 +52,17 @@ export default function JobDetailScreen({ route, navigation }) {
   }, [jobId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadMaterialCost = useCallback(async () => {
+    try {
+      const data = await getJobMaterialCost(jobId);
+      setMaterialCost(data);
+    } catch {
+      // non-fatal — parts section just stays empty
+    }
+  }, [jobId]);
+
+  useEffect(() => { loadMaterialCost(); }, [loadMaterialCost]);
 
   // Auto duty management
   const handleAutoDuty = async (newStatus) => {
@@ -339,6 +351,38 @@ export default function JobDetailScreen({ route, navigation }) {
 
 
 
+      {/* Parts */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>PARTS USED</Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ScanParts', { jobId })}
+            style={styles.addBtn}
+          >
+            <Text style={styles.addBtnText}>📦 Scan Parts</Text>
+          </TouchableOpacity>
+        </View>
+        {materialCost && materialCost.line_items.length > 0 ? (
+          <View style={styles.infoCard}>
+            {materialCost.line_items.map((item, i) => (
+              <View key={i} style={styles.partRow}>
+                <Text style={styles.partName}>{item.name}</Text>
+                <Text style={styles.partQty}>×{item.qty}</Text>
+                <Text style={styles.partTotal}>${parseFloat(item.line_total).toFixed(2)}</Text>
+              </View>
+            ))}
+            <View style={[styles.partRow, { borderTopWidth: 1, borderTopColor: C.border, marginTop: 4, paddingTop: 8 }]}>
+              <Text style={[styles.partName, { fontWeight: '700' }]}>Materials</Text>
+              <Text style={[styles.partTotal, { color: C.green, fontWeight: '800' }]}>
+                ${materialCost.total_material_cost.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.emptyNotes}>No parts scanned yet</Text>
+        )}
+      </View>
+
       <View style={{height:40}}/>
     </ScrollView>
   );
@@ -392,4 +436,8 @@ const styles = StyleSheet.create({
   offlineBannerText:{color:'#ff9500',fontSize:12,fontWeight:'600',textAlign:'center'},
   payBtn:{backgroundColor:C.green+'22',borderWidth:1.5,borderColor:C.green,borderRadius:14,padding:18,alignItems:'center'},
   payBtnText:{fontSize:16,color:C.green,fontWeight:'700'},
+  partRow:{flexDirection:'row',alignItems:'center',gap:8},
+  partName:{flex:1,fontSize:13,color:C.text},
+  partQty:{fontSize:13,color:C.muted,minWidth:28,textAlign:'right'},
+  partTotal:{fontSize:13,color:C.text,fontWeight:'600',minWidth:56,textAlign:'right'},
 });

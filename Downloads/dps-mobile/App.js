@@ -18,6 +18,7 @@ import ProfileScreen          from './src/screens/ProfileScreen';
 import PricebookScreen        from './src/screens/PricebookScreen';
 import InvoicesScreen         from './src/screens/InvoicesScreen';
 import InvoiceDetailScreen    from './src/screens/InvoiceDetailScreen';
+import ScanPartsScreen        from './src/screens/ScanPartsScreen';
 import EstimatesHomeScreen    from './src/screens/EstimatesHomeScreen';
 import EstimatesScreen        from './src/screens/EstimatesScreen';
 import EstimateDetailScreen   from './src/screens/EstimateDetailScreen';
@@ -47,6 +48,7 @@ function JobsStack() {
       <Stack.Screen name="MyJobs" component={JobsScreen}
         options={({ navigation }) => ({ title:'My Jobs', headerRight:()=><SettingsBtn navigation={navigation}/> })}/>
       <Stack.Screen name="JobDetail" component={JobDetailScreen} options={{ title:'Job Detail' }}/>
+      <Stack.Screen name="ScanParts" component={ScanPartsScreen} options={{ title:'Scan Parts' }}/>
       <Stack.Screen name="Settings"  component={ProfileScreen}   options={{ title:'Settings' }}/>
     </Stack.Navigator>
   );
