@@ -11,6 +11,11 @@ jest.mock("twilio", () => () => ({
   messages: { create: jest.fn().mockResolvedValue({ sid: "SM123" }) },
 }));
 
+// Mock nodemailer so estimates route doesn't blow up
+jest.mock("nodemailer", () => ({
+  createTransport: jest.fn(() => ({ sendMail: jest.fn().mockResolvedValue({}) })),
+}));
+
 const { query } = require("../src/db/pool");
 
 let app;
@@ -101,6 +106,82 @@ describe("PATCH /api/jobs/:id — SMS trigger", () => {
 
     expect(res.status).toBe(200);
     // SMS suppressed — no throw, no error
+  });
+});
+
+describe("GET /api/jobs/:id/material-cost", () => {
+  it("returns line items and computed gross margin", async () => {
+    const token = makeToken("admin");
+
+    // line items query
+    query.mockResolvedValueOnce({
+      rows: [
+        { name: "Wax Ring", sku: "WR-01", unit_cost: "5.00", qty: "2", line_total: "10.00" },
+      ],
+    });
+    // revenue query
+    query.mockResolvedValueOnce({ rows: [{ revenue: "100.00" }] });
+
+    const res = await request(app)
+      .get("/api/jobs/job-1/material-cost")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total_material_cost).toBe(10);
+    expect(res.body.revenue).toBe(100);
+    expect(res.body.gross_margin_pct).toBe(90); // (100-10)/100 * 100
+    expect(res.body.line_items).toHaveLength(1);
+    expect(res.body.line_items[0].name).toBe("Wax Ring");
+  });
+
+  it("returns null gross_margin_pct when revenue is zero", async () => {
+    const token = makeToken("admin");
+
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rows: [{ revenue: "0" }] });
+
+    const res = await request(app)
+      .get("/api/jobs/job-1/material-cost")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.gross_margin_pct).toBeNull();
+    expect(res.body.total_material_cost).toBe(0);
+  });
+});
+
+describe("PATCH /api/jobs/:id — restock check on completion", () => {
+  it("fires restock check when status transitions to completed", async () => {
+    const token = makeToken("admin");
+
+    // prev status
+    query.mockResolvedValueOnce({ rows: [{ status: "in_progress" }] });
+    // update
+    query.mockResolvedValueOnce({ rows: [{ id: "job-1", status: "completed", technician_id: "tech-1" }] });
+    // restock low-stock query (fire-and-forget)
+    query.mockResolvedValue({ rows: [{ name: "Wax Ring" }] });
+
+    const res = await request(app)
+      .patch("/api/jobs/job-1")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "completed" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("completed");
+  });
+
+  it("does not error if technician_id is null on completion", async () => {
+    const token = makeToken("admin");
+
+    query.mockResolvedValueOnce({ rows: [{ status: "in_progress" }] });
+    query.mockResolvedValueOnce({ rows: [{ id: "job-1", status: "completed", technician_id: null }] });
+
+    const res = await request(app)
+      .patch("/api/jobs/job-1")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "completed" });
+
+    expect(res.status).toBe(200);
   });
 });
 
