@@ -5,6 +5,15 @@ const multer = require("multer");
 const { query } = require("../db/pool");
 const { authenticate } = require("../middleware/auth");
 
+// ── Schema migration (idempotent) ─────────────────────────────
+async function ensureJobsSchema() {
+  await query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS restock_needed BOOLEAN DEFAULT false`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_items_barcode ON inventory_items(barcode)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_movements_job ON inventory_movements(job_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_locations_technician ON inventory_locations(technician_id)`);
+}
+ensureJobsSchema().catch(e => console.error("jobs schema init:", e.message));
+
 // ── Photo upload storage ──────────────────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, "../../../uploads/photos");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -136,11 +145,32 @@ router.post("/", authenticate, async (req, res) => {
   }
 });
 
+// ── Restock check (fire-and-forget) ──────────────────────────────────────────
+async function checkRestockNeeded(jobId, technicianId) {
+  if (!technicianId) return;
+  try {
+    const { rows: lowItems } = await query(`
+      SELECT i.name
+      FROM inventory_stock s
+      JOIN inventory_items i ON i.id = s.item_id
+      JOIN inventory_locations l ON l.id = s.location_id
+      WHERE l.technician_id = $1 AND s.qty <= i.min_qty AND i.active = true
+    `, [technicianId]);
+
+    if (lowItems.length > 0) {
+      await query("UPDATE jobs SET restock_needed = true WHERE id = $1", [jobId]);
+    }
+  } catch (err) {
+    console.error("Restock check failed (non-fatal):", err.message);
+  }
+}
+
 // PATCH /api/jobs/:id
 router.patch("/:id", authenticate, async (req, res) => {
   try {
     const allowed = ["status","technician_id","scheduled_start","scheduled_end",
-                     "job_type","description","notes","tags","actual_start","actual_end","travel_start","arrival_window"];
+                     "job_type","description","notes","tags","actual_start","actual_end",
+                     "travel_start","arrival_window","restock_needed"];
     const updates = [];
     const params = [];
 
@@ -171,6 +201,52 @@ router.patch("/:id", authenticate, async (req, res) => {
     if (newStatus && newStatus !== prevStatus) {
       sendJobSms(req.params.id, newStatus);
     }
+
+    // Fire-and-forget restock check when job completes
+    if (newStatus === 'completed' && rows[0]?.technician_id) {
+      checkRestockNeeded(req.params.id, rows[0].technician_id);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/jobs/:id/material-cost
+router.get("/:id/material-cost", authenticate, async (req, res) => {
+  try {
+    const { rows: lineItems } = await query(`
+      SELECT
+        i.name,
+        i.sku,
+        COALESCE(i.cost, 0) as unit_cost,
+        ABS(m.qty) as qty,
+        ABS(m.qty) * COALESCE(i.cost, 0) as line_total
+      FROM inventory_movements m
+      JOIN inventory_items i ON i.id = m.item_id
+      WHERE m.job_id = $1 AND m.type = 'use'
+      ORDER BY m.created_at
+    `, [req.params.id]);
+
+    const totalMaterialCost = lineItems.reduce((sum, r) => sum + parseFloat(r.line_total || 0), 0);
+
+    const { rows: invoiceRows } = await query(`
+      SELECT COALESCE(SUM(subtotal + tax_amount), 0) as revenue
+      FROM invoices
+      WHERE job_id = $1 AND status NOT IN ('void','draft')
+    `, [req.params.id]);
+
+    const revenue = parseFloat(invoiceRows[0]?.revenue || 0);
+    const grossMarginPct = revenue > 0
+      ? Math.round(((revenue - totalMaterialCost) / revenue) * 1000) / 10
+      : null;
+
+    res.json({
+      line_items: lineItems,
+      total_material_cost: totalMaterialCost,
+      total_labor_cost: null,
+      revenue,
+      gross_margin_pct: grossMarginPct,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

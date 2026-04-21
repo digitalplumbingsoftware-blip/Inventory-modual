@@ -61,10 +61,11 @@ router.delete("/categories/:id", authenticate, async (req, res) => {
 
 router.get("/items", authenticate, async (req, res) => {
   try {
-    const { service_type, category_id } = req.query;
+    const { service_type, category_id, barcode } = req.query;
     const conds = ["i.active = true"]; const vals = [];
     if (service_type) { conds.push(`i.service_type=$${vals.length+1}`); vals.push(service_type); }
     if (category_id)  { conds.push(`i.category_id=$${vals.length+1}`);  vals.push(category_id); }
+    if (barcode)      { conds.push(`i.barcode=$${vals.length+1}`);       vals.push(barcode); }
     const { rows } = await query(`
       SELECT i.*,
         ic.name as category_name,
@@ -80,7 +81,7 @@ router.get("/items", authenticate, async (req, res) => {
       LEFT JOIN inventory_locations l ON l.id = s.location_id
       WHERE ${conds.join(" AND ")}
       GROUP BY i.id, ic.name
-      ORDER BY i.service_type, ic.name, i.name
+      ORDER BY i.created_at ASC
     `, vals);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
