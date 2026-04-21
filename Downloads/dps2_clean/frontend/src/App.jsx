@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Component } from "react";
+import { useState, useEffect, useRef, useCallback, Component, Fragment } from "react";
 import { api, connectGpsWebSocket } from "./api.js";
 import { useAuth } from "./main.jsx";
 
@@ -11,34 +11,44 @@ const GF = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@4
 const G = `
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0d1a12;--surface:#121f17;--surface2:#192a1e;--surface3:#1f3227;
-  --border:#283d2f;--border2:#334d3e;
-  --amber:#e8a84a;--amberdim:#e8a84a22;
-  --blue:#4a9eff;--green:#5daf7c;--greendim:#5daf7c18;
-  --red:#f56565;--purple:#a78bfa;--cyan:#22d3ee;
-  --text:#e2ede8;--muted:#607b6e;--dim:#2a3d32;
+  --bg:#07091a;--surface:#0d1123;--surface2:#12183a;--surface3:#1a2248;
+  --border:#1e2d5a;--border2:#273472;
+  --amber:#E20613;--amberdim:#E2061322;
+  --blue:#1D70B7;--green:#1D70B7;--greendim:#1D70B718;
+  --red:#E20613;--reddim:#E2061322;--green2:#22c55e;--green2dim:#22c55e18;
+  --purple:#6366f1;--cyan:#38bdf8;
+  --text:#e8eaf4;--muted:#6b7aaa;--dim:#1a2248;
   --font-head:'Syne',sans-serif;--font-mono:'DM Mono',monospace;--font-body:'DM Sans',sans-serif;
 }
 body{font-family:var(--font-body);background:var(--bg);color:var(--text);overflow:hidden}
-button{font-family:var(--font-body);cursor:pointer;border:none;outline:none}
-input,select,textarea{font-family:var(--font-body);outline:none}
+button{font-family:var(--font-body);cursor:pointer;border:none;outline:none;transition:transform .1s,box-shadow .1s,background .15s,border-color .15s,color .15s}
+button:active:not(:disabled){transform:scale(0.96)}
+input,select,textarea{font-family:var(--font-body);outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--blue)!important;box-shadow:0 0 0 3px #1D70B722!important}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse2{0%,100%{opacity:1}50%{opacity:.35}}
-@keyframes glow{0%,100%{box-shadow:0 0 8px #5daf7c33}50%{box-shadow:0 0 22px #5daf7c55}}
+@keyframes glow{0%,100%{box-shadow:0 0 8px #1D70B733}50%{box-shadow:0 0 22px #1D70B755}}
 @keyframes slideRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes shimmer{0%{background-position:-600px 0}100%{background-position:600px 0}}
+@keyframes toastIn{from{transform:translateX(60px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(60px)}}
+@keyframes shrink{from{width:100%}to{width:0%}}
+.skel{background:linear-gradient(90deg,var(--surface) 25%,var(--surface3) 50%,var(--surface) 75%);background-size:600px 100%;animation:shimmer 1.6s infinite;border-radius:4px}
+.tr-hover{transition:transform .12s,box-shadow .12s,background .12s;cursor:pointer}
+.tr-hover:hover{background:var(--surface2)!important;transform:translateY(-1px);box-shadow:0 4px 12px #00000033;position:relative;z-index:1}
 `;
 
 // ─── Tiny helpers ─────────────────────────────────────────────
 const statusMeta = {
-  on_site:   {bg:"#e8a84a22",color:"#e8a84a",label:"ON SITE"},
-  en_route:  {bg:"#4a9eff18",color:"#4a9eff",label:"EN ROUTE"},
-  completed: {bg:"#5daf7c18",color:"#5daf7c",label:"DONE"},
-  scheduled: {bg:"#3d4f6e44",color:"#64748b",label:"SCHED"},
-  available: {bg:"#a78bfa18",color:"#a78bfa",label:"AVAIL"},
-  unassigned:{bg:"#f5656518",color:"#f56565",label:"UNASSIGNED"},
+  on_site:   {bg:"#E2061322",color:"#E20613",label:"ON SITE"},
+  en_route:  {bg:"#1D70B718",color:"#1D70B7",label:"EN ROUTE"},
+  completed: {bg:"#22c55e18",color:"#22c55e",label:"DONE"},
+  scheduled: {bg:"#27347222",color:"#7b8ec8",label:"SCHED"},
+  available: {bg:"#6366f118",color:"#6366f1",label:"AVAIL"},
+  unassigned:{bg:"#E2061318",color:"#E20613",label:"UNASSIGNED"},
 };
 
 function Pill({status}) {
@@ -47,7 +57,7 @@ function Pill({status}) {
 }
 
 function Spinner() {
-  return <div style={{width:20,height:20,border:"2px solid var(--border2)",borderTopColor:"var(--green)",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+  return <div style={{width:20,height:20,border:"2px solid var(--border2)",borderTopColor:"var(--blue)",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
 }
 
 function useApi(fn, deps=[]) {
@@ -90,20 +100,59 @@ class ErrorBoundary extends Component {
   }
 }
 
+// ─── Toast System ─────────────────────────────────────────────
+let _toastFire = null;
+const toast = {
+  success:(t,m)=>_toastFire?.('success',t,m),
+  error:  (t,m)=>_toastFire?.('error',  t,m),
+  info:   (t,m)=>_toastFire?.('info',   t,m),
+  warn:   (t,m)=>_toastFire?.('warn',   t,m),
+};
+const TOAST_META = {
+  success:{icon:'✓',color:'#22c55e',dim:'#22c55e18',border:'#22c55e33'},
+  error:  {icon:'✕',color:'#E20613',dim:'#E206130a',border:'#E2061333'},
+  info:   {icon:'ℹ',color:'#1D70B7',dim:'#1D70B70a',border:'#1D70B733'},
+  warn:   {icon:'⚠',color:'#f59e0b',dim:'#f59e0b08',border:'#f59e0b33'},
+};
+function ToastContainer() {
+  const [toasts,setToasts] = useState([]);
+  useEffect(()=>{ _toastFire=(type,title,msg)=>{ const id=Date.now()+Math.random(); setToasts(p=>[...p,{id,type,title,msg}]); setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),3500); }; },[]);
+  if(!toasts.length) return null;
+  return (
+    <div style={{position:"fixed",bottom:20,right:20,display:"flex",flexDirection:"column-reverse",gap:8,zIndex:9999,maxWidth:320}}>
+      {toasts.map(t=>{
+        const m=TOAST_META[t.type];
+        return (
+          <div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 14px",borderRadius:10,border:`1px solid ${m.border}`,background:m.dim,backdropFilter:"blur(8px)",animation:"toastIn .25s ease",boxShadow:"0 8px 24px #00000044",position:"relative",overflow:"hidden"}}>
+            <div style={{fontSize:13,color:m.color,flexShrink:0,marginTop:1}}>{m.icon}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:700,color:m.color,marginBottom:2}}>{t.title}</div>
+              {t.msg&&<div style={{fontSize:11,color:"var(--muted)",lineHeight:1.4}}>{t.msg}</div>}
+            </div>
+            <div onClick={()=>setToasts(p=>p.filter(x=>x.id!==t.id))} style={{fontSize:11,color:"var(--muted)",cursor:"pointer",padding:"0 2px",flexShrink:0}}>✕</div>
+            <div style={{position:"absolute",bottom:0,left:0,height:2,background:m.color,borderRadius:"0 0 0 10px",animation:"shrink 3.5s linear forwards"}}/>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── DPS Logo ─────────────────────────────────────────────────
 function DPSLogo({expanded=true}) {
   return (
-    <div style={{display:"flex",alignItems:"center",gap:9,overflow:"hidden"}}>
-      <svg width="30" height="30" viewBox="0 0 48 48" fill="none" style={{flexShrink:0}}>
-        <circle cx="24" cy="24" r="22" stroke="#5daf7c" strokeWidth="1.6" fill="none"/>
-        <path d="M8 20 Q12 16 16 20 Q20 24 24 20 Q28 16 32 20 Q36 24 40 20" stroke="#5daf7c" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
-        <path d="M8 26 Q12 22 16 26 Q20 30 24 26 Q28 22 32 26 Q36 30 40 26" stroke="#5daf7c" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
-        <circle cx="24" cy="23" r="2.2" fill="#5daf7c"/>
+    <div style={{display:"flex",alignItems:"center",gap:10,overflow:"hidden"}}>
+      <svg width="32" height="28" viewBox="0 0 40 34" fill="none" style={{flexShrink:0}}>
+        <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
+        <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" strokeWidth="1.2" strokeOpacity=".35"/>
+        <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" strokeWidth="1.2" strokeOpacity=".35"/>
+        <line x1="12" y1="22" x2="40" y2="22" stroke="#fff" strokeWidth="1.2" strokeOpacity=".35"/>
+        <text x="20" y="23" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800" fontFamily="'DM Sans',sans-serif" letterSpacing="1">DP</text>
       </svg>
       {expanded && (
         <div>
-          <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:22,fontWeight:800,color:"#e8f0eb",lineHeight:1}}>DPS</div>
-          <div style={{fontSize:7,letterSpacing:".16em",color:"#5daf7c",marginTop:1}}>DIGITAL PLUMBING SOFTWARE</div>
+          <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:18,fontWeight:800,color:"#e8eaf4",lineHeight:1,letterSpacing:".01em"}}>Davis Plumbing</div>
+          <div style={{fontSize:7,letterSpacing:".18em",color:"#1D70B7",marginTop:2,fontFamily:"'DM Mono',monospace"}}>DIGITAL PLUMBING SOFTWARE</div>
         </div>
       )}
     </div>
@@ -184,14 +233,22 @@ function GPSCanvas({positions, compact=false}) {
 }
 
 // ─── Dashboard Stats Card ─────────────────────────────────────
-function StatCard({label,value,sub,subUp,loading}) {
+function StatCard({label,value,sub,subUp,loading,accent="var(--blue)"}) {
   return (
-    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 20px"}}>
+    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 20px",position:"relative",overflow:"hidden",transition:"transform .15s,box-shadow .15s",cursor:"default"}}
+      onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 8px 24px #00000044";}}
+      onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+      <div style={{position:"absolute",left:0,top:0,bottom:0,width:3,background:accent,borderRadius:"12px 0 0 12px"}}/>
       <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:8}}>{label}</div>
-      {loading ? <Spinner/> : (
+      {loading ? (
         <>
-          <div style={{fontFamily:"var(--font-head)",fontSize:32,fontWeight:800}}>{value}</div>
-          {sub && <div style={{fontSize:11,color:subUp===true?"#5daf7c":subUp===false?"#f56565":"#64748b",marginTop:4,fontFamily:"var(--font-mono)"}}>{sub}</div>}
+          <div className="skel" style={{height:28,width:"60%",marginBottom:6}}/>
+          <div className="skel" style={{height:8,width:"40%"}}/>
+        </>
+      ) : (
+        <>
+          <div style={{fontFamily:"var(--font-head)",fontSize:32,fontWeight:800,color:accent}}>{value}</div>
+          {sub && <div style={{fontSize:11,color:subUp===true?"var(--green2)":subUp===false?"var(--red)":"var(--muted)",marginTop:4,fontFamily:"var(--font-mono)"}}>{sub}</div>}
         </>
       )}
     </div>
@@ -260,8 +317,10 @@ function DashboardPage() {
   });
 
   const KPICard = ({label, value, sub, accent, icon}) => (
-    <div style={{background:"var(--surface)",border:`1px solid ${accent}33`,borderRadius:14,padding:"16px 18px",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${accent},${accent}88)`}}/>
+    <div style={{background:"var(--surface)",border:`1px solid ${accent}33`,borderRadius:14,padding:"16px 18px",position:"relative",overflow:"hidden",transition:"transform .15s,box-shadow .15s",cursor:"default"}}
+      onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 24px ${accent}22`;}}
+      onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+      <div style={{position:"absolute",left:0,top:0,bottom:0,width:3,background:accent,borderRadius:"14px 0 0 14px"}}/>
       <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",marginBottom:10}}>{label}</div>
       {loading ? <Spinner/> : (
         <>
@@ -505,7 +564,10 @@ function JobsPage() {
                     <div style={{fontSize:13,fontWeight:500}}>{job.customer_name}</div>
                     <div style={{fontSize:10,color:"var(--muted)"}}>{job.address}</div>
                   </td>
-                  <td style={{padding:"10px 14px",fontSize:12,color:"#9ca3af"}}>{job.job_type||"—"}</td>
+                  <td style={{padding:"10px 14px"}}>
+                    <div style={{fontSize:12,color:"#9ca3af"}}>{job.job_type||"—"}</div>
+                    {job.description && <div style={{fontSize:11,color:"var(--muted)",marginTop:2,maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{job.description.replace(/\n/g,' ')}</div>}
+                  </td>
                   <td style={{padding:"10px 14px"}}>
                     {job.technician_name ? (
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -603,7 +665,7 @@ function ItemModal({item, categories, onSave, onClose}) {
       if (item?.id) await api.updateItem(item.id, data);
       else await api.createItem(data);
       onSave();
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
   const inp = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
@@ -662,12 +724,12 @@ function TransferModal({item, locations, onSave, onClose}) {
   const [saving, setSaving] = useState(false);
   const fromStock = (item.stock||[]).find(s=>s.location_id===from);
   const save = async () => {
-    if (!from||!to||from===to) return alert('Select different source and destination');
-    if (qty<1) return alert('Quantity must be at least 1');
-    if (fromStock && qty > fromStock.qty) return alert(`Only ${fromStock.qty} available at source`);
+    if (!from||!to||from===to) return toast.warn('Validation', 'Select different source and destination');
+    if (qty<1) return toast.warn('Validation', 'Quantity must be at least 1');
+    if (fromStock && qty > fromStock.qty) return toast.warn('Not enough stock', `Only ${fromStock.qty} available at source`);
     setSaving(true);
     try { await api.moveStock({item_id:item.id,from_location:from,to_location:to,qty:parseInt(qty)}); onSave(); }
-    catch(e) { alert(e.message); }
+    catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
   const sel = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
@@ -720,14 +782,14 @@ function TemplateModal({template, allItems, onSave, onClose}) {
   const updateTItem = (idx,k,v) => setTItems(prev=>prev.map((t,i)=>i===idx?{...t,[k]:v}:t));
   const removeItem = idx => setTItems(prev=>prev.filter((_,i)=>i!==idx));
   const save = async () => {
-    if (!form.name) return alert('Name required');
+    if (!form.name) return toast.warn('Required', 'Name required');
     setSaving(true);
     try {
       const data = {...form, items: tItems.map(t=>({item_id:t.item_id,min_qty:parseInt(t.min_qty)||1,max_qty:t.max_qty?parseInt(t.max_qty):null}))};
       if (template?.id) await api.updateTemplate(template.id, data);
       else await api.createTemplate(data);
       onSave();
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
   const inp = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
@@ -805,7 +867,7 @@ function POModal({po, allItems, onSave, onClose}) {
     try {
       await api.createPurchaseOrder({...form, items:poItems});
       onSave();
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
   const inp = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
@@ -870,7 +932,7 @@ function CountModal({count, onSave, onClose}) {
     try {
       await api.updateCount(count.id,{status:complete?'completed':'in_progress', notes, items: items.map(i=>({id:i.id,actual_qty:i.actual_qty===''?null:parseInt(i.actual_qty)}))});
       onSave();
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
   const filled = items.filter(i=>i.actual_qty!=='').length;
@@ -1054,7 +1116,7 @@ function InvLocationsTab({locations, items, onReload}) {
     if(!form.name) return;
     setSaving(true);
     try { await api.createLocation(form); setAddModal(false); setForm({type:'truck',name:''}); onReload(); }
-    catch(e) { alert(e.message); }
+    catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -1158,9 +1220,9 @@ function InvTemplatesTab({items, locations, onReload}) {
   const vehicles = (locations||[]).filter(l=>l.type!=='warehouse');
 
   const applyTemplate = async (tmpl) => {
-    if(!applyLoc) return alert('Select a vehicle');
-    try { const r = await api.applyTemplate(tmpl.id, applyLoc); alert(`Applied ${r.applied} items to vehicle`); setApplying(null); setApplyLoc(''); }
-    catch(e) { alert(e.message); }
+    if(!applyLoc) return toast.warn('Required', 'Select a vehicle');
+    try { const r = await api.applyTemplate(tmpl.id, applyLoc); toast.success('Template Applied', `Applied ${r.applied} items to vehicle`); setApplying(null); setApplyLoc(''); }
+    catch(e) { toast.error('Error', e.message); }
   };
   const deleteTemplate = async (id) => {
     if(!confirm('Delete this template?')) return;
@@ -1230,15 +1292,15 @@ function InvPurchaseOrdersTab({items}) {
     setGenerating(true);
     try {
       const r = await api.autoGeneratePO();
-      if(r.created===0) alert('No items need reordering right now.');
-      else { alert(`Created ${r.created} purchase order(s) for low stock items.`); reload(); }
-    } catch(e) { alert(e.message); }
+      if(r.created===0) toast.info('No Action Needed', 'No items need reordering right now.');
+      else { toast.success('POs Created', `Created ${r.created} purchase orders for low stock items.`); reload(); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setGenerating(false); }
   };
 
   const updateStatus = async (id, status) => {
     try { await api.updatePurchaseOrder(id,{status,notes:''}); reload(); }
-    catch(e) { alert(e.message); }
+    catch(e) { toast.error('Error', e.message); }
   };
 
   const statusColor = s=>s==='received'?'#5daf7c':s==='sent'?'#4a9eff':s==='cancelled'?'#f56565':'#e8a84a';
@@ -1301,10 +1363,10 @@ function InvCountsTab({locations}) {
   const [saving, setSaving] = useState(false);
 
   const saveSchedule = async () => {
-    if(!form.name||!form.location_id) return alert('Name and location required');
+    if(!form.name||!form.location_id) return toast.warn('Required', 'Name and location required');
     setSaving(true);
     try { await api.createCountSchedule(form); setSchedModal(false); setForm({name:'',location_id:'',frequency:'monthly',day_of_month:1,assigned_to:''}); reloadS(); }
-    catch(e) { alert(e.message); }
+    catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -1312,7 +1374,7 @@ function InvCountsTab({locations}) {
     try {
       const count = await api.startCount({schedule_id:schedule.id, location_id:schedule.location_id});
       reloadC(); setActiveCount(count);
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
   };
 
   const inp = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
@@ -1657,7 +1719,7 @@ function InvBarcodesPage({items, locations, categories, onReload}) {
       if (editCat) { await api.updateInventoryCategory(editCat.id, catForm); setEditCat(null); }
       else { await api.createInventoryCategory(catForm); }
       setCatForm({name:''}); onReload();
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setCatSaving(false); }
   };
   const deleteCategory = async (id) => {
@@ -2195,7 +2257,7 @@ function PhoneManagerSettings() {
 
   const save = async () => {
     setSaving(true);
-    try { await api.savePhoneSettings({...(settings||{}), ...form}); reload(); alert('Saved!'); }
+    try { await api.savePhoneSettings({...(settings||{}), ...form}); reload(); toast.success('Saved', 'Phone settings saved.'); }
     finally { setSaving(false); }
   };
 
@@ -2413,7 +2475,7 @@ function CallsPage({user}) {
     try {
       const c = await api.createCustomer({first_name:newCust.first_name,last_name:newCust.last_name,phone:newCust.phone,email:newCust.email});
       setCustSaved(c); setNewCust(null);
-    } catch(e){ alert('Error: '+e.message); }
+    } catch(e){ toast.error('Error', e.message); }
   };
 
   const activeCustomer = custSaved || lookup?.customer;
@@ -2450,7 +2512,7 @@ function CallsPage({user}) {
       const updated = [entry,...recentCalls].slice(0,20);
       setRecentCalls(updated); localStorage.setItem('dps_recent_calls',JSON.stringify(updated));
       setJobDone(job);
-    } catch(e){ alert('Error creating job: '+e.message); }
+    } catch(e){ toast.error('Job Error', e.message); }
     finally { setJobCreating(false); }
   };
 
@@ -2907,7 +2969,7 @@ function InboxPage() {
       setMessages(prev=>[...prev,{direction:'outbound',body:compose.trim(),created_at:new Date().toISOString(),phone:active.phone}]);
       setCompose('');
       loadConvos();
-    } catch(e){ alert(e.message); }
+    } catch(e){ toast.error('Error', e.message); }
     finally{ setSending(false); }
   };
 
@@ -3064,9 +3126,13 @@ function CreateDocDrawer({type, onClose, onCreated}) {
   const [custPick, setCustPick] = useState(null);
   const [jobPick, setJobPick] = useState(null);
   const [jobs, setJobs] = useState([]);
-  const [pricebook, setPricebook] = useState([]);
+  // HTML pricebook wiring: tasks + engine, not legacy /pricebook/items
+  const [pbEngine, setPbEngine] = useState(null);
+  const [pbTasks, setPbTasks] = useState([]);
+  const [pbCat, setPbCat] = useState('acc');
+  const [pbLoading, setPbLoading] = useState(false);
   const [pbSearch, setPbSearch] = useState('');
-  const [showPb, setShowPb] = useState(null); // line index or null
+  const [showPb, setShowPb] = useState(null); // { kind:'invoice', idx } | { kind:'option', oi, ii } | null
   const [taxRate, setTaxRate] = useState(8.25);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -3083,8 +3149,16 @@ function CreateDocDrawer({type, onClose, onCreated}) {
 
   useEffect(()=>{
     api.getCustomers().then(r=>setCustomers(r||[])).catch(()=>{});
-    api.get('/pricebook/items').then(r=>setPricebook(r||[])).catch(()=>{});
+    api.pbEngine().then(setPbEngine).catch(()=>{});
   },[]);
+  // Load tasks for the active pricebook category whenever picker is open
+  useEffect(()=>{
+    if (showPb === null) return;
+    setPbLoading(true);
+    api.pbTasks({ category: pbCat })
+      .then(d => setPbTasks(Array.isArray(d) ? d : []))
+      .finally(() => setPbLoading(false));
+  }, [pbCat, showPb]);
 
   useEffect(()=>{
     if(!custPick) { setJobs([]); setJobPick(null); return; }
@@ -3115,14 +3189,33 @@ function CreateDocDrawer({type, onClose, onCreated}) {
   const taxAmt = subtotal*taxFrac;
   const total = subtotal+taxAmt;
 
-  const pbFiltered = pricebook.filter(p=>p.name?.toLowerCase().includes(pbSearch.toLowerCase())||p.description?.toLowerCase().includes(pbSearch.toLowerCase())).slice(0,12);
+  // Filter tasks by search across name/tag/description
+  const pbFiltered = (pbTasks||[]).filter(t => {
+    if (!pbSearch) return true;
+    const q = pbSearch.toLowerCase();
+    return (t.name||'').toLowerCase().includes(q)
+        || (t.tag||'').toLowerCase().includes(q)
+        || (t.description||'').toLowerCase().includes(q);
+  });
 
-  const pickPbItem = (p) => {
-    if(type==='invoice'){
-      setItem(showPb,'description',p.name||p.description||'');
-      setItem(showPb,'unit_price',parseFloat(p.price||p.sell_price||0));
+  // Compute flat rate for a task using the HTML engine
+  const pbPrice = (task) => pbEngine ? calcFlatRate(task, pbEngine).flatRate : 0;
+
+  // Drop a selected pricebook task into the active target (invoice row, or option row)
+  const pickPbItem = (task) => {
+    const flat = pbPrice(task);
+    if (!showPb) { setPbSearch(''); return; }
+    if (showPb.kind === 'invoice') {
+      setItem(showPb.idx, 'description', task.name);
+      setItem(showPb.idx, 'unit_price', +flat.toFixed(2));
+      setItem(showPb.idx, 'quantity', 1);
+    } else if (showPb.kind === 'option') {
+      setOptItem(showPb.oi, showPb.ii, 'description', task.name);
+      setOptItem(showPb.oi, showPb.ii, 'unit_price', +flat.toFixed(2));
+      setOptItem(showPb.oi, showPb.ii, 'quantity', 1);
     }
-    setShowPb(null); setPbSearch('');
+    setShowPb(null);
+    setPbSearch('');
   };
 
   const save = async () => {
@@ -3219,7 +3312,7 @@ function CreateDocDrawer({type, onClose, onCreated}) {
                     <div style={{position:'relative'}}>
                       <input value={item.description} onChange={e=>setItem(i,'description',e.target.value)}
                         placeholder="Service description…" style={{...inp,width:'100%',paddingRight:28}}/>
-                      <button onClick={()=>{setShowPb(i);setPbSearch('');}} title="Search pricebook"
+                      <button onClick={()=>{setShowPb({kind:'invoice',idx:i});setPbSearch('');}} title="Open pricebook"
                         style={{position:'absolute',right:5,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'var(--amber)',fontSize:13}}>📖</button>
                     </div>
                     <input value={item.quantity} onChange={e=>setItem(i,'quantity',e.target.value)} type="number" min="0" step="0.5"
@@ -3234,30 +3327,11 @@ function CreateDocDrawer({type, onClose, onCreated}) {
                   </div>
                 ))}
               </div>
-              <button onClick={addItem} style={{fontSize:12,color:'var(--amber)',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:7,padding:'5px 12px',cursor:'pointer'}}>+ Add Line</button>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={addItem} style={{fontSize:12,color:'var(--amber)',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:7,padding:'5px 12px',cursor:'pointer'}}>+ Add Line</button>
+                <button onClick={()=>{const idx=items.length;addItem();setShowPb({kind:'invoice',idx});setPbSearch('');}} style={{fontSize:12,color:'var(--blue)',background:'transparent',border:'1px solid var(--blue)',borderRadius:7,padding:'5px 12px',cursor:'pointer'}}>📖 From Pricebook</button>
+              </div>
 
-              {/* Pricebook picker popup */}
-              {showPb!==null&&(
-                <div style={{marginTop:8,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:12}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                    <input value={pbSearch} onChange={e=>setPbSearch(e.target.value)} autoFocus placeholder="Search pricebook…"
-                      style={{...inp,flex:1}}/>
-                    <button onClick={()=>setShowPb(null)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer'}}><Icon n="x" size={14}/></button>
-                  </div>
-                  <div style={{maxHeight:180,overflowY:'auto'}}>
-                    {pbFiltered.map(p=>(
-                      <div key={p.id} onClick={()=>pickPbItem(p)}
-                        style={{padding:'7px 8px',cursor:'pointer',borderRadius:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}
-                        onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
-                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                        <span style={{fontSize:12}}>{p.name||p.description}</span>
-                        <span style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--amber)'}}>{fmt$(p.price||p.sell_price||0)}</span>
-                      </div>
-                    ))}
-                    {pbFiltered.length===0&&<div style={{fontSize:12,color:'var(--muted)',padding:8}}>No items found.</div>}
-                  </div>
-                </div>
-              )}
 
               {/* Totals */}
               <div style={{marginTop:12,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
@@ -3289,7 +3363,11 @@ function CreateDocDrawer({type, onClose, onCreated}) {
                   </div>
                   {opt.items.map((item,ii)=>(
                     <div key={ii} style={{display:'grid',gridTemplateColumns:'1fr 60px 80px 70px 28px',gap:6,marginBottom:6,alignItems:'center'}}>
-                      <input value={item.description} onChange={e=>setOptItem(oi,ii,'description',e.target.value)} placeholder="Description…" style={{...inp}}/>
+                      <div style={{position:'relative'}}>
+                        <input value={item.description} onChange={e=>setOptItem(oi,ii,'description',e.target.value)} placeholder="Description…" style={{...inp,width:'100%',paddingRight:28}}/>
+                        <button onClick={()=>{setShowPb({kind:'option',oi,ii});setPbSearch('');}} title="Open pricebook"
+                          style={{position:'absolute',right:5,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'var(--amber)',fontSize:13}}>📖</button>
+                      </div>
                       <input value={item.quantity} onChange={e=>setOptItem(oi,ii,'quantity',e.target.value)} type="number" min="0" style={{...inp,textAlign:'center'}}/>
                       <input value={item.unit_price} onChange={e=>setOptItem(oi,ii,'unit_price',e.target.value)} type="number" min="0" step="0.01" placeholder="0.00" style={{...inp,textAlign:'right'}}/>
                       <div style={{fontSize:11,fontFamily:'var(--font-mono)',textAlign:'right',color:'var(--muted)'}}>{fmt$((parseFloat(item.quantity)||0)*(parseFloat(item.unit_price)||0))}</div>
@@ -3297,8 +3375,10 @@ function CreateDocDrawer({type, onClose, onCreated}) {
                         style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',opacity:opt.items.length===1?0.3:1}}><Icon n="x" size={12}/></button>
                     </div>
                   ))}
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:6}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:6,gap:8}}>
                     <button onClick={()=>addOptItem(oi)} style={{fontSize:11,color:'var(--amber)',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:6,padding:'3px 10px',cursor:'pointer'}}>+ Add Item</button>
+                    <button onClick={()=>{const ii=opt.items.length;addOptItem(oi);setShowPb({kind:'option',oi,ii});setPbSearch('');}} style={{fontSize:11,color:'var(--blue)',background:'transparent',border:'1px solid var(--blue)',borderRadius:6,padding:'3px 10px',cursor:'pointer'}}>📖 From Pricebook</button>
+                    <span style={{flex:1}}/>
                     <span style={{fontFamily:'var(--font-mono)',fontSize:13,fontWeight:700,color:'var(--text)'}}>
                       {fmt$(optSubtotal(opt)+optSubtotal(opt)*(taxRate/100))} <span style={{fontSize:10,fontWeight:400,color:'var(--muted)'}}>incl. tax</span>
                     </span>
@@ -3325,6 +3405,63 @@ function CreateDocDrawer({type, onClose, onCreated}) {
             {saving?'Saving…':'Create '+( type==='estimate'?'Estimate':'Invoice')}
           </button>
         </div>
+
+        {/* ── Pricebook picker modal (shared by invoice lines & estimate options) ── */}
+        {showPb && (
+          <div onClick={()=>setShowPb(null)}
+            style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:950,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:12,width:820,maxWidth:'95vw',height:'80vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}>
+              {/* Header */}
+              <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10,background:'var(--surface)'}}>
+                <span style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,flex:1}}>💲 Pricebook — Choose a Task</span>
+                <button onClick={()=>setShowPb(null)} style={{background:'transparent',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer'}}>✕</button>
+              </div>
+              {/* Category tabs */}
+              <div style={{padding:'8px 12px',borderBottom:'1px solid var(--border)',display:'flex',gap:6,flexWrap:'wrap',background:'var(--surface)'}}>
+                {PB_CATS.map(c=>(
+                  <button key={c.id} onClick={()=>setPbCat(c.id)}
+                    style={{fontSize:11,padding:'4px 10px',borderRadius:20,border:`1px solid ${pbCat===c.id?c.color:'var(--border)'}`,background:pbCat===c.id?`${c.color}22`:'transparent',color:pbCat===c.id?c.color:'var(--muted)',cursor:'pointer',fontWeight:pbCat===c.id?700:500}}>
+                    {c.icon} {c.name}
+                  </button>
+                ))}
+              </div>
+              {/* Search */}
+              <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
+                <input value={pbSearch} onChange={e=>setPbSearch(e.target.value)} autoFocus placeholder="Search tasks by name, tag, or description…"
+                  style={{...inp,width:'100%'}}/>
+              </div>
+              {/* List */}
+              <div style={{flex:1,overflowY:'auto'}}>
+                {pbLoading ? (
+                  <div style={{padding:20,display:'flex',justifyContent:'center'}}><Spinner/></div>
+                ) : pbFiltered.length === 0 ? (
+                  <div style={{padding:40,textAlign:'center',color:'var(--muted)',fontSize:13}}>No tasks found in this category.</div>
+                ) : pbFiltered.map(task => {
+                  const price = pbPrice(task);
+                  return (
+                    <div key={task.id}
+                      style={{padding:'10px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
+                          <span style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{task.name}</span>
+                          {task.tag && <span style={{fontSize:10,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:3,padding:'1px 6px',color:'var(--muted)'}}>{task.tag}</span>}
+                        </div>
+                        {task.description && <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.4,maxHeight:32,overflow:'hidden'}}>{task.description}</div>}
+                      </div>
+                      <div style={{textAlign:'right',flexShrink:0}}>
+                        <div style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,color:'var(--amber)'}}>{fmt$(price)}</div>
+                        <div style={{fontSize:10,color:'var(--muted)'}}>{task.hours}h · {task.difficulty}</div>
+                      </div>
+                      <button onClick={()=>pickPbItem(task)}
+                        style={{background:'var(--green)',color:'#fff',border:'none',borderRadius:7,padding:'7px 14px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>+ Add</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4415,7 +4552,7 @@ function DispatchPage() {
         ? {...j, ...updates, technician_name: techObj ? `${techObj.first_name} ${techObj.last_name}` : j.technician_name, technician_color: techObj?.color || j.technician_color}
         : j
       ));
-    } catch(err) { alert('Failed to update: ' + err.message); }
+    } catch(err) { toast.error('Update Failed', err.message); }
     setDragging(null);
   };
 
@@ -4477,7 +4614,7 @@ function DispatchPage() {
         setSelected(merged);
         setSavedFlash(true); setTimeout(()=>setSavedFlash(false), 2000);
       }
-    } catch(err) { alert('Save failed: ' + err.message); }
+    } catch(err) { toast.error('Save Failed', err.message); }
     finally { setSaving(false); }
   };
 
@@ -4609,8 +4746,10 @@ function DispatchPage() {
 
                           {/* NOW line */}
                           {date===today&&nowX>0&&nowX<HOURS.length*HOUR_W&&(
-                            <div style={{position:"absolute",left:nowX,top:0,bottom:0,width:2,background:"#f56565",zIndex:10,opacity:.8,pointerEvents:"none"}}>
-                              <div style={{position:"absolute",top:4,left:-14,background:"#f56565",borderRadius:3,padding:"1px 4px",fontSize:8,fontFamily:"var(--font-mono)",color:"#fff",whiteSpace:"nowrap"}}>NOW</div>
+                            <div style={{position:"absolute",left:nowX,top:0,bottom:0,width:2,background:"var(--red)",zIndex:10,opacity:.85,pointerEvents:"none"}}>
+                              <div style={{position:"absolute",top:0,left:"50%",transform:"translateX(-50%)",background:"var(--red)",borderRadius:"0 0 4px 4px",padding:"2px 6px",fontSize:8,fontFamily:"var(--font-mono)",color:"#fff",whiteSpace:"nowrap",fontWeight:700}}>
+                                {new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+                              </div>
                             </div>
                           )}
 
@@ -4638,8 +4777,8 @@ function DispatchPage() {
                                 style={{
                                   position:"absolute",left:x+3,top:7,
                                   width:Math.max(w-6,44),height:ROW_H-14,
-                                  background:isSel?`${color}28`:`${color}14`,
-                                  border:`1.5px solid ${color}${isSel?"":"66"}`,
+                                  background:isSel?`linear-gradient(90deg,${color}44,${color}18)`:`linear-gradient(90deg,${color}55,${color}0d)`,
+                                  border:`1.5px solid ${color}${isSel?"":"55"}`,
                                   borderRadius:8,padding:"5px 8px",
                                   cursor:isDraggingThis?"grabbing":"grab",
                                   overflow:"hidden",zIndex:isSel?20:5,
@@ -4648,7 +4787,10 @@ function DispatchPage() {
                                   transition:"box-shadow .15s,opacity .1s",
                                   userSelect:"none",
                                 }}>
-                                <div style={{fontSize:10,fontWeight:700,color,fontFamily:"var(--font-mono)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.2}}>{job.customer_name}</div>
+                                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                  <div style={{fontSize:10,fontWeight:700,color,fontFamily:"var(--font-mono)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.2,flex:1}}>{job.customer_name}</div>
+                                  {job.restock_needed&&<span title="Restock needed" style={{fontSize:9,background:"#f5656522",border:"1px solid #f56565",borderRadius:4,padding:"1px 4px",color:"#f56565",fontWeight:700,flexShrink:0}}>⚠</span>}
+                                </div>
                                 <div style={{fontSize:9,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{job.job_type}</div>
                                 {w>74&&(
                                   <div style={{fontSize:9,fontFamily:"var(--font-mono)",color,marginTop:2,opacity:.8}}>
@@ -4831,6 +4973,30 @@ function DispatchPage() {
                 </div>
               )}
 
+              {/* Restock alert */}
+              {selected.restock_needed&&(
+                <div style={{background:"#f5656511",border:"1px solid #f5656544",borderRadius:8,padding:12,display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:18}}>⚠</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#f56565"}}>Restock Needed</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>Truck stock is low after this job</div>
+                  </div>
+                  <button onClick={async()=>{
+                    await api.updateJob(selected.id,{restock_needed:false});
+                    const merged={...selected,restock_needed:false};
+                    setJobs(prev=>prev.map(j=>j.id===selected.id?merged:j));
+                    setSelected(merged);
+                  }} style={{fontSize:11,padding:"5px 10px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--muted)",cursor:"pointer",whiteSpace:"nowrap"}}>
+                    Mark Restocked
+                  </button>
+                </div>
+              )}
+
+              {/* Profitability */}
+              {selected.status==="completed"&&(
+                <ProfitabilityPanel jobId={selected.id}/>
+              )}
+
             </div>
           </div>
         )}
@@ -4839,6 +5005,54 @@ function DispatchPage() {
   );
 }
 
+function ProfitabilityPanel({jobId}) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(()=>{
+    setLoading(true);
+    fetch(`/api/jobs/${jobId}/material-cost`,{headers:{Authorization:`Bearer ${localStorage.getItem('dps_token')}`}})
+      .then(r=>r.json()).then(setData).catch(()=>setData(null)).finally(()=>setLoading(false));
+  },[jobId]);
+
+  if (loading) return <div style={{fontSize:11,color:"var(--muted)",textAlign:"center",padding:8}}>Loading profitability…</div>;
+  if (!data) return null;
+
+  const margin = data.gross_margin_pct;
+  const marginColor = margin==null?"var(--muted)":margin>=40?"var(--green)":margin>=20?"var(--amber)":"#f56565";
+
+  return (
+    <div style={{background:"var(--surface2)",borderRadius:10,padding:14}}>
+      <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:10,fontWeight:600}}>PROFITABILITY</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        {[
+          ["Revenue", data.revenue!=null?`$${Number(data.revenue).toFixed(2)}`:"—"],
+          ["Materials", `$${Number(data.total_material_cost).toFixed(2)}`],
+          ["Labor", data.total_labor_cost!=null?`$${Number(data.total_labor_cost).toFixed(2)}`:"—"],
+          ["Margin", margin!=null?`${margin}%`:"—"],
+        ].map(([label,val])=>(
+          <div key={label} style={{background:"var(--surface)",borderRadius:8,padding:"8px 10px"}}>
+            <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)",letterSpacing:".05em",marginBottom:2}}>{label}</div>
+            <div style={{fontSize:15,fontWeight:700,color:label==="Margin"?marginColor:"var(--text)"}}>{val}</div>
+          </div>
+        ))}
+      </div>
+      {data.line_items?.length>0&&(
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:8}}>
+          <div style={{fontSize:9,color:"var(--muted)",letterSpacing:".05em",marginBottom:6}}>LINE ITEMS</div>
+          {data.line_items.map((item,i)=>(
+            <div key={i} style={{display:"flex",fontSize:11,gap:6,padding:"3px 0",borderBottom:"1px solid var(--border)"}}>
+              <span style={{flex:1,color:"var(--text)"}}>{item.name}</span>
+              <span style={{color:"var(--muted)",fontFamily:"var(--font-mono)"}}>×{item.qty}</span>
+              <span style={{color:"var(--text)",fontFamily:"var(--font-mono)",minWidth:54,textAlign:"right"}}>${Number(item.line_total).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.line_items?.length===0&&<div style={{fontSize:11,color:"var(--muted)",fontStyle:"italic"}}>No parts scanned on this job</div>}
+    </div>
+  );
+}
 
 function PricebookSettingsPage({ user }) {
   const [subPage, setSubPage] = useState('jobs');
@@ -5643,8 +5857,8 @@ function EmployeeModal({ emp, isTech, onSave, onClose, roles, enabledPayTypes = 
   };
 
   const sendReset = async () => {
-    if (!form.email) return alert('No email on file');
-    alert('Password reset email sent to ' + form.email);
+    if (!form.email) return toast.warn('No Email', 'No email address on file for this user.');
+    toast.success('Email Sent', 'Password reset email sent to ' + form.email);
   };
 
   const INP = {width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:8,padding:'9px 12px',fontSize:13,color:'var(--text)',boxSizing:'border-box'};
@@ -6735,10 +6949,10 @@ function FRTaskModal({task, categories, onSave, onClose}) {
   const [saving, setSaving] = useState(false);
   const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
   const save = async () => {
-    if (!form.name.trim()) return alert('Name required');
+    if (!form.name.trim()) return toast.warn('Required', 'Name required');
     setSaving(true);
     try { await onSave({...form, labor_hours:parseFloat(form.labor_hours)||1, sort_order:parseInt(form.sort_order)||0, price_override:form.price_override?parseFloat(form.price_override):null, taxable:form.taxable!==false}); }
-    catch(e) { alert(e.message); } finally { setSaving(false); }
+    catch(e) { toast.error('Error', e.message); } finally { setSaving(false); }
   };
   const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
   const LBL = {fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4};
@@ -6791,7 +7005,7 @@ function FRMaterialsModal({task, allMaterials, onSave, onClose}) {
     else setSelected(prev=>[...prev,{material_id:mat.id,qty:1}]);
   };
   const setQty = (matId, qty) => setSelected(prev=>prev.map(s=>s.material_id===matId?{...s,qty:parseFloat(qty)||1}:s));
-  const save = async () => { setSaving(true); try { await onSave(selected); } catch(e){alert(e.message);} finally {setSaving(false);} };
+  const save = async () => { setSaving(true); try { await onSave(selected); } catch(e){toast.error('Error',e.message);} finally {setSaving(false);} };
   return (
     <div style={{position:'fixed',inset:0,background:'#00000099',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:640,maxHeight:'88vh',overflowY:'auto',padding:28}}>
@@ -6858,13 +7072,13 @@ function MaterialsLibraryPage() {
   const openEdit = (m) => { setForm({...m,national_avg:m.national_avg||''}); setModal(m); };
 
   const save = async () => {
-    if (!form.name.trim()) return alert('Name required');
+    if (!form.name.trim()) return toast.warn('Required', 'Name required');
     setSaving(true);
     try {
       if (modal?.id) await api.updateMaterial(modal.id, form);
       else await api.createMaterial(form);
       setModal(null); reload();
-    } catch(e) { alert(e.message); } finally { setSaving(false); }
+    } catch(e) { toast.error('Error', e.message); } finally { setSaving(false); }
   };
 
   const deleteMat = async (id) => {
@@ -7281,7 +7495,7 @@ function WisetackButton({ customerName, customerPhone, jobAmount, jobId }) {
 
   const apply = async () => {
     if (!jobAmount || jobAmount < 500) {
-      alert('Minimum financed amount is $500');
+      toast.warn('Minimum Amount', 'Minimum financed amount is $500');
       return;
     }
     setLoading(true);
@@ -7296,9 +7510,9 @@ function WisetackButton({ customerName, customerPhone, jobAmount, jobId }) {
         setAppUrl(d.application_url);
         setStatus('link_ready');
       } else if (d.error) {
-        alert('Error: ' + d.error);
+        toast.error('Error', d.error);
       }
-    } catch(e){ alert('Failed to create financing application'); }
+    } catch(e){ toast.error('Error', 'Failed to create financing application'); }
     finally { setLoading(false); }
   };
 
@@ -7347,7 +7561,7 @@ function ArrivalWindowsSettings() {
   const save = async (list) => {
     setSaving(true);
     try { await api.saveArrivalWindows(list); setWindows(list); }
-    catch(e){ alert(e.message); }
+    catch(e){ toast.error('Error', e.message); }
     finally{ setSaving(false); }
   };
 
@@ -7413,7 +7627,7 @@ function JobTypesSettings() {
   const save = async (list) => {
     setSaving(true);
     try { await api.saveJobTypes(list); setTypes(list); }
-    catch(e){ alert(e.message); }
+    catch(e){ toast.error('Error', e.message); }
     finally{ setSaving(false); }
   };
 
@@ -7519,7 +7733,7 @@ function BusinessHoursSettings() {
       await api.saveBusinessHours(hours, holidays);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch(e) { alert(e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -7803,7 +8017,7 @@ function GoogleMapsSettings() {
       await api.saveMapsKey(key.trim());
       await reload();
       setSaved(true); setTimeout(()=>setSaved(false), 2500);
-    } catch(e){ alert('Error: '+e.message); }
+    } catch(e){ toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -7896,7 +8110,7 @@ function AppleMapsSettings() {
       await api.saveAppleMapsConfig(form);
       await reload();
       setSaved(true); setTimeout(()=>setSaved(false), 2500);
-    } catch(e){ alert('Error: '+e.message); }
+    } catch(e){ toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -8078,7 +8292,7 @@ function MooreSupplySettings() {
       await api.saveMooreConfig(cfg);
       setSaved(true); setTimeout(() => setSaved(false), 2500);
       loadConfig();
-    } catch(e) { alert('Error: ' + e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -8136,7 +8350,7 @@ function MooreSupplySettings() {
       setCart([]); setCartOpen(false);
       setTimeout(() => setOrderFlash(null), 5000);
       if (activeTab === 'orders') loadOrders();
-    } catch(e) { alert('Order failed: ' + e.message); }
+    } catch(e) { toast.error('Order Failed', e.message); }
     finally { setSubmitting(false); }
   };
 
@@ -8586,7 +8800,7 @@ function ReeceSupplySettings() {
       await api.saveReeceConfig(cfg);
       setSaved(true); setTimeout(() => setSaved(false), 2500);
       loadConfig();
-    } catch(e) { alert('Error: ' + e.message); }
+    } catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
 
@@ -8646,7 +8860,7 @@ function ReeceSupplySettings() {
       setCart([]); setCartOpen(false);
       setTimeout(() => setOrderFlash(null), 4000);
       loadOrders();
-    } catch(e) { alert('Order failed: ' + e.message); }
+    } catch(e) { toast.error('Order Failed', e.message); }
     finally { setSubmitting(false); }
   };
 
@@ -9075,18 +9289,677 @@ function SettingsContent({ tab, user, logout }) {
   );
 }
 
+// ── Flat-rate pricing engine (frontend) ──────────────────────────────────
+// HTML-engine flat rate formula — EXACTLY mirrors recalcEngine() in Plumbing_Pricebook_Web_v7.html.
+// Do not change this formula. Inputs come from the pb_engine row (see backend pricebook routes).
+function calcFlatRate(task, engine) {
+  const E = engine || {};
+  const wage = +E.wage || 0, hrs = +E.hrs || 1600;
+  const fica = +E.fica || 0, unemp = +E.unemp || 0, wc = +E.wc || 0;
+  const health = +E.health || 0, vehicle = +E.vehicle || 0, fuel = +E.fuel || 0;
+  const tools = +E.tools || 0, uniform = +E.uniform || 0, phone = +E.phone || 0;
+  const numTechs = +E.num_techs || 1, ohHrs = +E.oh_hrs || 1600;
+  const profit = +E.profit || 0, misc = +E.misc || 0, warranty = +E.warranty || 0;
+  const matmarkup = +E.matmarkup || 0;
+  const ohItems = Array.isArray(E.oh_items) ? E.oh_items : [];
+
+  // Burdened cost
+  const burdenPct = (fica + unemp + wc) / 100;
+  const baseWages = wage * hrs;
+  const burdenAmt = baseWages * burdenPct;
+  const fixedAnnual = (health + vehicle + fuel + tools + uniform + phone) * 12;
+  const burdened = hrs > 0 ? (baseWages + burdenAmt + fixedAnnual) / hrs : 0;
+
+  // Overhead
+  const ohMonthly = ohItems.reduce((s, it) => s + (+it.monthly || 0), 0);
+  const ohAnnual = ohMonthly * 12;
+  const ohPerHr = (numTechs > 0 && ohHrs > 0) ? ohAnnual / (numTechs * ohHrs) : 0;
+
+  // Labor rate & markup
+  const costPerHr = burdened + ohPerHr;
+  const laborRate = costPerHr / Math.max(0.01, 1 - profit / 100);
+  const mu = 1 + (misc + warranty + matmarkup) / 100;
+
+  const matCost = (task.materials || []).reduce(
+    (s, m) => s + parseFloat(m.cost || 0) * parseFloat(m.qty || 1), 0);
+  const taskHrs = parseFloat(task.hours || 0);
+  const flatRate = matCost * mu + taskHrs * laborRate;
+
+  return { flatRate, matCost, laborRate, mu, burdened, ohPerHr };
+}
+
+// Full HTML pricebook category list (19 categories). Loaded from pb_categories at runtime.
+const PB_CATS = [
+  {id:'acc',  icon:'🔑', name:'Accesses',           color:'#8B6914'},
+  {id:'diag', icon:'🔍', name:'Diagnosis',           color:'#2E5FA3'},
+  {id:'prmt', icon:'📋', name:'Permits & Reports',   color:'#5B2D8E'},
+  {id:'bath', icon:'🚿', name:'Bathroom',            color:'#1F7A8C'},
+  {id:'kit',  icon:'🍳', name:'Kitchen',             color:'#C55A11'},
+  {id:'lndr', icon:'🧺', name:'Laundry Room',        color:'#1E6B3C'},
+  {id:'dc',   icon:'🌀', name:'Drain Cleaning',      color:'#5B2D8E'},
+  {id:'cs',   icon:'📦', name:'Customer Supplied',   color:'#4A4A6A'},
+  {id:'wh',   icon:'🔥', name:'Water Heaters',       color:'#C55A11'},
+  {id:'of',   icon:'🌿', name:'Outdoor Faucets',     color:'#1E6B3C'},
+  {id:'gas',  icon:'🔴', name:'Gas',                 color:'#B84C00'},
+  {id:'fvt',  icon:'🔧', name:'Fixture Valves',      color:'#1F7A8C'},
+  {id:'swr',  icon:'🚧', name:'Sewer Repairs',       color:'#7A4B1A'},
+  {id:'pip',  icon:'💧', name:'Piping',              color:'#2E5FA3'},
+  {id:'vlv',  icon:'⚙️', name:'Valves',              color:'#1F7A8C'},
+  {id:'wlk',  icon:'💦', name:'Water Leaks',         color:'#C00000'},
+  {id:'dig',  icon:'🚜', name:'Digging',             color:'#6B4423'},
+  {id:'wpur', icon:'💎', name:'Water Purification',  color:'#1F7A8C'},
+  {id:'ewrn', icon:'🛡️', name:'Extended Warranties', color:'#1E6B3C'},
+];
+const DIFF_COLOR = {Easy:'#22c55e',Moderate:'#f59e0b',Hard:'#f97316',Complex:'#a855f7'};
+
+function NewPricebookPage({user}) {
+  const [engine,setEngine] = useState(null);
+  const [engineDraft,setEngineDraft] = useState(null);
+  const [engineOpen,setEngineOpen] = useState(false);
+  const [selCat,setSelCat] = useState('acc');
+  const [tasks,setTasks] = useState([]);
+  const [loading,setLoading] = useState(false);
+  const [search,setSearch] = useState('');
+  const [expanded,setExpanded] = useState(null);
+  const [saving,setSaving] = useState(false);
+
+  useEffect(()=>{ api.pbEngine().then(d=>{setEngine(d);setEngineDraft({...d});}); },[]);
+  useEffect(()=>{
+    if(!selCat) return;
+    setLoading(true);
+    api.pbTasks({category:selCat}).then(setTasks).finally(()=>setLoading(false));
+  },[selCat]);
+
+  const displayTasks = search
+    ? tasks.filter(t=>t.name.toLowerCase().includes(search.toLowerCase())||t.tag.toLowerCase().includes(search.toLowerCase()))
+    : tasks;
+
+  const saveEngine = async()=>{
+    setSaving(true);
+    try { const d=await api.pbSaveEngine(engineDraft); setEngine(d); setEngineDraft({...d}); setEngineOpen(false); toast.success('Engine saved','Prices updated.'); }
+    catch(e){ toast.error('Save failed',e.message); }
+    finally { setSaving(false); }
+  };
+
+  const E = engine;
+  // Derive display rates from the HTML engine (reuses calcFlatRate with a zero-mat, 0-hr task)
+  const _probe = E ? calcFlatRate({ materials: [], hours: 0 }, E) : null;
+  const effectiveRate = _probe ? _probe.laborRate : 0;
+  const markup = _probe ? _probe.mu : 0;
+  const fmt = n=>'$'+parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+
+  const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 11px',color:'var(--text)',fontSize:13,width:'100%'};
+
+  return (
+    <div style={{height:'100%',display:'flex',flexDirection:'column',gap:0,animation:'fadeUp .3s ease'}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+        <div style={{fontFamily:'var(--font-head)',fontSize:24,fontWeight:800,flex:1}}>💲 Flat Rate Pricebook</div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {E && <div style={{display:'flex',gap:16,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 16px'}}>
+            <span style={{fontSize:11,color:'var(--muted)'}}>Labor Rate <b style={{color:'var(--green)',marginLeft:4}}>{fmt(effectiveRate)}/hr</b></span>
+            <span style={{fontSize:11,color:'var(--muted)'}}>Mat Markup <b style={{color:'var(--blue)',marginLeft:4}}>{markup.toFixed(2)}×</b></span>
+          </div>}
+          <button onClick={()=>setEngineOpen(true)} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 14px',color:'var(--amber)',fontSize:12,fontWeight:700,cursor:'pointer'}}>⚙ Engine</button>
+        </div>
+      </div>
+
+      <div style={{display:'flex',gap:0,flex:1,minHeight:0,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+        {/* Category sidebar */}
+        <div style={{width:200,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflowY:'auto'}}>
+          <div style={{padding:'10px 12px 6px',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em'}}>CATEGORIES</div>
+          {PB_CATS.map(cat=>{
+            const active=selCat===cat.id;
+            return (
+              <button key={cat.id} onClick={()=>{setSelCat(cat.id);setExpanded(null);setSearch('');}}
+                style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',border:'none',borderLeft:`3px solid ${active?cat.color:'transparent'}`,background:active?`${cat.color}18`:'transparent',cursor:'pointer',textAlign:'left',transition:'all .12s'}}>
+                <span style={{fontSize:16}}>{cat.icon}</span>
+                <span style={{fontFamily:'var(--font-head)',fontSize:13,fontWeight:700,color:active?cat.color:'var(--text)'}}>{cat.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Task area */}
+        <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
+          {/* Search bar */}
+          <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search tasks…"
+              style={{...INP,width:'100%',background:'var(--bg)'}}/>
+          </div>
+
+          {/* Task table */}
+          <div style={{flex:1,overflowY:'auto'}}>
+            {loading ? (
+              <div style={{padding:20,display:'flex',flexDirection:'column',gap:8}}>
+                {[1,2,3,4,5].map(i=><div key={i} className="skel" style={{height:44,borderRadius:6}}/>)}
+              </div>
+            ) : (
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead>
+                  <tr style={{background:'var(--surface2)'}}>
+                    <th style={{padding:'8px 14px',textAlign:'left',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',fontWeight:600}}>TASK</th>
+                    <th style={{padding:'8px 8px',textAlign:'center',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',fontWeight:600,width:60}}>HRS</th>
+                    <th style={{padding:'8px 8px',textAlign:'center',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',fontWeight:600,width:80}}>DIFF</th>
+                    <th style={{padding:'8px 14px',textAlign:'right',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--blue)',letterSpacing:'.06em',fontWeight:600,width:120}}>FLAT RATE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayTasks.map(task=>{
+                    const {flatRate} = engine ? calcFlatRate(task,engine) : {flatRate:0};
+                    const isExp = expanded===task.id;
+                    const cat = PB_CATS.find(c=>c.id===task.category_id);
+                    return (
+                      <Fragment key={task.id}>
+                        <tr onClick={()=>setExpanded(isExp?null:task.id)} className="tr-hover"
+                          style={{borderBottom:'1px solid var(--border)',cursor:'pointer',background:isExp?'var(--surface2)':'transparent'}}>
+                          <td style={{padding:'10px 14px'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:8}}>
+                              <span style={{fontSize:11,transform:isExp?'rotate(90deg)':'rotate(0)',display:'inline-block',transition:'transform .15s',color:'var(--muted)'}}>▶</span>
+                              <span style={{fontSize:13,fontWeight:600}}>{task.name}</span>
+                              <span style={{fontSize:10,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:3,padding:'1px 6px',color:'var(--muted)'}}>{task.tag}</span>
+                            </div>
+                          </td>
+                          <td style={{padding:'10px 8px',textAlign:'center',fontFamily:'var(--font-mono)',fontSize:12,color:'var(--muted)'}}>{parseFloat(task.hours).toFixed(1)}</td>
+                          <td style={{padding:'10px 8px',textAlign:'center'}}>
+                            <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:3,background:`${DIFF_COLOR[task.difficulty]||'#888'}22`,color:DIFF_COLOR[task.difficulty]||'#888',border:`1px solid ${DIFF_COLOR[task.difficulty]||'#888'}44`}}>{task.difficulty}</span>
+                          </td>
+                          <td style={{padding:'10px 14px',textAlign:'right',fontFamily:'var(--font-head)',fontSize:17,fontWeight:800,color:'var(--text)'}}>{engine?fmt(flatRate):'—'}</td>
+                        </tr>
+                        {isExp&&(
+                          <tr style={{borderBottom:'1px solid var(--border)'}}>
+                            <td colSpan={4} style={{padding:0}}>
+                              <div style={{background:'var(--bg)',padding:'14px 20px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16}}>
+                                {/* Materials */}
+                                <div>
+                                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:8}}>MATERIALS</div>
+                                  {task.materials&&task.materials.length>0 ? task.materials.map(m=>(
+                                    <div key={m.material_id} style={{display:'flex',justifyContent:'space-between',fontSize:12,padding:'3px 0',borderBottom:'1px solid var(--border)',gap:8}}>
+                                      <span style={{color:'var(--muted)',flex:1}}>{m.description}</span>
+                                      <span style={{color:'var(--blue)',fontFamily:'var(--font-mono)',flexShrink:0}}>{m.qty} {m.unit} × {fmt(m.cost)}</span>
+                                    </div>
+                                  )) : <span style={{fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>Labor only</span>}
+                                </div>
+                                {/* Price breakdown */}
+                                {engine && (()=>{
+                                  const {flatRate,matCost,laborRate,mu} = calcFlatRate(task,engine);
+                                  const E2 = engine;
+                                  const lc = parseFloat(task.hours)*laborRate;
+                                  const matSell = matCost*mu;
+                                  return (
+                                    <div>
+                                      <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:8}}>PRICE BREAKDOWN</div>
+                                      {[
+                                        ['Material (raw)',matCost,'#38bdf8'],
+                                        ['Material (marked up)',matSell,'#38bdf8'],
+                                        [`Labor (${task.hours}h × ${fmt(laborRate)}/hr)`,lc,'#818cf8'],
+                                        ['FLAT RATE',flatRate,'var(--amber)'],
+                                      ].map(([lbl,val,clr])=>(
+                                        <div key={lbl} style={{display:'flex',justifyContent:'space-between',fontSize:12,padding:'3px 0',borderBottom:'1px solid var(--border)'}}>
+                                          <span style={{color:'var(--muted)'}}>{lbl}</span>
+                                          <span style={{color:clr,fontFamily:'var(--font-mono)',fontWeight:lbl==='FLAT RATE'?800:400}}>{fmt(val)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                                {/* Details */}
+                                <div>
+                                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:8}}>JOB DETAILS</div>
+                                  <div style={{fontSize:12,color:'var(--muted)'}}>⏱ {task.time_range}</div>
+                                  <div style={{fontSize:12,color:'var(--muted)',marginTop:4}}>📊 {task.difficulty}</div>
+                                  {task.notes&&<div style={{fontSize:11,color:'var(--muted)',marginTop:8,padding:'6px 8px',background:'var(--surface)',borderRadius:4,fontStyle:'italic',borderLeft:'2px solid var(--border)'}}>{task.notes}</div>}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Engine Modal */}
+      {engineOpen&&engineDraft&&(
+        <div style={{position:'fixed',inset:0,background:'#00000088',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setEngineOpen(false)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:28,width:600,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:20}}>
+              <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800}}>⚙ Pricing Engine</div>
+              <button onClick={()=>setEngineOpen(false)} style={{background:'transparent',color:'var(--muted)',fontSize:18,cursor:'pointer'}}>✕</button>
+            </div>
+            {/* ── Burden inputs ── */}
+            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>BURDEN</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:16}}>
+              {[
+                ['wage','Tech Wage ($/hr)'],['hrs','Billable Hrs/Yr'],
+                ['fica','FICA %'],['unemp','Unemployment %'],['wc','Workers Comp %'],
+                ['health','Health ($/mo)'],['vehicle','Vehicle ($/mo)'],['fuel','Fuel ($/mo)'],
+                ['tools','Tools ($/mo)'],['uniform','Uniform ($/mo)'],['phone','Phone ($/mo)'],
+              ].map(([k,lbl])=>(
+                <div key={k}>
+                  <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4}}>{lbl.toUpperCase()}</label>
+                  <input type="number" value={engineDraft[k]??''} onChange={e=>setEngineDraft(d=>({...d,[k]:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Overhead inputs ── */}
+            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>OVERHEAD</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+              <div>
+                <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>NUMBER OF TECHS</label>
+                <input type="number" value={engineDraft.num_techs??''} onChange={e=>setEngineDraft(d=>({...d,num_techs:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>OVERHEAD BILLABLE HRS/YR</label>
+                <input type="number" value={engineDraft.oh_hrs??''} onChange={e=>setEngineDraft(d=>({...d,oh_hrs:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
+              </div>
+            </div>
+            <div style={{marginBottom:16,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:10}}>
+              <div style={{fontSize:10,color:'var(--muted)',letterSpacing:'.06em',marginBottom:6}}>MONTHLY OVERHEAD ITEMS</div>
+              {(engineDraft.oh_items||[]).map((it,i)=>(
+                <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 110px 28px',gap:6,alignItems:'center',marginBottom:4}}>
+                  <input value={it.name} onChange={e=>setEngineDraft(d=>{const arr=[...(d.oh_items||[])];arr[i]={...arr[i],name:e.target.value};return {...d,oh_items:arr};})} style={{...INP,fontSize:12,padding:'5px 8px'}}/>
+                  <input type="number" value={it.monthly} onChange={e=>setEngineDraft(d=>{const arr=[...(d.oh_items||[])];arr[i]={...arr[i],monthly:parseFloat(e.target.value)||0};return {...d,oh_items:arr};})} style={{...INP,fontSize:12,padding:'5px 8px',textAlign:'right',color:'var(--amber)',fontWeight:700}}/>
+                  <button onClick={()=>setEngineDraft(d=>({...d,oh_items:(d.oh_items||[]).filter((_,j)=>j!==i)}))} style={{background:'transparent',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:14}}>✕</button>
+                </div>
+              ))}
+              <button onClick={()=>setEngineDraft(d=>({...d,oh_items:[...(d.oh_items||[]),{name:'New Item',monthly:0}]}))} style={{marginTop:6,background:'var(--surface)',border:'1px dashed var(--border)',borderRadius:6,padding:'6px 10px',color:'var(--muted)',fontSize:11,cursor:'pointer'}}>+ Add Overhead Item</button>
+            </div>
+
+            {/* ── Profit & Markup ── */}
+            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>PROFIT &amp; MARKUP</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10,marginBottom:20}}>
+              {[['profit','Net Profit %'],['misc','Misc %'],['warranty','Warranty %'],['matmarkup','Extra Mat Markup %']].map(([k,lbl])=>(
+                <div key={k}>
+                  <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>{lbl.toUpperCase()}</label>
+                  <input type="number" value={engineDraft[k]??''} onChange={e=>setEngineDraft(d=>({...d,[k]:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Derived display (live) ── */}
+            {(()=>{
+              const probe = calcFlatRate({materials:[],hours:0}, engineDraft);
+              return (
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginBottom:20}}>
+                  {[
+                    ['Burdened',fmt(probe.burdened)+'/hr','#22c55e'],
+                    ['Overhead',fmt(probe.ohPerHr)+'/hr','#a855f7'],
+                    ['Labor Rate',fmt(probe.laborRate)+'/hr','#f59e0b'],
+                    ['Mat Markup',probe.mu.toFixed(2)+'×','#38bdf8'],
+                  ].map(([lbl,val,clr])=>(
+                    <div key={lbl} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'10px 14px',textAlign:'center'}}>
+                      <div style={{fontSize:10,color:'var(--muted)',marginBottom:4}}>{lbl}</div>
+                      <div style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,color:clr}}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <button onClick={saveEngine} disabled={saving} style={{width:'100%',background:'var(--amber)',color:'#000',border:'none',borderRadius:8,padding:12,fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,cursor:'pointer'}}>
+              {saving?'Saving…':'✓ Save & Recalculate All Prices'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── EstimatesPage ─────────────────────────────────────────────────────────
+function EstimatesPage({user}) {
+  const [estimates,setEstimates] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [detail,setDetail] = useState(null);
+  const [newModal,setNewModal] = useState(false);
+  const [sigModal,setSigModal] = useState(null); // estimate being signed in-person
+  const [sendModal,setSendModal] = useState(null);
+  const [canvasRef] = useState({current:null});
+  const [isDrawing,setIsDrawing] = useState(false);
+  const [sigName,setSigName] = useState('');
+  const [customers,setCustomers] = useState([]);
+  const [newForm,setNewForm] = useState({customer_id:'',notes:'',tax_rate:'0.0825'});
+  const [engine,setEngine] = useState(null);
+  const [pbTasks,setPbTasks] = useState([]);
+  const [pbCat,setPbCat] = useState('wh');
+  const [pbSearch,setPbSearch] = useState('');
+  const [pbLoading,setPbLoading] = useState(false);
+  const [addingItem,setAddingItem] = useState(false);
+
+  const load = useCallback(()=>{ setLoading(true); api.getEstimates().then(setEstimates).finally(()=>setLoading(false)); },[]);
+  useEffect(()=>{ load(); api.pbEngine().then(setEngine); api.getCustomers().then(d=>setCustomers(Array.isArray(d)?d:d.customers||[])).catch(()=>{}); },[load]);
+  useEffect(()=>{
+    if(!detail) return;
+    setPbLoading(true);
+    api.pbTasks({category:pbCat}).then(setPbTasks).finally(()=>setPbLoading(false));
+  },[pbCat,detail]);
+
+  const fmt = n=>'$'+parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const STATUS_COLOR = {draft:'#6b7aaa',sent:'#3b82f6',signed:'#22c55e',declined:'#f97316',expired:'#6b7280',converted:'#a855f7'};
+
+  const createEstimate = async()=>{
+    try {
+      const est = await api.createEstimate(newForm);
+      setNewModal(false); setDetail(est); load();
+      toast.success('Estimate created','Add tasks from the pricebook below.');
+    } catch(e){ toast.error('Error',e.message); }
+  };
+
+  const addTask = async(task)=>{
+    if(!detail||addingItem) return;
+    setAddingItem(true);
+    try {
+      const {flatRate,matCost,laborRate} = engine ? calcFlatRate(task,engine) : {flatRate:0,matCost:0,laborRate:0};
+      const lc = parseFloat(task.hours||0)*laborRate;
+      const updated = await api.addEstimateItem(detail.id,{
+        task_id:task.id, description:task.name,
+        hours:task.hours, material_cost:matCost, labor_cost:lc,
+        flat_rate:flatRate, qty:1, sort_order:detail.items.length,
+      });
+      setDetail(updated);
+    } catch(e){ toast.error('Error',e.message); }
+    finally { setAddingItem(false); }
+  };
+
+  const removeItem = async(itemId)=>{
+    if(!detail) return;
+    try { const updated = await api.removeEstimateItem(detail.id,itemId); setDetail(updated); }
+    catch(e){ toast.error('Error',e.message); }
+  };
+
+  const sendEstimate = async()=>{
+    try {
+      const updated = await api.sendEstimate(detail.id);
+      setDetail(updated); setSendModal(updated);
+      toast.success('Estimate sent','Sign link generated.');
+    } catch(e){ toast.error('Error',e.message); }
+  };
+
+  // In-person signature
+  const startSig = (est)=>{ setSigModal(est); setSigName(''); };
+  const clearSig = ()=>{ const cv=canvasRef.current; if(cv){ const ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height); } };
+  const getSigData = ()=>{ const cv=canvasRef.current; return cv?cv.toDataURL('image/png'):null; };
+
+  const submitSig = async()=>{
+    const sigData = getSigData();
+    if(!sigData||!sigName.trim()) return toast.warn('Missing','Please provide name and signature.');
+    try {
+      const updated = await api.signEstimate(sigModal.id,{signature_data:sigData,signed_by_name:sigName});
+      setSigModal(null); setDetail(updated); load();
+      toast.success('Signed!','Estimate signed successfully.');
+    } catch(e){ toast.error('Error',e.message); }
+  };
+
+  const convertToInvoice = async()=>{
+    try {
+      const result = await api.convertEstimate(detail.id);
+      toast.success('Converted!',`Invoice created.`);
+      const updated = await api.getEstimate(detail.id);
+      setDetail(updated); load();
+    } catch(e){ toast.error('Error',e.message); }
+  };
+
+  // Canvas drawing
+  const onSigDown = e=>{
+    setIsDrawing(true);
+    const cv=canvasRef.current; if(!cv) return;
+    const r=cv.getBoundingClientRect();
+    const ctx=cv.getContext('2d');
+    ctx.beginPath();
+    const cx=e.touches?e.touches[0].clientX-r.left:e.clientX-r.left;
+    const cy=e.touches?e.touches[0].clientY-r.top:e.clientY-r.top;
+    ctx.moveTo(cx,cy);
+  };
+  const onSigMove = e=>{
+    if(!isDrawing) return;
+    const cv=canvasRef.current; if(!cv) return;
+    const r=cv.getBoundingClientRect();
+    const ctx=cv.getContext('2d');
+    const cx=e.touches?e.touches[0].clientX-r.left:e.clientX-r.left;
+    const cy=e.touches?e.touches[0].clientY-r.top:e.clientY-r.top;
+    ctx.lineWidth=2; ctx.lineCap='round'; ctx.strokeStyle='#1D70B7';
+    ctx.lineTo(cx,cy); ctx.stroke();
+  };
+  const onSigUp = ()=>setIsDrawing(false);
+
+  const filteredPbTasks = pbSearch ? pbTasks.filter(t=>t.name.toLowerCase().includes(pbSearch.toLowerCase())) : pbTasks;
+
+  if(detail) return (
+    <div style={{animation:'fadeUp .3s ease'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+        <button onClick={()=>setDetail(null)} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:7,padding:'6px 14px',color:'var(--muted)',fontSize:12,cursor:'pointer'}}>← Estimates</button>
+        <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800,flex:1}}>
+          Estimate — {detail.customer_name||'No customer'}
+          <span style={{marginLeft:12,fontSize:12,fontWeight:700,padding:'3px 10px',borderRadius:5,background:`${STATUS_COLOR[detail.status]||'#888'}22`,color:STATUS_COLOR[detail.status]||'#888',border:`1px solid ${STATUS_COLOR[detail.status]||'#888'}44`}}>{(detail.status||'draft').toUpperCase()}</span>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {(detail.status==='draft'||detail.status==='sent')&&(
+            <button onClick={()=>startSig(detail)} style={{background:'var(--greendim)',border:'1px solid var(--green)',borderRadius:8,padding:'7px 14px',color:'var(--green)',fontSize:12,fontWeight:700,cursor:'pointer'}}>✍ Sign In-Person</button>
+          )}
+          {(detail.status==='draft'||detail.status==='sent')&&(
+            <button onClick={sendEstimate} style={{background:'var(--surface)',border:'1px solid var(--blue)',borderRadius:8,padding:'7px 14px',color:'var(--blue)',fontSize:12,fontWeight:700,cursor:'pointer'}}>📧 Send to Customer</button>
+          )}
+          {detail.status==='signed'&&!detail.invoice_id&&(
+            <button onClick={convertToInvoice} style={{background:'var(--amber)',border:'none',borderRadius:8,padding:'7px 14px',color:'#000',fontSize:12,fontWeight:800,cursor:'pointer'}}>→ Convert to Invoice</button>
+          )}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:16,minHeight:400}}>
+        {/* Items */}
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--font-head)',fontSize:14,fontWeight:700}}>Line Items</div>
+          {(!detail.items||detail.items.length===0) ? (
+            <div style={{padding:40,textAlign:'center',color:'var(--muted)',fontSize:13}}>No items yet — add from pricebook below</div>
+          ) : (
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{background:'var(--surface2)'}}>
+                {['Description','Hrs','Mat','Labor','Rate',''].map(h=>(
+                  <th key={h} style={{padding:'8px 12px',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',textAlign:h===''?'center':'left',letterSpacing:'.06em'}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {detail.items.map(item=>(
+                  <tr key={item.id} style={{borderBottom:'1px solid var(--border)'}}>
+                    <td style={{padding:'10px 12px',fontSize:13,fontWeight:600}}>{item.description}</td>
+                    <td style={{padding:'10px 8px',fontSize:12,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{parseFloat(item.hours).toFixed(1)}</td>
+                    <td style={{padding:'10px 8px',fontSize:12,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{fmt(item.material_cost)}</td>
+                    <td style={{padding:'10px 8px',fontSize:12,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{fmt(item.labor_cost)}</td>
+                    <td style={{padding:'10px 12px',fontFamily:'var(--font-head)',fontSize:16,fontWeight:800}}>{fmt(item.flat_rate)}</td>
+                    <td style={{padding:'10px 8px',textAlign:'center'}}>
+                      {detail.status==='draft'&&<button onClick={()=>removeItem(item.id)} style={{background:'transparent',color:'var(--muted)',fontSize:14,cursor:'pointer',padding:2}}>✕</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {/* Totals */}
+          <div style={{padding:'12px 16px',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'flex-end',gap:24}}>
+            <span style={{fontSize:13,color:'var(--muted)'}}>Subtotal <b style={{color:'var(--text)',marginLeft:8}}>{fmt(detail.subtotal)}</b></span>
+            <span style={{fontSize:13,color:'var(--muted)'}}>Tax ({((parseFloat(detail.tax_rate||0))*100).toFixed(2)}%) <b style={{color:'var(--text)',marginLeft:8}}>{fmt(detail.tax_amount)}</b></span>
+            <span style={{fontSize:15,fontWeight:800,fontFamily:'var(--font-head)'}}>TOTAL <span style={{color:'var(--amber)',marginLeft:8}}>{fmt(detail.total)}</span></span>
+          </div>
+          {detail.signed_at&&(
+            <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)',background:'var(--greendim)',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:12,color:'var(--green2)'}}>✓ Signed by <b>{detail.signed_by_name}</b> on {new Date(detail.signed_at).toLocaleDateString()}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Pricebook picker */}
+        {detail.status==='draft'&&(
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',fontFamily:'var(--font-head)',fontSize:13,fontWeight:700}}>Add from Pricebook</div>
+            <div style={{padding:'8px 10px',borderBottom:'1px solid var(--border)',display:'flex',gap:6,flexWrap:'wrap'}}>
+              {PB_CATS.map(c=>(
+                <button key={c.id} onClick={()=>setPbCat(c.id)}
+                  style={{fontSize:10,padding:'3px 8px',borderRadius:4,border:`1px solid ${pbCat===c.id?c.color:'var(--border)'}`,background:pbCat===c.id?`${c.color}22`:'transparent',color:pbCat===c.id?c.color:'var(--muted)',cursor:'pointer',fontWeight:pbCat===c.id?700:400}}>{c.icon} {c.name.split(' ')[0]}</button>
+              ))}
+            </div>
+            <input value={pbSearch} onChange={e=>setPbSearch(e.target.value)} placeholder="Search…"
+              style={{margin:'6px 10px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'5px 9px',color:'var(--text)',fontSize:12}}/>
+            <div style={{flex:1,overflowY:'auto'}}>
+              {pbLoading ? <div style={{padding:12}}><div className="skel" style={{height:32,borderRadius:4}}/></div> :
+              filteredPbTasks.map(task=>{
+                const {flatRate} = engine?calcFlatRate(task,engine):{flatRate:0};
+                return (
+                  <button key={task.id} onClick={()=>addTask(task)}
+                    style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',border:'none',borderBottom:'1px solid var(--border)',background:'transparent',cursor:'pointer',textAlign:'left',transition:'background .1s'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <span style={{fontSize:12,fontWeight:600,flex:1,marginRight:8}}>{task.name}</span>
+                    <span style={{fontFamily:'var(--font-head)',fontSize:13,fontWeight:800,color:'var(--amber)',flexShrink:0}}>{engine?fmt(flatRate):'—'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* In-person signature modal */}
+      {sigModal&&(
+        <div style={{position:'fixed',inset:0,background:'#00000099',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:28,width:540,maxWidth:'95vw'}}>
+            <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800,marginBottom:4}}>✍ Customer Signature</div>
+            <p style={{fontSize:12,color:'var(--muted)',marginBottom:16}}>Have the customer sign below to approve this estimate for ${fmt(detail?.total||0)}.</p>
+            <input value={sigName} onChange={e=>setSigName(e.target.value)} placeholder="Customer's full name"
+              style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',color:'var(--text)',fontSize:13,marginBottom:12}}/>
+            <div style={{border:'2px solid var(--blue)',borderRadius:8,background:'#fff',marginBottom:12}}>
+              <canvas ref={el=>canvasRef.current=el} width={480} height={160}
+                style={{display:'block',cursor:'crosshair',touchAction:'none'}}
+                onMouseDown={onSigDown} onMouseMove={onSigMove} onMouseUp={onSigUp} onMouseLeave={onSigUp}
+                onTouchStart={onSigDown} onTouchMove={onSigMove} onTouchEnd={onSigUp}/>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={clearSig} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'8px 16px',color:'var(--muted)',fontSize:12,cursor:'pointer',flex:1}}>Clear</button>
+              <button onClick={()=>setSigModal(null)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'8px 16px',color:'var(--muted)',fontSize:12,cursor:'pointer',flex:1}}>Cancel</button>
+              <button onClick={submitSig} style={{background:'var(--green)',border:'none',borderRadius:7,padding:'8px 20px',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',flex:2}}>✓ Confirm Signature</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send confirmation modal */}
+      {sendModal&&(
+        <div style={{position:'fixed',inset:0,background:'#00000099',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:28,width:480,maxWidth:'95vw'}}>
+            <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800,marginBottom:8}}>📧 Estimate Sent</div>
+            <p style={{fontSize:13,color:'var(--muted)',marginBottom:14}}>{sendModal.customer_email?`Email sent to ${sendModal.customer_email}. `:''}Share this link for the customer to sign remotely:</p>
+            <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'10px 14px',fontSize:12,fontFamily:'var(--font-mono)',color:'var(--blue)',wordBreak:'break-all',marginBottom:16,userSelect:'all'}}>
+              {window.location.origin}/sign/{sendModal.sign_token}
+            </div>
+            <button onClick={()=>{ navigator.clipboard?.writeText(`${window.location.origin}/sign/${sendModal.sign_token}`); toast.success('Copied','Link copied to clipboard.'); }} style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'8px 16px',color:'var(--text)',fontSize:13,cursor:'pointer',marginBottom:8}}>📋 Copy Link</button>
+            <button onClick={()=>setSendModal(null)} style={{width:'100%',background:'transparent',border:'1px solid var(--border)',borderRadius:7,padding:'8px 16px',color:'var(--muted)',fontSize:12,cursor:'pointer'}}>Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{animation:'fadeUp .3s ease'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+        <div style={{fontFamily:'var(--font-head)',fontSize:24,fontWeight:800,flex:1}}>📄 Estimates</div>
+        <button onClick={()=>setNewModal(true)} style={{background:'var(--amber)',border:'none',borderRadius:8,padding:'8px 18px',color:'#000',fontSize:13,fontWeight:800,cursor:'pointer'}}>+ New Estimate</button>
+      </div>
+
+      {loading ? (
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {[1,2,3].map(i=><div key={i} className="skel" style={{height:52,borderRadius:8}}/>)}
+        </div>
+      ) : estimates.length===0 ? (
+        <div style={{textAlign:'center',padding:'60px 20px',color:'var(--muted)'}}>
+          <div style={{fontSize:48,marginBottom:12}}>📄</div>
+          <div style={{fontSize:16,fontWeight:600,marginBottom:6}}>No estimates yet</div>
+          <div style={{fontSize:13,marginBottom:20}}>Create your first estimate to get started.</div>
+          <button onClick={()=>setNewModal(true)} style={{background:'var(--amber)',border:'none',borderRadius:8,padding:'9px 22px',color:'#000',fontSize:13,fontWeight:800,cursor:'pointer'}}>+ New Estimate</button>
+        </div>
+      ) : (
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr style={{background:'var(--surface2)'}}>
+              {['Customer','Job #','Items','Total','Status','Date',''].map(h=>(
+                <th key={h} style={{padding:'10px 14px',textAlign:'left',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em'}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {estimates.map(est=>(
+                <tr key={est.id} className="tr-hover" onClick={()=>api.getEstimate(est.id).then(setDetail)} style={{borderBottom:'1px solid var(--border)',cursor:'pointer'}}>
+                  <td style={{padding:'10px 14px',fontWeight:600,fontSize:13}}>{est.customer_name||'—'}</td>
+                  <td style={{padding:'10px 14px',fontSize:12,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{est.job_number||'—'}</td>
+                  <td style={{padding:'10px 14px',fontSize:12,color:'var(--muted)'}}>{est.item_count}</td>
+                  <td style={{padding:'10px 14px',fontFamily:'var(--font-head)',fontSize:15,fontWeight:700}}>{fmt(est.total)}</td>
+                  <td style={{padding:'10px 14px'}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:4,background:`${STATUS_COLOR[est.status]||'#888'}22`,color:STATUS_COLOR[est.status]||'#888',border:`1px solid ${STATUS_COLOR[est.status]||'#888'}44`}}>{(est.status||'').toUpperCase()}</span>
+                  </td>
+                  <td style={{padding:'10px 14px',fontSize:12,color:'var(--muted)'}}>{new Date(est.created_at).toLocaleDateString()}</td>
+                  <td style={{padding:'10px 14px'}}><span style={{color:'var(--blue)',fontSize:12}}>Open →</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* New estimate modal */}
+      {newModal&&(
+        <div style={{position:'fixed',inset:0,background:'#00000088',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setNewModal(false)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:28,width:440,maxWidth:'95vw'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800,marginBottom:20}}>New Estimate</div>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div>
+                <label style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4}}>CUSTOMER</label>
+                <select value={newForm.customer_id} onChange={e=>setNewForm(f=>({...f,customer_id:e.target.value}))}
+                  style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',color:'var(--text)',fontSize:13}}>
+                  <option value="">No customer</option>
+                  {customers.map(c=>(
+                    <option key={c.id} value={c.id}>{c.first_name} {c.last_name}{c.phone?` — ${c.phone}`:''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4}}>NOTES</label>
+                <textarea value={newForm.notes} onChange={e=>setNewForm(f=>({...f,notes:e.target.value}))} rows={3}
+                  style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',color:'var(--text)',fontSize:13,resize:'vertical'}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4}}>TAX RATE</label>
+                <input type="number" step="0.001" value={newForm.tax_rate} onChange={e=>setNewForm(f=>({...f,tax_rate:e.target.value}))}
+                  style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',color:'var(--text)',fontSize:13}}/>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,marginTop:20}}>
+              <button onClick={()=>setNewModal(false)} style={{flex:1,background:'transparent',border:'1px solid var(--border)',borderRadius:7,padding:'9px 0',color:'var(--muted)',cursor:'pointer',fontSize:13}}>Cancel</button>
+              <button onClick={createEstimate} style={{flex:2,background:'var(--amber)',border:'none',borderRadius:7,padding:'9px 0',color:'#000',fontWeight:800,cursor:'pointer',fontSize:14}}>Create Estimate</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const NAV = [
-  {id:"dashboard",  label:"Dashboard"},
-  {id:"dispatch",   label:"Dispatch"},
-  {id:"inbox",      label:"Inbox"},
-  {id:"calls",      label:"Calls"},
-  {id:"invoices",   label:"Invoices"},
-  {id:"reports",    label:"Reports"},
-  {id:"gps",        label:"GPS Fleet"},
-  {id:"customers",  label:"Customers"},
-  {id:"marketing",  label:"Marketing", soon:true},
-  {id:"accounting", label:"Accounting",soon:true},
+  {id:"dashboard",  label:"Dashboard",  icon:"🏠"},
+  {id:"dispatch",   label:"Dispatch",   icon:"📋"},
+  {id:"customers",  label:"Customers",  icon:"👤"},
+  {id:"invoices",   label:"Invoices",   icon:"🧾"},
+  {id:"estimates",  label:"Estimates",  icon:"📄"},
+  {id:"pricebook",  label:"Pricebook",  icon:"💲"},
+  {id:"inbox",      label:"Inbox",      icon:"💬"},
+  {id:"calls",      label:"Calls",      icon:"📞"},
+  {id:"reports",    label:"Reports",    icon:"📊"},
+  {id:"gps",        label:"GPS Fleet",  icon:"🗺️"},
+  {id:"marketing",  label:"Marketing",  icon:"📣", soon:true},
+  {id:"accounting", label:"Accounting", icon:"💼", soon:true},
 ];
 
 const SETTINGS_NAV = [
@@ -9118,78 +9991,106 @@ export default function App() {
     return ()=>clearTimeout(t);
   },[]);
 
+  const navLabel = NAV.find(n=>n.id===page)?.label || (page==="settings"?"Settings":"");
+
   return (
     <>
       <style>{GF}{G}{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{height:"100vh",display:"flex",overflow:"hidden"}}>
 
-        {/* Top bar */}
-        <header style={{height:50,background:"#080b10",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",padding:"0 14px",gap:12,flexShrink:0,zIndex:50}}>
-          <button onClick={()=>setExpanded(p=>!p)} style={{background:"transparent",padding:4,color:"var(--muted)",borderRadius:4}}>
-            <Icon n="menu" size={18} color="#64748b"/>
-          </button>
-          <DPSLogo expanded={expanded}/>
-          <div style={{flex:1}}/>
-
-          {/* Call pop */}
-          {callPop && (
-            <div style={{display:"flex",alignItems:"center",gap:8,background:"#5daf7c14",border:"1px solid #5daf7c44",borderRadius:8,padding:"5px 12px",animation:"glow 2s infinite"}}>
-              <div style={{width:7,height:7,borderRadius:"50%",background:"#5daf7c",animation:"pulse2 1s infinite"}}/>
-              <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#5daf7c"}}>INCOMING · {callPop.phone} · {callPop.customer}</span>
-              <button onClick={()=>setCallPop(null)} style={{background:"transparent",color:"#5daf7c",opacity:.6,padding:2}}>
-                <Icon n="x" size={12} color="#5daf7c"/>
-              </button>
-            </div>
-          )}
-
-          <div style={{fontFamily:"var(--font-mono)",fontSize:13,color:"var(--muted)",letterSpacing:".06em"}}>
-            {time.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
-          </div>
-
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:30,height:30,borderRadius:"50%",background:"#5daf7c18",border:"1.5px solid #5daf7c44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#5daf7c",fontFamily:"var(--font-mono)"}}>
-              {user?.initials||user?.name?.slice(0,2)||"?"}
-            </div>
-            <span style={{fontSize:12,color:"var(--muted)",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.name}</span>
-            <button onClick={logout} style={{background:"transparent",color:"var(--muted)",fontSize:11,padding:"4px 8px",borderRadius:4,border:"1px solid var(--border)"}}>Out</button>
-          </div>
-        </header>
-
-        {/* Top Nav Bar */}
-        <div style={{display:"flex",alignItems:"center",background:"#080b10",borderBottom:"1px solid var(--border)",paddingLeft:8,paddingRight:8,flexShrink:0,overflowX:"auto"}}>
-          {NAV.map(item => {
-            const active = page === item.id;
-            return (
-              <button key={item.id} onClick={() => { if(!item.soon) setPage(item.id); }}
-                style={{
-                  display:"flex",alignItems:"center",gap:6,padding:"11px 16px",
-                  background:"transparent",border:"none",borderBottom: active ? "2px solid var(--amber)" : "2px solid transparent",
-                  color: item.soon ? "#3a4a5a" : active ? "var(--amber)" : "var(--muted)",
-                  fontSize:13,fontWeight:active?600:400,cursor:item.soon?"default":"pointer",
-                  whiteSpace:"nowrap",flexShrink:0,transition:"all .15s",marginBottom:"-1px",
-                }}>
-                {item.label}
-                {item.soon && <span style={{fontSize:9,background:"#1e2a3a",color:"#3a5a7a",borderRadius:3,padding:"1px 4px",fontWeight:600}}>SOON</span>}
-              </button>
-            );
-          })}
-          <div style={{flex:1}}/>
-          <button onClick={() => setPage("settings")}
-            style={{
-              display:"flex",alignItems:"center",gap:6,padding:"11px 14px",
-              background:"transparent",border:"none",borderBottom: page==="settings" ? "2px solid var(--amber)" : "2px solid transparent",
-              color: page==="settings" ? "var(--amber)" : "var(--muted)",
-              cursor:"pointer",flexShrink:0,marginBottom:"-1px",transition:"all .15s",
-            }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        {/* ── Sidebar ── */}
+        <aside style={{width:expanded?210:52,background:"#0a0d22",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0,transition:"width .2s",overflow:"hidden",zIndex:50}}>
+          {/* Logo */}
+          <div style={{padding:"16px 12px 14px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexShrink:0,minHeight:60}}>
+            <svg width="28" height="24" viewBox="0 0 40 34" fill="none" style={{flexShrink:0}}>
+              <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
+              <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
+              <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
             </svg>
-            <span style={{fontSize:13,fontWeight:page==="settings"?600:400}}>Settings</span>
-          </button>
-        </div>
+            {expanded && (
+              <div style={{overflow:"hidden"}}>
+                <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:15,fontWeight:800,color:"var(--text)",lineHeight:1,whiteSpace:"nowrap"}}>Davis Plumbing</div>
+                <div style={{fontFamily:"var(--font-mono)",fontSize:6,letterSpacing:".18em",color:"var(--blue)",marginTop:2,whiteSpace:"nowrap"}}>DIGITAL PLUMBING SOFTWARE</div>
+              </div>
+            )}
+          </div>
 
-        <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-          {/* Main */}
+          {/* Nav items */}
+          <nav style={{flex:1,padding:"10px 6px",overflowY:"auto",overflowX:"hidden"}}>
+            {NAV.map(item=>{
+              const active = page===item.id;
+              return (
+                <button key={item.id} onClick={()=>{if(!item.soon) setPage(item.id);}}
+                  title={!expanded?item.label:undefined}
+                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:expanded?"9px 10px":"9px 0",justifyContent:expanded?"flex-start":"center",borderRadius:7,background:active?"var(--reddim)":"transparent",border:"none",color:item.soon?"var(--dim)":active?"var(--red)":"var(--muted)",fontSize:13,fontWeight:active?600:400,marginBottom:2,position:"relative",cursor:item.soon?"default":"pointer",whiteSpace:"nowrap",overflow:"hidden"}}>
+                  {active&&<div style={{position:"absolute",left:0,top:4,bottom:4,width:3,background:"var(--red)",borderRadius:"0 2px 2px 0"}}/>}
+                  <span style={{fontSize:15,flexShrink:0,width:18,textAlign:"center"}}>{item.icon}</span>
+                  {expanded&&<span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</span>}
+                  {expanded&&item.soon&&<span style={{marginLeft:"auto",fontSize:8,background:"var(--dim)",color:"var(--muted)",borderRadius:3,padding:"1px 4px",fontWeight:600,flexShrink:0}}>SOON</span>}
+                </button>
+              );
+            })}
+            <div style={{height:1,background:"var(--border)",margin:"8px 4px"}}/>
+            <button onClick={()=>setPage("settings")}
+              title={!expanded?"Settings":undefined}
+              style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:expanded?"9px 10px":"9px 0",justifyContent:expanded?"flex-start":"center",borderRadius:7,background:page==="settings"?"var(--reddim)":"transparent",border:"none",color:page==="settings"?"var(--red)":"var(--muted)",fontSize:13,fontWeight:page==="settings"?600:400,position:"relative",cursor:"pointer",whiteSpace:"nowrap"}}>
+              {page==="settings"&&<div style={{position:"absolute",left:0,top:4,bottom:4,width:3,background:"var(--red)",borderRadius:"0 2px 2px 0"}}/>}
+              <span style={{fontSize:15,flexShrink:0,width:18,textAlign:"center"}}>⚙️</span>
+              {expanded&&<span>Settings</span>}
+            </button>
+          </nav>
+
+          {/* User footer */}
+          <div style={{padding:"10px 8px",borderTop:"1px solid var(--border)",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 6px",borderRadius:7,cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div style={{width:28,height:28,borderRadius:14,background:"var(--border2)",border:"1px solid var(--blue)33",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"var(--blue)",fontFamily:"var(--font-mono)",flexShrink:0}}>
+                {user?.initials||user?.name?.slice(0,2)||"?"}
+              </div>
+              {expanded&&(
+                <div style={{overflow:"hidden",flex:1}}>
+                  <div style={{fontSize:12,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.name}</div>
+                  <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{user?.role}</div>
+                </div>
+              )}
+              {expanded&&<button onClick={logout} style={{background:"transparent",color:"var(--muted)",fontSize:10,padding:"3px 7px",borderRadius:4,border:"1px solid var(--border)",flexShrink:0}}>Out</button>}
+            </div>
+          </div>
+        </aside>
+
+        {/* ── Main column ── */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {/* Topbar */}
+          <header style={{height:46,background:"#0a0d22",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",padding:"0 16px",gap:12,flexShrink:0}}>
+            <button onClick={()=>setExpanded(p=>!p)} style={{background:"transparent",padding:4,color:"var(--muted)",borderRadius:4,flexShrink:0}}>
+              <Icon n="menu" size={16} color="var(--muted)"/>
+            </button>
+            <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+              <span style={{color:"var(--muted)"}}>DPS</span>
+              <span style={{color:"var(--border2)"}}>›</span>
+              <span style={{color:"var(--text)",fontWeight:600}}>{navLabel}</span>
+            </div>
+
+            {/* Call pop */}
+            {callPop && (
+              <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--reddim)",border:"1px solid var(--red)44",borderRadius:8,padding:"4px 12px",animation:"glow 2s infinite"}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:"var(--red)",animation:"pulse2 1s infinite"}}/>
+                <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--red)"}}>INCOMING · {callPop.phone} · {callPop.customer}</span>
+                <button onClick={()=>setCallPop(null)} style={{background:"transparent",color:"var(--red)",opacity:.7,padding:2}}>
+                  <Icon n="x" size={11} color="var(--red)"/>
+                </button>
+              </div>
+            )}
+
+            <div style={{flex:1}}/>
+            <div style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--muted)",letterSpacing:".06em"}}>
+              {time.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+            </div>
+          </header>
+
+          {/* Content */}
           <main style={{flex:1,overflow:"auto",padding:22,background:"var(--bg)"}} className="scrollbar-thin">
             {page==="dashboard"    && <ErrorBoundary name="Dashboard"><DashboardPage/></ErrorBoundary>}
             {page==="dispatch"     && <ErrorBoundary name="Dispatch"><DispatchPage/></ErrorBoundary>}
@@ -9197,6 +10098,8 @@ export default function App() {
             {page==="customers"    && <ErrorBoundary name="Customers"><CustomersPage/></ErrorBoundary>}
             {page==="inbox"        && <ErrorBoundary name="Inbox"><InboxPage/></ErrorBoundary>}
             {page==="invoices"     && <ErrorBoundary name="Invoices"><InvoicesPage/></ErrorBoundary>}
+            {page==="estimates"    && <ErrorBoundary name="Estimates"><EstimatesPage user={user}/></ErrorBoundary>}
+            {page==="pricebook"    && <ErrorBoundary name="Pricebook"><NewPricebookPage user={user}/></ErrorBoundary>}
             {page==="reports"      && <ErrorBoundary name="Reports"><ReportsPage/></ErrorBoundary>}
             {page==="gps"          && <ErrorBoundary name="GPS"><GPSPage/></ErrorBoundary>}
             {page==="calls"        && <ErrorBoundary name="Calls"><CallsPage user={user}/></ErrorBoundary>}
@@ -9212,6 +10115,8 @@ export default function App() {
             )}
           </main>
         </div>
+
+        <ToastContainer/>
       </div>
     </>
   );
