@@ -1279,6 +1279,12 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
             // Per-type quantities
             const whQty    = getLocTypeQty(item, 'warehouse');
             const trQty    = getLocTypeQty(item, 'truck');
+
+            // When a location is selected, show that location's qty as the hero number
+            const selectedLoc    = locationFilter !== 'all' ? (locations||[]).find(l=>l.id===locationFilter) : null;
+            const selectedLocQty = selectedLoc ? parseInt((item.stock||[]).find(s=>s.location_id===selectedLoc.id)?.qty||0) : null;
+            const heroQty        = selectedLoc ? selectedLocQty : totalQty;
+            const heroLabel      = selectedLoc ? `at ${selectedLoc.name}` : 'total units';
             const whStatus = getLocTypeStatus(item, 'warehouse');
             const trStatus = getLocTypeStatus(item, 'truck');
 
@@ -1295,7 +1301,20 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
             const statusColor = (s) => s==='out'?'#dc2626':s==='low'?'#d97706':s==='empty'?'#9ca3af':'#16a34a';
             const statusLabel = (s) => s==='out'?'Out':s==='low'?'Low':s==='empty'?'—':'OK';
             const pillBg      = (s) => s==='out'?'#fee2e2':s==='low'?'#fef3c7':s==='empty'?'#f3f4f6':'#dcfce7';
-            const overallStatus = getStatus(item);
+
+            // When a specific location is selected, compute status for that location's qty vs its type threshold
+            const selectedLocStatus = (() => {
+              if (!selectedLoc) return null;
+              const qty  = selectedLocQty;
+              const minQ = selectedLoc.type === 'warehouse'
+                ? (item.warehouse_min_qty || item.min_qty || 0)
+                : (item.truck_min_qty || 0);
+              if (qty === 0 && minQ > 0) return 'out';
+              if (minQ > 0 && qty <= minQ) return 'low';
+              if (qty === 0) return 'empty';
+              return 'ok';
+            })();
+            const overallStatus = selectedLocStatus || getStatus(item);
 
             return (
               <div key={item.id} style={{
@@ -1320,10 +1339,13 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
                     </span>
                   </div>
 
-                  {/* ── Total qty ── */}
+                  {/* ── Hero qty ── */}
                   <div style={{display:'flex', alignItems:'baseline', gap:6, marginTop:10, marginBottom:2}}>
-                    <span style={{fontSize:28, fontWeight:800, color:'#111827', letterSpacing:'-1px', lineHeight:1}}>{totalQty}</span>
-                    <span style={{fontSize:11, color:'#9ca3af', fontWeight:500}}>total units</span>
+                    <span style={{fontSize:28, fontWeight:800, color:'#111827', letterSpacing:'-1px', lineHeight:1}}>{heroQty}</span>
+                    <span style={{fontSize:11, color: selectedLoc?'#3b82f6':'#9ca3af', fontWeight:500}}>{heroLabel}</span>
+                    {selectedLoc && (
+                      <span style={{fontSize:10, color:'#9ca3af', fontWeight:400}}>({totalQty} total)</span>
+                    )}
                     {item.cost!=null && (
                       <span style={{marginLeft:'auto', fontSize:12, fontWeight:600, color:'#374151'}}>
                         ${parseFloat(item.cost).toFixed(2)}/ea
