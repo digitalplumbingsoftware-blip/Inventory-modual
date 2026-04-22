@@ -987,105 +987,248 @@ function CountModal({count, onSave, onClose}) {
 
 // ─── Tab: Items ───────────────────────────────────────────────
 function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
-  const enabledServices = useCompanyServices();
-  const [modal, setModal] = useState(null); // null | 'new' | item
+  const [modal, setModal]           = useState(null);
   const [barcodeItem, setBarcodeItem] = useState(null);
   const [transferItem, setTransferItem] = useState(null);
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [serviceFilter, setServiceFilter] = useState('all');
+  const [search, setSearch]         = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [selected, setSelected] = useState([]);
+  const [locationFilter, setLocationFilter] = useState('all');
+  const [statusFilter, setStatusFilter]     = useState('all');
+
   const materialTypes = ['consumable','material'];
   const toolTypes     = ['tool','equipment'];
-  const filtered = (items||[]).filter(i=>{
-    if(mode==='materials'&&!materialTypes.includes(i.item_type)) return false;
-    if(mode==='tools'&&!toolTypes.includes(i.item_type)) return false;
-    if(typeFilter!=='all'&&i.item_type!==typeFilter) return false;
-    if(serviceFilter!=='all'&&(i.service_type||'')!==serviceFilter) return false;
-    if(categoryFilter!=='all'&&(i.category_id||'')!==categoryFilter) return false;
-    if(search&&!i.name.toLowerCase().includes(search.toLowerCase())&&!(i.sku||'').toLowerCase().includes(search.toLowerCase())) return false;
+
+  const getStatus = (item) => {
+    const total = (item.stock||[]).reduce((s,l)=>s+parseInt(l.qty||0),0);
+    if (total === 0) return 'out';
+    if (total <= item.min_qty) return 'low';
+    return 'ok';
+  };
+
+  const filtered = (items||[]).filter(i => {
+    if (mode==='materials' && !materialTypes.includes(i.item_type)) return false;
+    if (mode==='tools'     && !toolTypes.includes(i.item_type))     return false;
+    if (categoryFilter !== 'all' && (i.category_id||'') !== categoryFilter) return false;
+    if (locationFilter !== 'all') {
+      const hasStock = (i.stock||[]).some(s => s.location_id === locationFilter && parseInt(s.qty||0) > 0);
+      if (!hasStock) return false;
+    }
+    if (statusFilter !== 'all' && getStatus(i) !== statusFilter) return false;
+    if (search && !i.name.toLowerCase().includes(search.toLowerCase()) && !(i.sku||'').toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
-  const toggleSelect = id => setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
-  const allSelected = filtered.length>0&&filtered.every(i=>selected.includes(i.id));
-  const toggleAll = () => setSelected(allSelected?[]:filtered.map(i=>i.id));
-  const selectedItems = filtered.filter(i=>selected.includes(i.id));
+
   const deleteItem = async (id) => {
-    if(!confirm('Archive this item?')) return;
+    if (!confirm('Archive this item?')) return;
     await api.deleteItem(id); onReload();
   };
+
+  // KPI stats
+  const allItems   = items||[];
+  const lowCount   = allItems.filter(i=>{ const s=getStatus(i); return s==='low'||s==='out'; }).length;
+  const totalValue = allItems.reduce((s,i)=>{
+    const qty=(i.stock||[]).reduce((a,l)=>a+parseInt(l.qty||0),0);
+    return s + qty * parseFloat(i.cost||0);
+  },0);
+  const trucks     = (locations||[]).filter(l=>l.type==='truck');
+  const trucksOk   = trucks.filter(t=>{
+    const lowOnTruck = allItems.some(i=>{
+      const s=(i.stock||[]).find(st=>st.location_id===t.id);
+      return s && parseInt(s.qty||0) <= i.min_qty;
+    });
+    return !lowOnTruck;
+  }).length;
+
+  // sidebar filter counts
+  const statusCounts = { ok:0, low:0, out:0 };
+  allItems.forEach(i=>{ const s=getStatus(i); if(statusCounts[s]!==undefined) statusCounts[s]++; });
+
+  const sidebarSectionLabel = { fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:8, padding:'0 8px' };
+  const sidebarItem = (active) => ({
+    display:'flex', alignItems:'center', justifyContent:'space-between',
+    padding:'7px 8px', borderRadius:6, cursor:'pointer', marginBottom:1, fontSize:13, fontWeight:500,
+    background: active ? '#eff6ff' : 'transparent',
+    color: active ? '#3b82f6' : '#374151',
+  });
+  const badge = (color) => ({
+    fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:10,
+    background: color==='blue'?'#dbeafe':color==='red'?'#fee2e2':'#f3f4f6',
+    color: color==='blue'?'#3b82f6':color==='red'?'#dc2626':'#6b7280',
+  });
+
+  const cardBorderColor = (item) => {
+    const s = getStatus(item);
+    if (s==='out'||s==='low') return s==='out'?'#ef4444':'#f59e0b';
+    return '#16a34a';
+  };
+  const pillStyle = (item) => {
+    const s = getStatus(item);
+    if (s==='out') return { background:'#fee2e2', color:'#dc2626' };
+    if (s==='low') return { background:'#fef3c7', color:'#d97706' };
+    return { background:'#dcfce7', color:'#16a34a' };
+  };
+  const pillLabel = (item) => {
+    const s = getStatus(item);
+    if (s==='out') return 'Out of Stock';
+    if (s==='low') return 'Low Stock';
+    return 'In Stock';
+  };
+
   return (
-    <div>
-      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search items..." style={{flex:1,minWidth:160,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}/>
-        <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}>
-          {['all','consumable','tool','equipment','material'].map(t=><option key={t} value={t}>{t==='all'?'All Types':t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
-        </select>
-        {enabledServices.length>1&&(
-          <select value={serviceFilter} onChange={e=>setServiceFilter(e.target.value)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}>
-            <option value="all">All Services</option>
-            {enabledServices.map(s=><option key={s} value={s}>{SERVICE_LABELS[s]||s}</option>)}
-          </select>
-        )}
-        {(categories||[]).length>0&&(
-          <select value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}>
-            <option value="all">All Categories</option>
-            {categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        )}
-        {selected.length>0&&<BarcodePrintSheet items={selectedItems}/>}
-        <button onClick={()=>setModal('new')} style={{background:'#5daf7c22',border:'1px solid #5daf7c',borderRadius:8,padding:'8px 16px',color:'#5daf7c',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add Item</button>
+    <div style={{display:'flex', gap:0, margin:'-20px -20px -20px -20px', minHeight:'calc(100vh - 100px)'}}>
+
+      {/* ── Sidebar ── */}
+      <div style={{width:216, flexShrink:0, background:'#fff', borderRight:'1px solid #e5e7eb', padding:'16px 12px', overflowY:'auto'}}>
+
+        {/* Category */}
+        <div style={{marginBottom:20}}>
+          <div style={sidebarSectionLabel}>Category</div>
+          <div style={sidebarItem(categoryFilter==='all')} onClick={()=>setCategoryFilter('all')}>
+            All Items <span style={badge('blue')}>{allItems.length}</span>
+          </div>
+          {(categories||[]).map(c=>{
+            const cnt = allItems.filter(i=>i.category_id===c.id).length;
+            return (
+              <div key={c.id} style={sidebarItem(categoryFilter===c.id)} onClick={()=>setCategoryFilter(c.id)}>
+                {c.name} <span style={badge()}>{cnt}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Location */}
+        <div style={{marginBottom:20}}>
+          <div style={sidebarSectionLabel}>Location</div>
+          <div style={sidebarItem(locationFilter==='all')} onClick={()=>setLocationFilter('all')}>
+            All Locations <span style={badge('blue')}>{allItems.length}</span>
+          </div>
+          {(locations||[]).map(l=>{
+            const cnt = allItems.filter(i=>(i.stock||[]).some(s=>s.location_id===l.id&&parseInt(s.qty||0)>0)).length;
+            return (
+              <div key={l.id} style={sidebarItem(locationFilter===l.id)} onClick={()=>setLocationFilter(l.id)}>
+                {l.type==='warehouse'?'🏭':'🚚'} {l.name} <span style={badge()}>{cnt}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Stock Status */}
+        <div>
+          <div style={sidebarSectionLabel}>Stock Status</div>
+          {[['all','All Items',allItems.length,null],['ok','In Stock',statusCounts.ok,null],['low','Low Stock',statusCounts.low,'red'],['out','Out of Stock',statusCounts.out,'red']].map(([id,label,cnt,bc])=>(
+            <div key={id} style={sidebarItem(statusFilter===id)} onClick={()=>setStatusFilter(id)}>
+              {label} <span style={badge(bc)}>{cnt}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead>
-            <tr style={{background:'var(--surface2)',borderBottom:'1px solid var(--border2)'}}>
-              <th style={{padding:'9px 12px',width:32}}><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th>
-              {['SKU','ITEM','TYPE','SERVICE','CATEGORY','TOTAL','LOCATIONS','COST','VENDOR',''].map(h=>(
-                <th key={h} style={{padding:'9px 12px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:500}}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(item=>{
-              const totalQty = (item.stock||[]).reduce((s,l)=>s+parseInt(l.qty||0),0);
-              const low = totalQty <= item.min_qty;
-              return (
-                <tr key={item.id} style={{borderBottom:'1px solid var(--border)',background:low&&totalQty===0?'#f5656506':low?'#e8a84a06':'transparent'}}
-                  onMouseEnter={e=>e.currentTarget.style.background=low?'#f5656511':'var(--surface2)'}
-                  onMouseLeave={e=>e.currentTarget.style.background=low&&totalQty===0?'#f5656506':low?'#e8a84a06':'transparent'}>
-                  <td style={{padding:'9px 12px'}}><input type="checkbox" checked={selected.includes(item.id)} onChange={()=>toggleSelect(item.id)}/></td>
-                  <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>{item.sku}</td>
-                  <td style={{padding:'9px 12px',fontSize:13,fontWeight:500}}>{item.name}</td>
-                  <td style={{padding:'9px 12px'}}>
-                    <span style={{fontSize:10,background:item.item_type==='tool'?'#4a9eff18':item.item_type==='equipment'?'#a78bfa18':'#5daf7c18',color:item.item_type==='tool'?'#4a9eff':item.item_type==='equipment'?'#a78bfa':'#5daf7c',padding:'2px 7px',borderRadius:4,fontFamily:'var(--font-mono)'}}>{item.item_type}</span>
-                  </td>
-                  <td style={{padding:'9px 12px',fontSize:11,color:'var(--muted)'}}>{item.service_type?SERVICE_ICONS[item.service_type]+' '+(SERVICE_LABELS[item.service_type]||item.service_type):''}</td>
-                  <td style={{padding:'9px 12px',fontSize:11,color:'var(--muted)'}}>{item.category_name||item.category||'—'}</td>
-                  <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:18,fontWeight:800,color:totalQty===0?'#f56565':low?'#e8a84a':'#5daf7c'}}>{totalQty}</td>
-                  <td style={{padding:'9px 12px'}}>
-                    {(item.stock||[]).map(s=>(
-                      <div key={s.location_id} style={{fontSize:10,color:'var(--muted)',whiteSpace:'nowrap'}}>{s.location_name}: <span style={{fontFamily:'var(--font-mono)',color:'var(--text)'}}>{s.qty}</span></div>
-                    ))}
-                  </td>
-                  <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:12,color:'var(--muted)'}}>${parseFloat(item.cost||0).toFixed(2)}</td>
-                  <td style={{padding:'9px 12px',fontSize:11,color:'var(--muted)'}}>{item.vendor}</td>
-                  <td style={{padding:'9px 12px'}}>
-                    <div style={{display:'flex',gap:6}}>
-                      <button onClick={()=>setBarcodeItem(item)} title="Barcode" style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',color:'var(--muted)',fontSize:11,cursor:'pointer'}}>▦</button>
-                      <button onClick={()=>setTransferItem(item)} title="Transfer" style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',color:'#4a9eff',fontSize:11,cursor:'pointer'}}>⇄</button>
-                      <button onClick={()=>setModal(item)} title="Edit" style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',color:'var(--muted)',fontSize:11,cursor:'pointer'}}>✎</button>
-                      <button onClick={()=>deleteItem(item.id)} title="Archive" style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',color:'#f56565',fontSize:11,cursor:'pointer'}}>✕</button>
+
+      {/* ── Main ── */}
+      <div style={{flex:1, background:'#f4f5f7', padding:'20px 24px', overflowY:'auto'}}>
+
+        {/* KPI row */}
+        <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20}}>
+          {[
+            ['Total SKUs', allItems.length, '#111827', null],
+            ['Low Stock Alerts', lowCount, lowCount>0?'#dc2626':'#111827', lowCount>0?'#fee2e2':null],
+            ['Total Value', `$${totalValue.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}`, '#16a34a', null],
+            ['Trucks Stocked', `${trucksOk}/${trucks.length}`, '#111827', null],
+          ].map(([label,val,color,bg])=>(
+            <div key={label} style={{background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, padding:'16px 18px', ...(bg?{borderLeft:`3px solid ${color}`}:{})}}>
+              <div style={{fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'1px', marginBottom:6}}>{label}</div>
+              <div style={{fontSize:26, fontWeight:800, color, letterSpacing:'-1px'}}>{val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Toolbar */}
+        <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:16}}>
+          <div style={{position:'relative', flex:1, maxWidth:320}}>
+            <span style={{position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'#9ca3af', fontSize:14}}>⌕</span>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search SKU, item name..."
+              style={{width:'100%', padding:'8px 12px 8px 34px', border:'1px solid #e5e7eb', borderRadius:8, fontSize:13, background:'#fff', color:'#111827', outline:'none'}}/>
+          </div>
+          <div style={{marginLeft:'auto', display:'flex', gap:8}}>
+            <button onClick={()=>setModal('new')} style={{padding:'8px 16px', borderRadius:8, background:'#3b82f6', color:'#fff', border:'none', fontSize:13, fontWeight:600, cursor:'pointer'}}>+ Add Item</button>
+          </div>
+        </div>
+
+        {/* Card grid */}
+        <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14}}>
+          {filtered.map(item=>{
+            const totalQty = (item.stock||[]).reduce((s,l)=>s+parseInt(l.qty||0),0);
+            const maxQty   = Math.max(item.min_qty*2, 1);
+            const fillPct  = Math.min(100, Math.round((totalQty/maxQty)*100));
+            const barColor = getStatus(item)==='ok'?'#16a34a':getStatus(item)==='low'?'#d97706':'#dc2626';
+            const truckStock = (item.stock||[]).find(s=>{
+              const loc = (locations||[]).find(l=>l.id===s.location_id);
+              return loc?.type==='truck';
+            });
+            return (
+              <div key={item.id} style={{
+                background:'#fff', border:'1px solid #e5e7eb',
+                borderTop:`3px solid ${cardBorderColor(item)}`,
+                borderRadius:10, overflow:'hidden',
+                transition:'box-shadow .15s, border-color .15s',
+                cursor:'pointer',
+              }}
+              onMouseEnter={e=>{ e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor='#d1d5db'; }}
+              onMouseLeave={e=>{ e.currentTarget.style.boxShadow='none'; e.currentTarget.style.borderColor='#e5e7eb'; }}>
+
+                {/* Card body */}
+                <div style={{padding:'12px 14px'}}>
+                  <div style={{fontSize:13, fontWeight:700, color:'#111827', marginBottom:2, lineHeight:1.35}}>{item.name}</div>
+                  <div style={{fontSize:11, color:'#9ca3af', marginBottom:10, fontFamily:'monospace'}}>{item.sku}</div>
+
+                  {/* Stock bar */}
+                  <div style={{marginBottom:8}}>
+                    <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:'#6b7280', marginBottom:3}}>
+                      <span>{locationFilter!=='all'
+                        ? ((locations||[]).find(l=>l.id===locationFilter)?.name||'Stock')
+                        : 'Total Stock'}</span>
+                      <span style={{fontWeight:700}}>{locationFilter!=='all'
+                        ? ((item.stock||[]).find(s=>s.location_id===locationFilter)?.qty||0)
+                        : totalQty} / {item.min_qty} min</span>
                     </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {filtered.length===0&&<tr><td colSpan={11} style={{padding:32,textAlign:'center',color:'var(--muted)',fontSize:13}}>No items found</td></tr>}
-          </tbody>
-        </table>
+                    <div style={{height:5, background:'#f3f4f6', borderRadius:3, overflow:'hidden'}}>
+                      <div style={{height:'100%', width:`${fillPct}%`, background:barColor, borderRadius:3, transition:'width .3s'}}/>
+                    </div>
+                  </div>
+
+                  {/* Meta row */}
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div style={{fontSize:13, fontWeight:700, color:'#111827'}}>
+                      {item.cost!=null ? `$${parseFloat(item.cost).toFixed(2)}` : <span style={{fontSize:11,color:'#9ca3af'}}>No cost</span>}
+                    </div>
+                    <span style={{...pillStyle(item), fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10}}>{pillLabel(item)}</span>
+                  </div>
+
+                  {/* Truck stock if available */}
+                  {truckStock && (
+                    <div style={{marginTop:8, paddingTop:8, borderTop:'1px solid #f3f4f6', fontSize:11, color:'#6b7280'}}>
+                      🚚 Truck: <span style={{fontWeight:700, color: parseInt(truckStock.qty||0)===0?'#dc2626':parseInt(truckStock.qty||0)<=item.min_qty?'#d97706':'#111827'}}>{truckStock.qty}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Card actions */}
+                <div style={{display:'flex', gap:6, padding:'10px 14px', borderTop:'1px solid #f3f4f6'}}>
+                  <button onClick={()=>setTransferItem(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #bfdbfe', background:'#eff6ff', color:'#3b82f6'}}>Adjust Stock</button>
+                  <button onClick={()=>setModal(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #e5e7eb', background:'#fff', color:'#374151'}}>Edit</button>
+                  <button onClick={()=>setBarcodeItem(item)} style={{padding:'6px 10px', borderRadius:6, fontSize:11, cursor:'pointer', border:'1px solid #e5e7eb', background:'#fff', color:'#374151'}}>▦</button>
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length===0&&(
+            <div style={{gridColumn:'1/-1', padding:48, textAlign:'center', color:'#9ca3af', fontSize:14}}>
+              No items match your filters
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Modals (unchanged) */}
       {(modal==='new'||modal?.id)&&<ItemModal item={modal==='new'?null:modal} categories={categories} onSave={()=>{setModal(null);onReload();}} onClose={()=>setModal(null)}/>}
       {barcodeItem&&(
         <div style={{position:'fixed',inset:0,background:'#00000088',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={e=>e.target===e.currentTarget&&setBarcodeItem(null)}>

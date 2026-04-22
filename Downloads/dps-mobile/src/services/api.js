@@ -136,6 +136,11 @@ export const createPaymentIntent = async (jobId, amountCents) => {
 };
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
+export const getInventory = async (params = {}) => {
+  const res = await api.get('/api/inventory/items', { params });
+  return res.data;
+};
+
 export const getItemByBarcode = async (barcode) => {
   const res = await api.get('/api/inventory/items', { params: { barcode } });
   return res.data;
