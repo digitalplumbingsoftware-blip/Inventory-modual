@@ -1354,6 +1354,48 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
                   </div>
                 </div>
 
+                {/* ── Location breakdown — shown for All / Warehouse views, hidden for truck views ── */}
+                {(!selectedLoc || selectedLoc.type === 'warehouse') && (
+                  <div style={{padding:'8px 14px 12px', borderTop:'1px solid #f3f4f6', display:'flex', flexDirection:'column', gap:8}}>
+
+                    {/* Warehouse row */}
+                    <div>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3}}>
+                        <span style={{fontSize:11, color:'#6b7280', fontWeight:500}}>🏭 Warehouse</span>
+                        <div style={{display:'flex', alignItems:'center', gap:6}}>
+                          <span style={{fontSize:12, fontWeight:700, color:'#111827'}}>{whQty}</span>
+                          <span style={{fontSize:10, color:'#9ca3af'}}>/ min {whMin}{whMax ? ` / max ${whMax}` : ''}</span>
+                          <span style={{fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:6,
+                            background:pillBg(whStatus), color:statusColor(whStatus)}}>
+                            {statusLabel(whStatus)}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{height:4, background:'#f3f4f6', borderRadius:3, overflow:'hidden'}}>
+                        <div style={{height:'100%', width:`${whFill}%`, background:statusColor(whStatus), borderRadius:3, transition:'width .3s'}}/>
+                      </div>
+                    </div>
+
+                    {/* Truck row */}
+                    <div>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3}}>
+                        <span style={{fontSize:11, color:'#6b7280', fontWeight:500}}>🚚 Trucks</span>
+                        <div style={{display:'flex', alignItems:'center', gap:6}}>
+                          <span style={{fontSize:12, fontWeight:700, color:'#111827'}}>{trQty}</span>
+                          <span style={{fontSize:10, color:'#9ca3af'}}>/ min {trMin}{trMax ? ` / max ${trMax}` : ''}</span>
+                          <span style={{fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:6,
+                            background:pillBg(trStatus), color:statusColor(trStatus)}}>
+                            {statusLabel(trStatus)}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{height:4, background:'#f3f4f6', borderRadius:3, overflow:'hidden'}}>
+                        <div style={{height:'100%', width:`${trFill}%`, background:statusColor(trStatus), borderRadius:3, transition:'width .3s'}}/>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Actions ── */}
                 <div style={{display:'flex', gap:6, padding:'10px 14px', borderTop:'1px solid #f3f4f6'}}>
                   <button onClick={()=>setTransferItem(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #bfdbfe', background:'#eff6ff', color:'#3b82f6'}}>Adjust Stock</button>
