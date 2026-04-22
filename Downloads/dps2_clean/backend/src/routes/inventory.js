@@ -187,15 +187,19 @@ router.get("/locations/:id/stock", authenticate, async (req, res) => {
 
 router.get("/low-stock", authenticate, async (req, res) => {
   try {
+    // Only warehouse stock is checked — trucks/vans are excluded
     const { rows } = await query(`
-      SELECT i.id, i.sku, i.name, i.min_qty, i.vendor, i.vendor_sku,
-        COALESCE(SUM(s.qty), 0) as total_qty
+      SELECT i.id, i.sku, i.name, i.warehouse_min_qty, i.warehouse_max_qty, i.vendor, i.vendor_sku,
+        COALESCE(SUM(CASE WHEN l.type = 'warehouse' THEN s.qty ELSE 0 END), 0) AS warehouse_qty
       FROM inventory_items i
       LEFT JOIN inventory_stock s ON s.item_id = i.id
+      LEFT JOIN inventory_locations l ON l.id = s.location_id
       WHERE i.active = true
       GROUP BY i.id
-      HAVING COALESCE(SUM(s.qty), 0) <= i.min_qty
-      ORDER BY COALESCE(SUM(s.qty), 0) ASC
+      HAVING
+        i.warehouse_min_qty > 0
+        AND COALESCE(SUM(CASE WHEN l.type = 'warehouse' THEN s.qty ELSE 0 END), 0) <= i.warehouse_min_qty
+      ORDER BY COALESCE(SUM(CASE WHEN l.type = 'warehouse' THEN s.qty ELSE 0 END), 0) ASC
     `);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -375,15 +379,21 @@ router.patch("/purchase-orders/:id", authenticate, async (req, res) => {
 });
 
 // Auto-generate POs from low stock items grouped by vendor
+// Only considers warehouse locations — trucks/vans are excluded.
+// Reorder quantity brings warehouse stock up to warehouse_max_qty.
 router.post("/purchase-orders/auto-generate", authenticate, async (req, res) => {
   try {
     const { rows: lowItems } = await query(`
-      SELECT i.*, COALESCE(SUM(s.qty), 0) as total_qty
+      SELECT i.*,
+        COALESCE(SUM(CASE WHEN l.type = 'warehouse' THEN s.qty ELSE 0 END), 0) AS warehouse_qty
       FROM inventory_items i
       LEFT JOIN inventory_stock s ON s.item_id = i.id
+      LEFT JOIN inventory_locations l ON l.id = s.location_id
       WHERE i.active = true
       GROUP BY i.id
-      HAVING COALESCE(SUM(s.qty), 0) <= i.min_qty
+      HAVING
+        i.warehouse_min_qty > 0
+        AND COALESCE(SUM(CASE WHEN l.type = 'warehouse' THEN s.qty ELSE 0 END), 0) <= i.warehouse_min_qty
     `);
     if (lowItems.length === 0) return res.json({ created: 0, message: 'No items need reordering' });
 
@@ -398,11 +408,13 @@ router.post("/purchase-orders/auto-generate", authenticate, async (req, res) => 
     for (const [vendor, items] of Object.entries(byVendor)) {
       const { rows } = await query(`
         INSERT INTO purchase_orders (vendor, notes, auto_generated, created_by)
-        VALUES ($1,'Auto-generated from low stock alert',true,$2) RETURNING *
+        VALUES ($1,'Auto-generated from low stock alert (warehouse only)',true,$2) RETURNING *
       `, [vendor, req.user.id]);
       const po = rows[0];
       for (const item of items) {
-        const reorderQty = Math.max(1, (item.max_qty || item.min_qty * 2) - parseInt(item.total_qty || 0));
+        // Bring warehouse qty up to warehouse_max; fall back to warehouse_min * 2 if no max set
+        const targetQty = item.warehouse_max_qty || (item.warehouse_min_qty * 2) || item.max_qty || (item.min_qty * 2);
+        const reorderQty = Math.max(1, targetQty - parseInt(item.warehouse_qty || 0));
         await query(`
           INSERT INTO purchase_order_items (po_id, item_id, description, sku, qty, unit_cost)
           VALUES ($1,$2,$3,$4,$5,$6)
