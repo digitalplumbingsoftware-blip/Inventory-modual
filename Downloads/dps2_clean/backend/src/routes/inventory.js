@@ -205,6 +205,32 @@ router.get("/low-stock", authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── STOCK REMOVE (delete item from a location entirely) ────────
+
+router.delete("/stock", authenticate, async (req, res) => {
+  try {
+    const { item_id, location_id } = req.body;
+    if (!item_id || !location_id) return res.status(400).json({ error: "item_id and location_id required" });
+    // Log the removal before deleting
+    const { rows: cur } = await query(
+      "SELECT qty FROM inventory_stock WHERE item_id=$1 AND location_id=$2",
+      [item_id, location_id]
+    );
+    const removedQty = cur[0]?.qty || 0;
+    await query(
+      "DELETE FROM inventory_stock WHERE item_id=$1 AND location_id=$2",
+      [item_id, location_id]
+    );
+    if (removedQty > 0) {
+      await query(`
+        INSERT INTO inventory_movements (item_id, from_location, qty, type, notes, created_by)
+        VALUES ($1,$2,$3,'adjustment','Removed from location',$4)
+      `, [item_id, location_id, removedQty, req.user.id]);
+    }
+    res.json({ ok: true, removed_qty: removedQty });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── STOCK MOVE ─────────────────────────────────────────────────
 
 router.post("/move", authenticate, async (req, res) => {
@@ -375,6 +401,14 @@ router.patch("/purchase-orders/:id", authenticate, async (req, res) => {
       }
     }
     res.json(po);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete("/purchase-orders/:id", authenticate, async (req, res) => {
+  try {
+    await query("DELETE FROM purchase_order_items WHERE po_id=$1", [req.params.id]);
+    await query("DELETE FROM purchase_orders WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

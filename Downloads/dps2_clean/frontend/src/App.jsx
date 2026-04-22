@@ -744,19 +744,24 @@ function ItemModal({item, categories, onSave, onClose}) {
 
 // ─── Transfer Modal ───────────────────────────────────────────
 function TransferModal({item, locations, onSave, onClose}) {
-  const [mode, setMode]           = useState('receive'); // 'receive' | 'transfer'
+  const [mode, setMode]               = useState('receive'); // 'receive' | 'transfer' | 'remove'
   // Receive mode
   const [supplyHouse, setSupplyHouse] = useState(item.vendor||'');
-  const [poNum, setPoNum]         = useState('');
-  const [recvTo, setRecvTo]       = useState('');
-  const [recvQty, setRecvQty]     = useState(1);
+  const [poNum, setPoNum]             = useState('');
+  const [recvTo, setRecvTo]           = useState('');
+  const [recvQty, setRecvQty]         = useState(1);
   // Transfer mode
-  const [from, setFrom]           = useState('');
-  const [to, setTo]               = useState('');
-  const [qty, setQty]             = useState(1);
-  const [saving, setSaving]       = useState(false);
+  const [from, setFrom]               = useState('');
+  const [to, setTo]                   = useState('');
+  const [qty, setQty]                 = useState(1);
+  // Remove mode
+  const [removeLoc, setRemoveLoc]     = useState('');
+  const [saving, setSaving]           = useState(false);
 
-  const fromStock = (item.stock||[]).find(s=>s.location_id===from);
+  const fromStock    = (item.stock||[]).find(s=>s.location_id===from);
+  const removeStock  = (item.stock||[]).find(s=>s.location_id===removeLoc);
+  // Only show locations that actually have a stock row for this item
+  const stockedLocs  = (item.stock||[]).map(s=>s.location_id);
 
   const saveReceive = async () => {
     if (!supplyHouse.trim()) return toast.warn('Required', 'Enter a supply house name');
@@ -781,13 +786,23 @@ function TransferModal({item, locations, onSave, onClose}) {
     finally { setSaving(false); }
   };
 
+  const saveRemove = async () => {
+    if (!removeLoc) return toast.warn('Required', 'Select a location to remove from');
+    const locName = locations.find(l=>l.id===removeLoc)?.name || 'this location';
+    if (!confirm(`Remove ${item.name} from ${locName} entirely? This cannot be undone.`)) return;
+    setSaving(true);
+    try { await api.removeStock(item.id, removeLoc); onSave(); }
+    catch(e) { toast.error('Error', e.message); }
+    finally { setSaving(false); }
+  };
+
   const sel = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
   const inp = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
-  const tab = (active) => ({
-    flex:1, padding:'8px', textAlign:'center', fontSize:13, fontWeight:600, cursor:'pointer', borderRadius:8,
-    background: active ? '#3b82f622' : 'transparent',
-    color: active ? '#3b82f6' : 'var(--muted)',
-    border: active ? '1px solid #3b82f6' : '1px solid transparent',
+  const tab = (active, danger=false) => ({
+    flex:1, padding:'8px', textAlign:'center', fontSize:12, fontWeight:600, cursor:'pointer', borderRadius:8,
+    background: active ? (danger?'#fee2e2':'#3b82f622') : 'transparent',
+    color: active ? (danger?'#dc2626':'#3b82f6') : 'var(--muted)',
+    border: active ? `1px solid ${danger?'#dc2626':'#3b82f6'}` : '1px solid transparent',
   });
 
   return (
@@ -799,32 +814,27 @@ function TransferModal({item, locations, onSave, onClose}) {
         <div style={{fontSize:13,color:'var(--muted)',marginBottom:16}}>{item.name} <span style={{fontFamily:'var(--font-mono)',fontSize:11}}>({item.sku})</span></div>
 
         {/* Tabs */}
-        <div style={{display:'flex',gap:6,marginBottom:20,background:'var(--surface2)',padding:4,borderRadius:10,border:'1px solid var(--border)'}}>
-          <button style={tab(mode==='receive')} onClick={()=>setMode('receive')}>📦 Receive Stock</button>
+        <div style={{display:'flex',gap:4,marginBottom:20,background:'var(--surface2)',padding:4,borderRadius:10,border:'1px solid var(--border)'}}>
+          <button style={tab(mode==='receive')} onClick={()=>setMode('receive')}>📦 Receive</button>
           <button style={tab(mode==='transfer')} onClick={()=>setMode('transfer')}>🔄 Transfer</button>
+          <button style={tab(mode==='remove', true)} onClick={()=>setMode('remove')}>🗑 Remove</button>
         </div>
 
-        {mode==='receive' ? (
+        {mode==='receive' && (
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             <div>
               <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>SUPPLY HOUSE / VENDOR *</label>
-              <input value={supplyHouse} onChange={e=>setSupplyHouse(e.target.value)}
-                placeholder="e.g. Ferguson, Home Depot, Hajoca..."
-                style={inp}/>
+              <input value={supplyHouse} onChange={e=>setSupplyHouse(e.target.value)} placeholder="e.g. Ferguson, Home Depot, Hajoca..." style={inp}/>
             </div>
             <div>
               <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>PO / INVOICE NUMBER <span style={{color:'var(--dim)'}}>(optional)</span></label>
-              <input value={poNum} onChange={e=>setPoNum(e.target.value)}
-                placeholder="e.g. INV-4821 or PO-102"
-                style={inp}/>
+              <input value={poNum} onChange={e=>setPoNum(e.target.value)} placeholder="e.g. INV-4821 or PO-102" style={inp}/>
             </div>
             <div>
               <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>PUT STOCK INTO *</label>
               <select value={recvTo} onChange={e=>setRecvTo(e.target.value)} style={sel}>
                 <option value="">Select location...</option>
-                {locations.map(l=>(
-                  <option key={l.id} value={l.id}>{l.type==='warehouse'?'🏭':'🚚'} {l.name}</option>
-                ))}
+                {locations.map(l=><option key={l.id} value={l.id}>{l.type==='warehouse'?'🏭':'🚚'} {l.name}</option>)}
               </select>
             </div>
             <div>
@@ -832,7 +842,9 @@ function TransferModal({item, locations, onSave, onClose}) {
               <input type="number" min={1} value={recvQty} onChange={e=>setRecvQty(e.target.value)} style={inp}/>
             </div>
           </div>
-        ) : (
+        )}
+
+        {mode==='transfer' && (
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             <div>
               <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>FROM LOCATION</label>
@@ -847,9 +859,7 @@ function TransferModal({item, locations, onSave, onClose}) {
               <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>TO LOCATION</label>
               <select value={to} onChange={e=>setTo(e.target.value)} style={sel}>
                 <option value="">Select destination...</option>
-                {locations.filter(l=>l.id!==from).map(l=>(
-                  <option key={l.id} value={l.id}>{l.name}</option>
-                ))}
+                {locations.filter(l=>l.id!==from).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
             <div>
@@ -859,12 +869,46 @@ function TransferModal({item, locations, onSave, onClose}) {
           </div>
         )}
 
+        {mode==='remove' && (
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{padding:'12px 14px',background:'#fee2e218',border:'1px solid #fee2e2',borderRadius:8,fontSize:12,color:'#dc2626'}}>
+              This removes the item from the selected location entirely — not just zeros it out. The item will no longer appear in that location's stock list.
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>REMOVE FROM LOCATION *</label>
+              <select value={removeLoc} onChange={e=>setRemoveLoc(e.target.value)} style={{...sel, borderColor: removeLoc?'#dc262688':'var(--border)'}}>
+                <option value="">Select location...</option>
+                {locations.filter(l=>stockedLocs.includes(l.id)).map(l=>{
+                  const s = (item.stock||[]).find(st=>st.location_id===l.id);
+                  return <option key={l.id} value={l.id}>{l.type==='warehouse'?'🏭':'🚚'} {l.name} ({s?.qty||0} in stock)</option>;
+                })}
+              </select>
+            </div>
+            {removeStock && (
+              <div style={{fontSize:12,color:'var(--muted)',paddingLeft:4}}>
+                This will remove <strong style={{color:'var(--text)'}}>{removeStock.qty} units</strong> and delete the stock entry.
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 20px',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
-          <button onClick={mode==='receive'?saveReceive:saveTransfer} disabled={saving}
-            style={{background:'#3b82f622',border:'1px solid #3b82f6',borderRadius:8,padding:'9px 20px',color:'#3b82f6',fontSize:13,fontWeight:600,cursor:'pointer'}}>
-            {saving ? 'Saving...' : mode==='receive' ? 'Receive Stock' : 'Transfer'}
-          </button>
+          {mode==='receive' && (
+            <button onClick={saveReceive} disabled={saving} style={{background:'#3b82f622',border:'1px solid #3b82f6',borderRadius:8,padding:'9px 20px',color:'#3b82f6',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+              {saving?'Saving...':'Receive Stock'}
+            </button>
+          )}
+          {mode==='transfer' && (
+            <button onClick={saveTransfer} disabled={saving} style={{background:'#3b82f622',border:'1px solid #3b82f6',borderRadius:8,padding:'9px 20px',color:'#3b82f6',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+              {saving?'Saving...':'Transfer'}
+            </button>
+          )}
+          {mode==='remove' && (
+            <button onClick={saveRemove} disabled={saving||!removeLoc} style={{background:'#dc262622',border:'1px solid #dc2626',borderRadius:8,padding:'9px 20px',color:'#dc2626',fontSize:13,fontWeight:600,cursor:'pointer',opacity:removeLoc?1:0.5}}>
+              {saving?'Removing...':'Remove from Location'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1631,6 +1675,12 @@ function InvPurchaseOrdersTab({items}) {
     catch(e) { toast.error('Error', e.message); }
   };
 
+  const deletePO = async (id, vendor) => {
+    if (!confirm(`Delete PO from "${vendor}"? This cannot be undone.`)) return;
+    try { await api.deletePurchaseOrder(id); reload(); }
+    catch(e) { toast.error('Error', e.message); }
+  };
+
   const statusColor = s=>s==='received'?'#5daf7c':s==='sent'?'#4a9eff':s==='cancelled'?'#f56565':'#e8a84a';
 
   return (
@@ -1653,6 +1703,7 @@ function InvPurchaseOrdersTab({items}) {
                   {po.status==='draft'&&<button onClick={()=>updateStatus(po.id,'sent')} style={{background:'#4a9eff18',border:'1px solid #4a9eff',borderRadius:6,padding:'4px 10px',color:'#4a9eff',fontSize:11,cursor:'pointer'}}>Mark Sent</button>}
                   {po.status==='sent'&&<button onClick={()=>updateStatus(po.id,'received')} style={{background:'#5daf7c18',border:'1px solid #5daf7c',borderRadius:6,padding:'4px 10px',color:'#5daf7c',fontSize:11,cursor:'pointer'}}>Mark Received</button>}
                   {po.status==='draft'&&<button onClick={()=>updateStatus(po.id,'cancelled')} style={{background:'#f5656518',border:'1px solid #f56565',borderRadius:6,padding:'4px 10px',color:'#f56565',fontSize:11,cursor:'pointer'}}>Cancel</button>}
+                  <button onClick={()=>deletePO(po.id, po.vendor||'Unknown Vendor')} style={{background:'#f5656518',border:'1px solid #f56565',borderRadius:6,padding:'4px 10px',color:'#f56565',fontSize:11,cursor:'pointer'}}>🗑 Delete</button>
                 </div>
               </div>
               {po.items?.length>0&&(
