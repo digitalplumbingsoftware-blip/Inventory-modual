@@ -718,50 +718,127 @@ function ItemModal({item, categories, onSave, onClose}) {
 
 // ─── Transfer Modal ───────────────────────────────────────────
 function TransferModal({item, locations, onSave, onClose}) {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [qty, setQty] = useState(1);
-  const [saving, setSaving] = useState(false);
+  const [mode, setMode]           = useState('receive'); // 'receive' | 'transfer'
+  // Receive mode
+  const [supplyHouse, setSupplyHouse] = useState(item.vendor||'');
+  const [poNum, setPoNum]         = useState('');
+  const [recvTo, setRecvTo]       = useState('');
+  const [recvQty, setRecvQty]     = useState(1);
+  // Transfer mode
+  const [from, setFrom]           = useState('');
+  const [to, setTo]               = useState('');
+  const [qty, setQty]             = useState(1);
+  const [saving, setSaving]       = useState(false);
+
   const fromStock = (item.stock||[]).find(s=>s.location_id===from);
-  const save = async () => {
+
+  const saveReceive = async () => {
+    if (!supplyHouse.trim()) return toast.warn('Required', 'Enter a supply house name');
+    if (!recvTo) return toast.warn('Required', 'Select a destination location');
+    if (recvQty < 1) return toast.warn('Validation', 'Quantity must be at least 1');
+    setSaving(true);
+    try {
+      const notes = `Received from ${supplyHouse.trim()}${poNum.trim() ? ` · PO/Invoice: ${poNum.trim()}` : ''}`;
+      await api.moveStock({item_id:item.id, from_location:null, to_location:recvTo, qty:parseInt(recvQty), type:'receive', notes});
+      onSave();
+    } catch(e) { toast.error('Error', e.message); }
+    finally { setSaving(false); }
+  };
+
+  const saveTransfer = async () => {
     if (!from||!to||from===to) return toast.warn('Validation', 'Select different source and destination');
     if (qty<1) return toast.warn('Validation', 'Quantity must be at least 1');
     if (fromStock && qty > fromStock.qty) return toast.warn('Not enough stock', `Only ${fromStock.qty} available at source`);
     setSaving(true);
-    try { await api.moveStock({item_id:item.id,from_location:from,to_location:to,qty:parseInt(qty)}); onSave(); }
+    try { await api.moveStock({item_id:item.id, from_location:from, to_location:to, qty:parseInt(qty), type:'transfer'}); onSave(); }
     catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
+
   const sel = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
+  const inp = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
+  const tab = (active) => ({
+    flex:1, padding:'8px', textAlign:'center', fontSize:13, fontWeight:600, cursor:'pointer', borderRadius:8,
+    background: active ? '#3b82f622' : 'transparent',
+    color: active ? '#3b82f6' : 'var(--muted)',
+    border: active ? '1px solid #3b82f6' : '1px solid transparent',
+  });
+
   return (
     <div style={{position:'fixed',inset:0,background:'#00000088',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:420,padding:28}}>
-        <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:700,marginBottom:6}}>Transfer Stock</div>
-        <div style={{fontSize:13,color:'var(--muted)',marginBottom:20}}>{item.name} <span style={{fontFamily:'var(--font-mono)',fontSize:11}}>({item.sku})</span></div>
-        <div style={{display:'flex',flexDirection:'column',gap:14}}>
-          <div><label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>FROM LOCATION</label>
-            <select value={from} onChange={e=>setFrom(e.target.value)} style={sel}>
-              <option value="">Select source...</option>
-              {(item.stock||[]).filter(s=>s.qty>0).map(s=>(
-                <option key={s.location_id} value={s.location_id}>{s.location_name} ({s.qty} in stock)</option>
-              ))}
-            </select>
-          </div>
-          <div><label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>TO LOCATION</label>
-            <select value={to} onChange={e=>setTo(e.target.value)} style={sel}>
-              <option value="">Select destination...</option>
-              {locations.filter(l=>l.id!==from).map(l=>(
-                <option key={l.id} value={l.id}>{l.name}</option>
-              ))}
-            </select>
-          </div>
-          <div><label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>QUANTITY</label>
-            <input type="number" min={1} max={fromStock?.qty||999} value={qty} onChange={e=>setQty(e.target.value)} style={sel}/>
-          </div>
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:440,padding:28}}>
+
+        {/* Header */}
+        <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:700,marginBottom:4}}>Adjust Stock</div>
+        <div style={{fontSize:13,color:'var(--muted)',marginBottom:16}}>{item.name} <span style={{fontFamily:'var(--font-mono)',fontSize:11}}>({item.sku})</span></div>
+
+        {/* Tabs */}
+        <div style={{display:'flex',gap:6,marginBottom:20,background:'var(--surface2)',padding:4,borderRadius:10,border:'1px solid var(--border)'}}>
+          <button style={tab(mode==='receive')} onClick={()=>setMode('receive')}>📦 Receive Stock</button>
+          <button style={tab(mode==='transfer')} onClick={()=>setMode('transfer')}>🔄 Transfer</button>
         </div>
+
+        {mode==='receive' ? (
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>SUPPLY HOUSE / VENDOR *</label>
+              <input value={supplyHouse} onChange={e=>setSupplyHouse(e.target.value)}
+                placeholder="e.g. Ferguson, Home Depot, Hajoca..."
+                style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>PO / INVOICE NUMBER <span style={{color:'var(--dim)'}}>(optional)</span></label>
+              <input value={poNum} onChange={e=>setPoNum(e.target.value)}
+                placeholder="e.g. INV-4821 or PO-102"
+                style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>PUT STOCK INTO *</label>
+              <select value={recvTo} onChange={e=>setRecvTo(e.target.value)} style={sel}>
+                <option value="">Select location...</option>
+                {locations.map(l=>(
+                  <option key={l.id} value={l.id}>{l.type==='warehouse'?'🏭':'🚚'} {l.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>QUANTITY RECEIVED *</label>
+              <input type="number" min={1} value={recvQty} onChange={e=>setRecvQty(e.target.value)} style={inp}/>
+            </div>
+          </div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>FROM LOCATION</label>
+              <select value={from} onChange={e=>setFrom(e.target.value)} style={sel}>
+                <option value="">Select source...</option>
+                {(item.stock||[]).filter(s=>s.qty>0).map(s=>(
+                  <option key={s.location_id} value={s.location_id}>{s.location_name} ({s.qty} in stock)</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>TO LOCATION</label>
+              <select value={to} onChange={e=>setTo(e.target.value)} style={sel}>
+                <option value="">Select destination...</option>
+                {locations.filter(l=>l.id!==from).map(l=>(
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>QUANTITY</label>
+              <input type="number" min={1} max={fromStock?.qty||999} value={qty} onChange={e=>setQty(e.target.value)} style={sel}/>
+            </div>
+          </div>
+        )}
+
         <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 20px',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{background:'#4a9eff22',border:'1px solid #4a9eff',borderRadius:8,padding:'9px 20px',color:'#4a9eff',fontSize:13,fontWeight:600,cursor:'pointer'}}>{saving?'Moving...':'Transfer'}</button>
+          <button onClick={mode==='receive'?saveReceive:saveTransfer} disabled={saving}
+            style={{background:'#3b82f622',border:'1px solid #3b82f6',borderRadius:8,padding:'9px 20px',color:'#3b82f6',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+            {saving ? 'Saving...' : mode==='receive' ? 'Receive Stock' : 'Transfer'}
+          </button>
         </div>
       </div>
     </div>
