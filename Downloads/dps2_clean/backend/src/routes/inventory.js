@@ -15,6 +15,11 @@ async function ensureInventorySchema() {
   // Add service_type and category_id to items if not present
   await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS service_type TEXT DEFAULT ''`);
   await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES inventory_categories(id) ON DELETE SET NULL`);
+  // Per-location-type min/max (warehouse vs truck)
+  await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS warehouse_min_qty INT NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS warehouse_max_qty INT`);
+  await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS truck_min_qty INT NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS truck_max_qty INT`);
 }
 ensureInventorySchema().catch(e => console.error("inventory schema init:", e.message));
 
@@ -89,22 +94,28 @@ router.get("/items", authenticate, async (req, res) => {
 
 router.post("/items", authenticate, async (req, res) => {
   try {
-    const { sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode } = req.body;
+    const { sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode, warehouse_min_qty, warehouse_max_qty, truck_min_qty, truck_max_qty } = req.body;
     const { rows } = await query(`
-      INSERT INTO inventory_items (sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *
-    `, [sku, name, description||'', category||'', category_id||null, service_type||'', item_type||'consumable', cost||0, price||0, min_qty||0, max_qty||null, vendor||'', vendor_sku||'', barcode||sku]);
+      INSERT INTO inventory_items (sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode, warehouse_min_qty, warehouse_max_qty, truck_min_qty, truck_max_qty)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *
+    `, [sku, name, description||'', category||'', category_id||null, service_type||'', item_type||'consumable', cost||0, price||0, min_qty||0, max_qty||null, vendor||'', vendor_sku||'', barcode||sku,
+        parseInt(warehouse_min_qty)||0, warehouse_max_qty?parseInt(warehouse_max_qty):null,
+        parseInt(truck_min_qty)||0, truck_max_qty?parseInt(truck_max_qty):null]);
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put("/items/:id", authenticate, async (req, res) => {
   try {
-    const { sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode } = req.body;
+    const { sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode, warehouse_min_qty, warehouse_max_qty, truck_min_qty, truck_max_qty } = req.body;
     const { rows } = await query(`
-      UPDATE inventory_items SET sku=$1,name=$2,description=$3,category=$4,category_id=$5,service_type=$6,item_type=$7,cost=$8,price=$9,min_qty=$10,max_qty=$11,vendor=$12,vendor_sku=$13,barcode=$14
-      WHERE id=$15 RETURNING *
-    `, [sku, name, description||'', category||'', category_id||null, service_type||'', item_type||'consumable', cost||0, price||0, min_qty||0, max_qty||null, vendor||'', vendor_sku||'', barcode||sku, req.params.id]);
+      UPDATE inventory_items SET sku=$1,name=$2,description=$3,category=$4,category_id=$5,service_type=$6,item_type=$7,cost=$8,price=$9,min_qty=$10,max_qty=$11,vendor=$12,vendor_sku=$13,barcode=$14,
+        warehouse_min_qty=$15,warehouse_max_qty=$16,truck_min_qty=$17,truck_max_qty=$18
+      WHERE id=$19 RETURNING *
+    `, [sku, name, description||'', category||'', category_id||null, service_type||'', item_type||'consumable', cost||0, price||0, min_qty||0, max_qty||null, vendor||'', vendor_sku||'', barcode||sku,
+        parseInt(warehouse_min_qty)||0, warehouse_max_qty?parseInt(warehouse_max_qty):null,
+        parseInt(truck_min_qty)||0, truck_max_qty?parseInt(truck_max_qty):null,
+        req.params.id]);
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

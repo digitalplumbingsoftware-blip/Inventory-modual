@@ -649,18 +649,27 @@ function ItemModal({item, categories, onSave, onClose}) {
   const [form, setForm] = useState({
     sku:'', name:'', description:'', category:'', category_id:'', service_type:'',
     item_type:'consumable', cost:'', price:'', min_qty:'0', max_qty:'',
+    warehouse_min_qty:'0', warehouse_max_qty:'', truck_min_qty:'0', truck_max_qty:'',
     vendor:'', vendor_sku:'', barcode:'',
     ...item,
     category_id: item?.category_id || '',
     service_type: item?.service_type || '',
+    warehouse_min_qty: item?.warehouse_min_qty ?? item?.min_qty ?? '0',
+    warehouse_max_qty: item?.warehouse_max_qty ?? item?.max_qty ?? '',
+    truck_min_qty: item?.truck_min_qty ?? '0',
+    truck_max_qty: item?.truck_max_qty ?? '',
   });
   const [saving, setSaving] = useState(false);
   const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
   const save = async () => {
     setSaving(true);
     try {
+      const wMin = parseInt(form.warehouse_min_qty)||0;
+      const tMin = parseInt(form.truck_min_qty)||0;
       const data = {...form, cost:parseFloat(form.cost)||0, price:parseFloat(form.price)||0,
-        min_qty:parseInt(form.min_qty)||0, max_qty:form.max_qty?parseInt(form.max_qty):null,
+        min_qty: wMin, max_qty: form.warehouse_max_qty?parseInt(form.warehouse_max_qty):null,
+        warehouse_min_qty: wMin, warehouse_max_qty: form.warehouse_max_qty?parseInt(form.warehouse_max_qty):null,
+        truck_min_qty: tMin, truck_max_qty: form.truck_max_qty?parseInt(form.truck_max_qty):null,
         barcode:form.barcode||form.sku, category_id:form.category_id||null};
       if (item?.id) await api.updateItem(item.id, data);
       else await api.createItem(data);
@@ -703,8 +712,25 @@ function ItemModal({item, categories, onSave, onClose}) {
           </div>
           <div><label style={lbl}>COST ($)</label><input type="number" value={form.cost} onChange={set('cost')} style={inp}/></div>
           <div><label style={lbl}>PRICE ($)</label><input type="number" value={form.price} onChange={set('price')} style={inp}/></div>
-          <div><label style={lbl}>MIN QTY</label><input type="number" value={form.min_qty} onChange={set('min_qty')} style={inp}/></div>
-          <div><label style={lbl}>MAX QTY</label><input type="number" value={form.max_qty||''} onChange={set('max_qty')} style={inp}/></div>
+        </div>
+        {/* Stock level thresholds */}
+        <div style={{marginTop:16,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          <div style={{gridColumn:'1/-1'}}>
+            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em',marginBottom:10,paddingBottom:6,borderBottom:'1px solid var(--border)'}}>🏭 WAREHOUSE STOCK LEVELS</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div><label style={lbl}>MIN QTY</label><input type="number" min="0" value={form.warehouse_min_qty} onChange={set('warehouse_min_qty')} style={inp}/></div>
+              <div><label style={lbl}>MAX QTY</label><input type="number" min="0" value={form.warehouse_max_qty||''} onChange={set('warehouse_max_qty')} placeholder="No limit" style={inp}/></div>
+            </div>
+          </div>
+          <div style={{gridColumn:'1/-1'}}>
+            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em',marginBottom:10,paddingBottom:6,borderBottom:'1px solid var(--border)'}}>🚚 TRUCK STOCK LEVELS</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div><label style={lbl}>MIN QTY</label><input type="number" min="0" value={form.truck_min_qty} onChange={set('truck_min_qty')} style={inp}/></div>
+              <div><label style={lbl}>MAX QTY</label><input type="number" min="0" value={form.truck_max_qty||''} onChange={set('truck_max_qty')} placeholder="No limit" style={inp}/></div>
+            </div>
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:0}}>
         </div>
         <div style={{marginTop:14}}><label style={lbl}>DESCRIPTION</label><textarea value={form.description||''} onChange={set('description')} rows={2} style={{...inp,resize:'vertical'}}/></div>
         <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
@@ -1075,11 +1101,25 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
   const materialTypes = ['consumable','material'];
   const toolTypes     = ['tool','equipment'];
 
-  const getStatus = (item) => {
-    const total = (item.stock||[]).reduce((s,l)=>s+parseInt(l.qty||0),0);
-    if (total === 0) return 'out';
-    if (total <= item.min_qty) return 'low';
+  // Status helpers — per location type so each uses its own threshold
+  const getLocTypeQty = (item, type) =>
+    (item.stock||[]).reduce((s,l) => s + (l.location_type===type ? parseInt(l.qty||0) : 0), 0);
+
+  const getLocTypeStatus = (item, type) => {
+    const qty = getLocTypeQty(item, type);
+    const minQ = type==='truck' ? (item.truck_min_qty||0) : (item.warehouse_min_qty||item.min_qty||0);
+    if (qty === 0 && minQ > 0) return 'out';
+    if (minQ > 0 && qty <= minQ) return 'low';
+    if (qty === 0) return 'empty'; // 0 qty, no min set — just show 0, not an alert
     return 'ok';
+  };
+
+  const getStatus = (item) => {
+    // Overall = worst of warehouse + truck
+    const ws = getLocTypeStatus(item, 'warehouse');
+    const ts = getLocTypeStatus(item, 'truck');
+    const rank = { out:3, low:2, empty:1, ok:0 };
+    return rank[ws] >= rank[ts] ? ws : ts;
   };
 
   const filtered = (items||[]).filter(i => {
@@ -1111,7 +1151,8 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
   const trucksOk   = trucks.filter(t=>{
     const lowOnTruck = allItems.some(i=>{
       const s=(i.stock||[]).find(st=>st.location_id===t.id);
-      return s && parseInt(s.qty||0) <= i.min_qty;
+      const tMin = i.truck_min_qty||0;
+      return s && tMin > 0 && parseInt(s.qty||0) <= tMin;
     });
     return !lowOnTruck;
   }).length;
@@ -1234,61 +1275,104 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
         <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14}}>
           {filtered.map(item=>{
             const totalQty = (item.stock||[]).reduce((s,l)=>s+parseInt(l.qty||0),0);
-            const maxQty   = Math.max(item.min_qty*2, 1);
-            const fillPct  = Math.min(100, Math.round((totalQty/maxQty)*100));
-            const barColor = getStatus(item)==='ok'?'#16a34a':getStatus(item)==='low'?'#d97706':'#dc2626';
-            const truckStock = (item.stock||[]).find(s=>{
-              const loc = (locations||[]).find(l=>l.id===s.location_id);
-              return loc?.type==='truck';
-            });
+
+            // Per-type quantities
+            const whQty    = getLocTypeQty(item, 'warehouse');
+            const trQty    = getLocTypeQty(item, 'truck');
+            const whStatus = getLocTypeStatus(item, 'warehouse');
+            const trStatus = getLocTypeStatus(item, 'truck');
+
+            // Per-type min/max
+            const whMin = item.warehouse_min_qty||item.min_qty||0;
+            const whMax = item.warehouse_max_qty||item.max_qty||(whMin*2)||10;
+            const trMin = item.truck_min_qty||0;
+            const trMax = item.truck_max_qty||(trMin*2)||10;
+
+            // Progress bar fills (0–100%)
+            const whFill = whMax > 0 ? Math.min(100, Math.round((whQty/whMax)*100)) : 0;
+            const trFill = trMax > 0 ? Math.min(100, Math.round((trQty/trMax)*100)) : 0;
+
+            const statusColor = (s) => s==='out'?'#dc2626':s==='low'?'#d97706':s==='empty'?'#9ca3af':'#16a34a';
+            const statusLabel = (s) => s==='out'?'Out':s==='low'?'Low':s==='empty'?'—':'OK';
+            const pillBg      = (s) => s==='out'?'#fee2e2':s==='low'?'#fef3c7':s==='empty'?'#f3f4f6':'#dcfce7';
+            const overallStatus = getStatus(item);
+
             return (
               <div key={item.id} style={{
                 background:'#fff', border:'1px solid #e5e7eb',
                 borderTop:`3px solid ${cardBorderColor(item)}`,
                 borderRadius:10, overflow:'hidden',
-                transition:'box-shadow .15s, border-color .15s',
-                cursor:'pointer',
+                transition:'box-shadow .15s',
               }}
-              onMouseEnter={e=>{ e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor='#d1d5db'; }}
-              onMouseLeave={e=>{ e.currentTarget.style.boxShadow='none'; e.currentTarget.style.borderColor='#e5e7eb'; }}>
+              onMouseEnter={e=>e.currentTarget.style.boxShadow='0 4px 16px rgba(0,0,0,0.08)'}
+              onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}>
 
-                {/* Card body */}
-                <div style={{padding:'12px 14px'}}>
-                  <div style={{fontSize:13, fontWeight:700, color:'#111827', marginBottom:2, lineHeight:1.35}}>{item.name}</div>
-                  <div style={{fontSize:11, color:'#9ca3af', marginBottom:10, fontFamily:'monospace'}}>{item.sku}</div>
-
-                  {/* Stock bar */}
-                  <div style={{marginBottom:8}}>
-                    <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:'#6b7280', marginBottom:3}}>
-                      <span>{locationFilter!=='all'
-                        ? ((locations||[]).find(l=>l.id===locationFilter)?.name||'Stock')
-                        : 'Total Stock'}</span>
-                      <span style={{fontWeight:700}}>{locationFilter!=='all'
-                        ? ((item.stock||[]).find(s=>s.location_id===locationFilter)?.qty||0)
-                        : totalQty} / {item.min_qty} min</span>
+                {/* ── Header: name + overall pill ── */}
+                <div style={{padding:'12px 14px 8px'}}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13, fontWeight:700, color:'#111827', lineHeight:1.35}}>{item.name}</div>
+                      <div style={{fontSize:11, color:'#9ca3af', fontFamily:'monospace', marginTop:1}}>{item.sku}</div>
                     </div>
-                    <div style={{height:5, background:'#f3f4f6', borderRadius:3, overflow:'hidden'}}>
-                      <div style={{height:'100%', width:`${fillPct}%`, background:barColor, borderRadius:3, transition:'width .3s'}}/>
-                    </div>
+                    <span style={{flexShrink:0, fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10,
+                      background:pillBg(overallStatus), color:statusColor(overallStatus)}}>
+                      {overallStatus==='out'?'Out of Stock':overallStatus==='low'?'Low Stock':overallStatus==='empty'?'No Stock':'In Stock'}
+                    </span>
                   </div>
 
-                  {/* Meta row */}
-                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div style={{fontSize:13, fontWeight:700, color:'#111827'}}>
-                      {item.cost!=null ? `$${parseFloat(item.cost).toFixed(2)}` : <span style={{fontSize:11,color:'#9ca3af'}}>No cost</span>}
-                    </div>
-                    <span style={{...pillStyle(item), fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:10}}>{pillLabel(item)}</span>
+                  {/* ── Total qty ── */}
+                  <div style={{display:'flex', alignItems:'baseline', gap:6, marginTop:10, marginBottom:2}}>
+                    <span style={{fontSize:28, fontWeight:800, color:'#111827', letterSpacing:'-1px', lineHeight:1}}>{totalQty}</span>
+                    <span style={{fontSize:11, color:'#9ca3af', fontWeight:500}}>total units</span>
+                    {item.cost!=null && (
+                      <span style={{marginLeft:'auto', fontSize:12, fontWeight:600, color:'#374151'}}>
+                        ${parseFloat(item.cost).toFixed(2)}/ea
+                      </span>
+                    )}
                   </div>
-
-                  {/* Truck stock if available */}
-                  {truckStock && (
-                    <div style={{marginTop:8, paddingTop:8, borderTop:'1px solid #f3f4f6', fontSize:11, color:'#6b7280'}}>
-                      🚚 Truck: <span style={{fontWeight:700, color: parseInt(truckStock.qty||0)===0?'#dc2626':parseInt(truckStock.qty||0)<=item.min_qty?'#d97706':'#111827'}}>{truckStock.qty}</span>
-                    </div>
-                  )}
                 </div>
 
-                {/* Card actions */}
+                {/* ── Location breakdown ── */}
+                <div style={{padding:'8px 14px 12px', borderTop:'1px solid #f3f4f6', display:'flex', flexDirection:'column', gap:8}}>
+
+                  {/* Warehouse row */}
+                  <div>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3}}>
+                      <span style={{fontSize:11, color:'#6b7280', fontWeight:500}}>🏭 Warehouse</span>
+                      <div style={{display:'flex', alignItems:'center', gap:6}}>
+                        <span style={{fontSize:12, fontWeight:700, color:'#111827'}}>{whQty}</span>
+                        <span style={{fontSize:10, color:'#9ca3af'}}>/ min {whMin}{whMax?` / max ${whMax}`:''}</span>
+                        <span style={{fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:6,
+                          background:pillBg(whStatus), color:statusColor(whStatus)}}>
+                          {statusLabel(whStatus)}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{height:4, background:'#f3f4f6', borderRadius:3, overflow:'hidden'}}>
+                      <div style={{height:'100%', width:`${whFill}%`, background:statusColor(whStatus), borderRadius:3, transition:'width .3s'}}/>
+                    </div>
+                  </div>
+
+                  {/* Truck row */}
+                  <div>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3}}>
+                      <span style={{fontSize:11, color:'#6b7280', fontWeight:500}}>🚚 Trucks</span>
+                      <div style={{display:'flex', alignItems:'center', gap:6}}>
+                        <span style={{fontSize:12, fontWeight:700, color:'#111827'}}>{trQty}</span>
+                        <span style={{fontSize:10, color:'#9ca3af'}}>/ min {trMin}{trMax?` / max ${trMax}`:''}</span>
+                        <span style={{fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:6,
+                          background:pillBg(trStatus), color:statusColor(trStatus)}}>
+                          {statusLabel(trStatus)}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{height:4, background:'#f3f4f6', borderRadius:3, overflow:'hidden'}}>
+                      <div style={{height:'100%', width:`${trFill}%`, background:statusColor(trStatus), borderRadius:3, transition:'width .3s'}}/>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Actions ── */}
                 <div style={{display:'flex', gap:6, padding:'10px 14px', borderTop:'1px solid #f3f4f6'}}>
                   <button onClick={()=>setTransferItem(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #bfdbfe', background:'#eff6ff', color:'#3b82f6'}}>Adjust Stock</button>
                   <button onClick={()=>setModal(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #e5e7eb', background:'#fff', color:'#374151'}}>Edit</button>
