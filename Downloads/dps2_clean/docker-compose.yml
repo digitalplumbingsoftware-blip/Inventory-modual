@@ -1,0 +1,80 @@
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: dps_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dps
+      POSTGRES_USER: dps_user
+      POSTGRES_PASSWORD: dps_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./backend/src/db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dps_user -d dps"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend API ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dps_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgres://dps_user:dps_secret@postgres:5432/dps
+      JWT_SECRET: ${JWT_SECRET}
+      # ── Square Sandbox ──────────────────────────────────────
+      # Get these free at: https://developer.squareup.com
+      SQUARE_APPLICATION_ID: ${SQUARE_APPLICATION_ID:-sandbox-sq0idb-TvWOCnYUBtSHBQFNFSZlJw}
+      SQUARE_ACCESS_TOKEN: ${SQUARE_ACCESS_TOKEN:-PASTE_YOUR_NEW_TOKEN_HERE}
+      SQUARE_LOCATION_ID: ${SQUARE_LOCATION_ID:-PASTE_LOCATION_ID_HERE}
+      SQUARE_ENVIRONMENT: sandbox
+      # ── Twilio ─────────────────────────────────────────────
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      # ── QuickBooks ──────────────────────────────────────────
+      QB_CLIENT_ID: ${QB_CLIENT_ID:-}
+      QB_CLIENT_SECRET: ${QB_CLIENT_SECRET:-}
+      QB_REDIRECT_URI: ${QB_REDIRECT_URI:-http://localhost:4000/api/qb/callback}
+      QB_ENVIRONMENT: ${QB_ENVIRONMENT:-sandbox}
+      # ── CORS ───────────────────────────────────────────────
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend/src:/app/src
+    command: npm run dev
+
+  # ── Frontend React App ───────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dps_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://backend:4000
+      VITE_WS_URL: ws://backend:4000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+
+volumes:
+  postgres_data:

@@ -107,3 +107,28 @@ Post-launch backlog. Items here are NOT blockers for initial launch. Tackle afte
 - **Replace alert() with toast notifications** — ~30 uses of `alert(e.message)` throughout the frontend. Replace with a toast library for professional UX.
 - **Add structured logging to backend** — replace `console.error` with a logging library (pino, winston) so production errors are searchable.
 - **Token refresh endpoint** — add `/api/auth/refresh` so mobile sessions don't expire after 12h.
+
+---
+
+## Security / ops (address before any remote deployment)
+
+### Purge JWT_SECRET from git history
+**What:** Before pushing to any remote (GitHub, Railway), run `git filter-repo` or BFG Repo Cleaner to remove the old `JWT_SECRET: change_me_in_production_use_long_random_string` string from git history.
+**Why:** The secret is being rotated to `.env`, but the old value remains in every past commit. Anyone with access to the repo can extract it and forge tokens from before the rotation.
+**Context:** Harmless while the repo stays local. Becomes a security issue the moment it's pushed to any remote. Run this before the first `git push`.
+**Effort:** S (human ~30 min / CC: ~5 min)
+**Priority:** P1 — do before Railway deploy
+
+### PIN attempt rate limiting
+**What:** Add rate limiting to `POST /api/auth/pin-login` — e.g., 5 failed attempts before a 15-minute lockout per technician ID.
+**Why:** 4-digit PINs have only 10,000 combinations. No lockout means an attacker on the local network could brute-force any tech's PIN in minutes.
+**Context:** Low risk for an internal tool with 5 known employees. Becomes relevant if DPS is ever accessible from the internet (Railway deploy + no IP restriction).
+**Effort:** S (human ~1 hour / CC: ~10 min)
+**Priority:** P2
+
+### Migrate photo storage to S3 before Railway deploy
+**What:** When deploying to Railway, the `/uploads/` folder on the backend container does not persist across deploys (ephemeral filesystem). Write a one-time migration script to upload existing photos from `/uploads/` to an S3 bucket, then switch the photo upload endpoint to write to S3.
+**Why:** All tech-uploaded job photos are evidence for customer disputes. Losing them in a container restart is a business liability.
+**Context:** Photo storage is intentionally set to local filesystem for now (simple, no AWS account needed). This TODO is the planned migration path. Do this before any hosted deploy.
+**Effort:** M (human ~4 hours / CC: ~30 min)
+**Priority:** P1 — do before Railway deploy
