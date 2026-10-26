@@ -102,7 +102,7 @@ router.post("/payment", authenticate, async (req, res) => {
         tipMoney: { amount: BigInt(tip_cents), currency: "USD" },
       }),
       locationId,
-      note: customer_note || (invoiceNumber ? `DPS Invoice #${invoiceNumber}` : "DPS Payment"),
+      note: customer_note || (invoiceNumber ? `ServiceCore Pro Invoice #${invoiceNumber}` : "ServiceCore Pro Payment"),
       ...(invoice_id && { referenceId: invoice_id }),
     });
 

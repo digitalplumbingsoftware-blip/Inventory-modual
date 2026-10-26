@@ -227,7 +227,7 @@ router.post('/:id/send', authenticate, async (req, res) => {
       try {
         const { sendMail, loadCompanyAndLayout } = require('../lib/mailer');
         const { company, layout } = await loadCompanyAndLayout();
-        const companyName = company.name || layout.smtp_from_name || 'DPS';
+        const companyName = company.name || layout.smtp_from_name || 'ServiceCore Pro';
         const total = parseFloat(full.total).toFixed(2);
 
         const subjectTmpl = layout.email_estimate_subject || `Estimate #{number} from {company}`;
@@ -431,7 +431,8 @@ router.get('/public/:token', async (req, res) => {
     const full = await getEstimateWithItems(est.id);
     // Strip sensitive fields for public view
     const { sign_token, technician_id, ...safe } = full;
-    res.json(safe);
+    const { rows: [co] } = await query(`SELECT name FROM company_settings WHERE id='main'`);
+    res.json({ ...safe, company_name: co?.name || null });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

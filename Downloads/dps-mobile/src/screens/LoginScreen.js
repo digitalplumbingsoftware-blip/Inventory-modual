@@ -8,6 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 import { C } from '../theme';
 import { getTechs, loginWithPin, BASE_URL } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import ServiceCoreLogo from '../components/ServiceCoreLogo';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -92,11 +93,7 @@ export default function LoginScreen() {
     <View style={styles.container}>
       {/* Logo */}
       <View style={styles.logo}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoWave}>〜</Text>
-        </View>
-        <Text style={styles.logoText}>DPS</Text>
-        <Text style={styles.logoSub}>DIGITAL PLUMBING SOFTWARE</Text>
+        <ServiceCoreLogo />
       </View>
 
       {/* Tech selector */}
@@ -160,10 +157,6 @@ const styles = StyleSheet.create({
   container: { flex:1, backgroundColor:C.bg, paddingTop:60 },
   center: { flex:1, backgroundColor:C.bg, justifyContent:'center', alignItems:'center' },
   logo: { alignItems:'center', marginBottom:32 },
-  logoCircle: { width:60,height:60,borderRadius:30,borderWidth:2,borderColor:C.green,justifyContent:'center',alignItems:'center',marginBottom:10 },
-  logoWave: { fontSize:24,color:C.green },
-  logoText: { fontSize:28,fontWeight:'800',color:C.text,letterSpacing:4 },
-  logoSub: { fontSize:10,color:C.muted,letterSpacing:3,marginTop:2 },
   label: { fontSize:10,color:C.muted,letterSpacing:2,textAlign:'center',marginBottom:12 },
   techRow: { maxHeight:90,flexShrink:0,marginBottom:8 },
   techChip: { alignItems:'center',padding:10,borderRadius:12,borderWidth:1.5,borderColor:C.border,backgroundColor:C.surface,minWidth:72 },

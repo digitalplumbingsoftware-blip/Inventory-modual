@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo, Component, Fragment } from "react";
 import { api, connectGpsWebSocket } from "./api.js";
 import { useAuth } from "./main.jsx";
+import { ServiceCoreLogo } from "./brand.jsx";
 
 /* ═══════════════════════════════════════════════════════════════
-   DPS — DIGITAL PLUMBING SOFTWARE
+   SERVICECORE PRO — FIELD SERVICE PLATFORM
    Live-wired React frontend
    ═══════════════════════════════════════════════════════════════ */
 
-const GF = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:wght@700;800;900&display=swap');`;
+const GF = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;800;900&display=swap');`;
 const G = `
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -263,27 +264,6 @@ function ToastContainer() {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// ─── DPS Logo ─────────────────────────────────────────────────
-function DPSLogo({expanded=true}) {
-  return (
-    <div style={{display:"flex",alignItems:"center",gap:10,overflow:"hidden"}}>
-      <svg width="32" height="28" viewBox="0 0 40 34" fill="none" style={{flexShrink:0}}>
-        <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
-        <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" strokeWidth="1.2" strokeOpacity=".35"/>
-        <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" strokeWidth="1.2" strokeOpacity=".35"/>
-        <line x1="12" y1="22" x2="40" y2="22" stroke="#fff" strokeWidth="1.2" strokeOpacity=".35"/>
-        <text x="20" y="23" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800" fontFamily="'DM Sans',sans-serif" letterSpacing="1">DP</text>
-      </svg>
-      {expanded && (
-        <div>
-          <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:18,fontWeight:800,color:"#e8eaf4",lineHeight:1,letterSpacing:".01em"}}>Davis Plumbing</div>
-          <div style={{fontSize:7,letterSpacing:".18em",color:"#1D70B7",marginTop:2,fontFamily:"'DM Mono',monospace"}}>DIGITAL PLUMBING SOFTWARE</div>
-        </div>
-      )}
     </div>
   );
 }
@@ -6355,11 +6335,11 @@ function InvoiceLayoutSettings() {
         <Section title="CONTENT" last>
           <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
             <label style={lbl}>Thank You Message</label>
-            <input style={inp} value={layout.thank_you_text||''} onChange={e=>set('thank_you_text',e.target.value)} placeholder="Thank you for choosing Davis Plumbing!"/>
+            <input style={inp} value={layout.thank_you_text||''} onChange={e=>set('thank_you_text',e.target.value)} placeholder="Thank you for choosing Your Company!"/>
           </div>
           <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
             <label style={lbl}>Payment Instructions / Bank Details</label>
-            <textarea rows={3} style={{...inp,resize:'vertical'}} value={layout.bank_details||''} onChange={e=>set('bank_details',e.target.value)} placeholder="ACH: Routing 021000021, Acct 123456789&#10;Zelle: billing@yourdomain.com&#10;Check payable to: Davis Plumbing LLC"/>
+            <textarea rows={3} style={{...inp,resize:'vertical'}} value={layout.bank_details||''} onChange={e=>set('bank_details',e.target.value)} placeholder="ACH: Routing 021000021, Acct 123456789&#10;Zelle: billing@yourdomain.com&#10;Check payable to: Your Company LLC"/>
           </div>
           <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
             <label style={lbl}>Terms &amp; Conditions</label>
@@ -6367,7 +6347,7 @@ function InvoiceLayoutSettings() {
           </div>
           <div style={{...row,padding:'12px 0'}}>
             <label style={lbl}>Footer Text</label>
-            <input style={inp} value={layout.footer_text||''} onChange={e=>set('footer_text',e.target.value)} placeholder="Licensed & Insured · Davis Plumbing LLC · (555) 867-5309"/>
+            <input style={inp} value={layout.footer_text||''} onChange={e=>set('footer_text',e.target.value)} placeholder="Licensed & Insured · Your Company LLC · (555) 867-5309"/>
           </div>
         </Section>
       </>)}
@@ -6524,7 +6504,7 @@ function InvoiceEmailSettings() {
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <div style={rowStyle}>
             <label style={labelStyle}>From Name</label>
-            <input style={inputStyle} value={layout.smtp_from_name||''} onChange={e=>set('smtp_from_name',e.target.value)} placeholder="Davis Plumbing"/>
+            <input style={inputStyle} value={layout.smtp_from_name||''} onChange={e=>set('smtp_from_name',e.target.value)} placeholder="Your Company"/>
           </div>
           <div style={rowStyle}>
             <label style={labelStyle}>From Email</label>
@@ -6570,7 +6550,7 @@ function InvoiceEmailSettings() {
             onClick={async()=>{
               setTesting(true);
               try {
-                await api.sendInvoiceEmail('test',{to:testEmail,message:'This is a test email from DPS. Your SMTP configuration is working correctly!'});
+                await api.sendInvoiceEmail('test',{to:testEmail,message:'This is a test email from ServiceCore Pro. Your SMTP configuration is working correctly!'});
                 toast.success('Sent!','Test email delivered to '+testEmail);
               } catch(e) {
                 toast.error('Failed','SMTP error: '+(e?.message||'check your server settings'));
@@ -9221,7 +9201,7 @@ function IntegrationsPage() {
   return (
     <div style={{animation:"fadeUp .4s ease"}}>
       <div style={{fontFamily:"var(--font-head)",fontSize:22,fontWeight:800,marginBottom:6}}>Integrations</div>
-      <div style={{fontSize:13,color:"var(--muted)",marginBottom:24}}>Connect DPS to payment, accounting, and tracking platforms.</div>
+      <div style={{fontSize:13,color:"var(--muted)",marginBottom:24}}>Connect ServiceCore Pro to payment, accounting, and tracking platforms.</div>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         {intgDefs.map(i=>{
@@ -13226,7 +13206,7 @@ function CompanySettingsPage() {
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
           <div style={{gridColumn:'1/-1'}}>
             <label style={LBL}>Company Name</label>
-            <input value={form.name} onChange={e=>set('name',e.target.value)} style={INP} placeholder='DPS Plumbing'/>
+            <input value={form.name} onChange={e=>set('name',e.target.value)} style={INP} placeholder='Your Company Name'/>
           </div>
           <div>
             <label style={LBL}>Company Phone</label>
@@ -15848,7 +15828,7 @@ function GPSIntegrationPage() {
             </label>
           ))}
         </div>
-        <div style={{marginTop:20,padding:16,background:'#1e2a3a',borderRadius:8,fontSize:12,color:'#3a8abf'}}>Full GPS provider integration coming soon. Your current GPS page uses the built-in DPS tracking.</div>
+        <div style={{marginTop:20,padding:16,background:'#1e2a3a',borderRadius:8,fontSize:12,color:'#3a8abf'}}>Full GPS provider integration coming soon. Your current GPS page uses the built-in ServiceCore Pro tracking.</div>
       </div>
     </div>
   );
@@ -17214,9 +17194,9 @@ function CallerIDSettings() {
         </div>
         <div style={{marginBottom:14}}>
           <label style={settingsCSS.lbl}>SMS SENDER NAME</label>
-          <input value={cfg.sms_sender_name || ''} onChange={e => set('sms_sender_name', e.target.value)} style={settingsCSS.inp} placeholder="Davis Plumbing"/>
+          <input value={cfg.sms_sender_name || ''} onChange={e => set('sms_sender_name', e.target.value)} style={settingsCSS.inp} placeholder="Your Company"/>
           <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
-            Prepended to outbound texts ("Davis Plumbing: Your tech is on the way…"). Helps with deliverability.
+            Prepended to outbound texts ("Your Company: Your tech is on the way…"). Helps with deliverability.
           </div>
         </div>
         <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:18}}>
@@ -20007,7 +19987,7 @@ function ReeceSupplySettings() {
         </div>
         <div style={{flex:1}}>
           <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800}}>Reece Supply</div>
-          <div style={{fontSize:13,color:'var(--muted)'}}>Browse 200k+ SKUs, get live pricing, and create purchase orders — all without leaving DPS.</div>
+          <div style={{fontSize:13,color:'var(--muted)'}}>Browse 200k+ SKUs, get live pricing, and create purchase orders — all without leaving ServiceCore Pro.</div>
         </div>
         <div style={{padding:'6px 14px',borderRadius:8,fontSize:12,fontWeight:700,...{background:statusBadge.bg,color:statusBadge.color,border:statusBadge.border}}}>
           {statusBadge.label}
@@ -21864,7 +21844,7 @@ function ImportExportPage({ defaultSection }) {
                 {preview && preview.rows.length > 0 && !result && (
                   <button onClick={runImport} disabled={importing}
                     style={{ background: importing ? 'var(--surface2)' : '#5daf7c', color: importing ? 'var(--muted)' : '#fff', border: 'none', borderRadius: 10, padding: '12px 28px', fontSize: 14, fontWeight: 800, cursor: importing ? 'not-allowed' : 'pointer' }}>
-                    {importing ? 'Importing…' : `⬆ Import ${preview.total} Rows into DPS`}
+                    {importing ? 'Importing…' : `⬆ Import ${preview.total} Rows into ServiceCore Pro`}
                   </button>
                 )}
               </>)}
@@ -22424,16 +22404,8 @@ export default function App() {
           {/* Row 1: Brand + utilities */}
           <div style={{height:50,display:"flex",alignItems:"center",padding:"0 20px",gap:14,borderBottom:"1px solid rgba(255,255,255,.08)"}}>
             {/* Logo + company name */}
-            <div style={{display:"flex",alignItems:"center",gap:10,marginRight:12,flexShrink:0}}>
-              <svg width="26" height="22" viewBox="0 0 40 34" fill="none">
-                <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
-                <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
-                <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
-              </svg>
-              <div>
-                <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:14,fontWeight:800,color:"#fff",lineHeight:1.1,whiteSpace:"nowrap"}}>Davis Plumbing</div>
-                <div style={{fontFamily:"var(--font-mono)",fontSize:6,letterSpacing:".18em",color:"#4a9edd",marginTop:2,whiteSpace:"nowrap"}}>DIGITAL PLUMBING SOFTWARE</div>
-              </div>
+            <div style={{marginRight:12,flexShrink:0}}>
+              <ServiceCoreLogo size={32}/>
             </div>
 
             {/* Call pop */}

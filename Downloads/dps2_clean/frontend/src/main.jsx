@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import ReactDOM from "react-dom/client";
 import { api } from "./api.js";
 import App from "./App.jsx";
+import { ServiceCoreLogo } from "./brand.jsx";
 
 export const AuthContext = createContext(null);
 export function useAuth() { return useContext(AuthContext); }
@@ -119,7 +120,7 @@ function PublicSignPage({token}) {
             onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}/>
         </div>
         <button onClick={clearSig} style={{background:'transparent',border:'1px solid #1e2d5a',borderRadius:6,padding:'5px 14px',color:'#6b7aaa',fontSize:12,cursor:'pointer',marginBottom:16}}>Clear Signature</button>
-        <p style={{fontSize:11,color:'#6b7aaa',marginBottom:16}}>By signing, you authorize Davis Plumbing to perform the work described above for the total amount shown.</p>
+        <p style={{fontSize:11,color:'#6b7aaa',marginBottom:16}}>By signing, you authorize {estimate.company_name||'the contractor'} to perform the work described above for the total amount shown.</p>
         <button onClick={submit} disabled={submitting} style={S.btn}>{submitting?'Submitting…':'✓ Approve & Sign Estimate'}</button>
       </div>
     </div>
@@ -150,7 +151,7 @@ function Root() {
   };
   if (loading) return (
     <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0b0e13",color:"#5daf7c",fontFamily:"monospace",fontSize:14}}>
-      Loading DPS...
+      Loading ServiceCore Pro...
     </div>
   );
   return (
@@ -179,17 +180,8 @@ function LoginPage() {
   return (
     <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0b0e13"}}>
       <div style={{background:"#111520",border:"1px solid #232b3e",borderRadius:16,padding:40,width:380}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:32}}>
-          <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="22" stroke="#5daf7c" strokeWidth="1.6"/>
-            <path d="M8 20 Q12 16 16 20 Q20 24 24 20 Q28 16 32 20 Q36 24 40 20" stroke="#5daf7c" strokeWidth="1.8" strokeLinecap="round"/>
-            <path d="M8 26 Q12 22 16 26 Q20 30 24 26 Q28 22 32 26 Q36 30 40 26" stroke="#5daf7c" strokeWidth="1.8" strokeLinecap="round"/>
-            <circle cx="24" cy="23" r="2.2" fill="#5daf7c"/>
-          </svg>
-          <div>
-            <div style={{fontFamily:"Georgia,serif",fontSize:28,fontWeight:800,color:"#e8f0eb",lineHeight:1}}>DPS</div>
-            <div style={{fontSize:9,letterSpacing:"0.18em",color:"#5daf7c",marginTop:2}}>DIGITAL PLUMBING SOFTWARE</div>
-          </div>
+        <div style={{marginBottom:32}}>
+          <ServiceCoreLogo size={52}/>
         </div>
         <div style={{fontSize:18,fontWeight:600,color:"#e2e8f5",marginBottom:4}}>Sign in</div>
         <div style={{fontSize:12,color:"#64748b",marginBottom:24}}>Demo: admin@dps.com / password</div>

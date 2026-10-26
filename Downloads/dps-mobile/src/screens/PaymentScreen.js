@@ -66,7 +66,7 @@ export default function PaymentScreen({ route, navigation }) {
         jobId,
         amount: amountCents,
         tip: Math.round(tipAmount * 100),
-        note: `DPS Service - Job #${jobId}`,
+        note: `ServiceCore Pro - Job #${jobId}`,
         card: {
           number: rawCard,
           exp_month: expMonth,

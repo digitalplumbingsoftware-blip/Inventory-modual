@@ -42,7 +42,7 @@ function buildTransport(layout) {
 }
 
 function buildFrom(layout, company) {
-  const fromName  = layout.smtp_from_name  || layout.fromName  || company.name || 'DPS';
+  const fromName  = layout.smtp_from_name  || layout.fromName  || company.name || 'ServiceCore Pro';
   const fromEmail = layout.smtp_from_email || layout.fromEmail
                     || layout.smtp_user   || process.env.SMTP_FROM || process.env.SMTP_USER || '';
   return { fromName, fromEmail, from: `${fromName} <${fromEmail}>` };

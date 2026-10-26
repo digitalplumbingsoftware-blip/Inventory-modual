@@ -112,7 +112,7 @@ const PORT = process.env.PORT || 4000;
 if (require.main === module) {
   server.listen(PORT, async () => {
     await testConnection();
-    console.log(`\n🚿 DPS Backend running on http://localhost:${PORT}`);
+    console.log(`\nServiceCore Pro backend running on http://localhost:${PORT}`);
     console.log(`📡 WebSocket GPS feed on ws://localhost:${PORT}/ws/gps`);
     console.log(`🔧 Environment: ${process.env.NODE_ENV}`);
   });

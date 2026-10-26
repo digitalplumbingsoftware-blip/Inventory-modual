@@ -89,7 +89,7 @@ export default function ProfileScreen() {
         <Text style={styles.logoutText}>Sign Out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>DPS Mobile v1.0</Text>
+      <Text style={styles.version}>ServiceCore Pro v1.0</Text>
     </View>
   );
 }
