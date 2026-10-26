@@ -106,6 +106,7 @@ export const api = {
   createCountSchedule: (data) => req("POST", "/inventory/count-schedules", data),
   updateCountSchedule: (id, data) => req("PUT", `/inventory/count-schedules/${id}`, data),
   deleteCountSchedule: (id) => req("DELETE", `/inventory/count-schedules/${id}`),
+  scheduleCountBlock: (id, data) => req("POST", `/inventory/count-schedules/${id}/block`, data),
   // Inventory — Counts
   getCounts: () => req("GET", "/inventory/counts"),
   startCount: (data) => req("POST", "/inventory/counts", data),

@@ -572,6 +572,23 @@ router.put("/count-schedules/:id", authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /count-schedules/:id/block  { start: ISO }  — office books the next count on the tech's schedule
+router.post("/count-schedules/:id/block", authenticate, async (req, res) => {
+  try {
+    const { rows: [schedule] } = await query("SELECT * FROM inventory_count_schedules WHERE id=$1", [req.params.id]);
+    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
+    if (!schedule.assigned_to) return res.status(400).json({ error: "Assign a technician to this schedule first" });
+    if (!req.body.start) return res.status(400).json({ error: "Pick a date and time" });
+    const { rows: [open] } = await query(
+      "SELECT start_at FROM schedule_blocks WHERE count_schedule_id=$1 AND status <> 'completed' LIMIT 1", [schedule.id]
+    );
+    if (open) return res.status(409).json({ error: "A count is already scheduled for this schedule" });
+    if (req.body.duration_minutes) schedule.duration_minutes = parseInt(req.body.duration_minutes) || schedule.duration_minutes;
+    const block = await createCountBlock(schedule, req.body.start);
+    res.status(201).json(block);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.delete("/count-schedules/:id", authenticate, async (req, res) => {
   try {
     await query("DELETE FROM inventory_count_schedules WHERE id=$1", [req.params.id]);

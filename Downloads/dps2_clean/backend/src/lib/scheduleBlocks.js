@@ -1,10 +1,9 @@
 // ── Schedule blocks ─────────────────────────────────────────────
 // Non-job time reserved on a technician's schedule (e.g. a cycle count).
-// Cycle-count blocks are created from inventory_count_schedules: one
-// pending block at a time per schedule; completing it books the next.
+// Cycle-count blocks are booked from inventory_count_schedules by the office,
+// one open block at a time per schedule. Completing a count does NOT book the
+// next one — the office schedules each count so techs only see confirmed work.
 const { query } = require("../db/pool");
-
-const FREQ_INTERVAL = { weekly: "7 days", monthly: "1 month", quarterly: "3 months" };
 
 async function ensureScheduleBlocksSchema() {
   await query(`
@@ -39,7 +38,7 @@ async function createCountBlock(schedule, startAt) {
   return block;
 }
 
-// Mark the block for a finished count complete, then book the next one.
+// Mark the block for a finished count complete.
 async function completeCountBlock(count) {
   // Prefer the block the tech started from; otherwise the schedule's oldest pending block
   // (covers counts started from the web "Start Count Now" button).
@@ -55,21 +54,6 @@ async function completeCountBlock(count) {
     "UPDATE schedule_blocks SET status='completed', completed_at=NOW(), count_id=$2 WHERE id=$1",
     [block.id, count.id]
   );
-
-  if (!block.count_schedule_id) return;
-  const { rows: [schedule] } = await query(
-    "SELECT * FROM inventory_count_schedules WHERE id=$1 AND active=true", [block.count_schedule_id]
-  );
-  const interval = schedule && FREQ_INTERVAL[schedule.frequency];
-  if (!interval) return;
-  // Next occurrence: step from the booked time (keeps the same time of day) until it's in the future.
-  const { rows: [{ next }] } = await query(`
-    WITH RECURSIVE steps(t) AS (
-      SELECT $1::timestamptz + $2::interval
-      UNION ALL SELECT t + $2::interval FROM steps WHERE t <= NOW()
-    ) SELECT MAX(t) AS next FROM steps
-  `, [block.start_at, interval]);
-  await createCountBlock(schedule, next);
 }
 
 module.exports = { ensureScheduleBlocksSchema, createCountBlock, completeCountBlock };

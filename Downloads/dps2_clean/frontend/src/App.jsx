@@ -2564,6 +2564,18 @@ function InvCountsTab({locations}) {
   const blankForm = () => ({name:'',location_id:'',frequency:'monthly',day_of_month:1,assigned_to:'',first_date:tomorrow(),start_time:'08:00',duration_minutes:60});
   const [form, setForm] = useState(blankForm);
   const [saving, setSaving] = useState(false);
+  const [booking, setBooking] = useState(null);   // { id, date, time, duration_minutes } — booking the next count
+
+  const bookNext = async () => {
+    if(!booking.date||!booking.time) return toast.warn('Required', 'Pick a date and time');
+    setSaving(true);
+    try {
+      await api.scheduleCountBlock(booking.id, {start:new Date(`${booking.date}T${booking.time}`).toISOString(), duration_minutes:booking.duration_minutes});
+      toast.success('Count scheduled', 'Added to the technician\'s schedule and mobile app');
+      setBooking(null); reloadS();
+    } catch(e) { toast.error('Error', e.message); }
+    finally { setSaving(false); }
+  };
 
   const saveSchedule = async () => {
     if(!form.name||!form.location_id) return toast.warn('Required', 'Name and location required');
@@ -2610,6 +2622,26 @@ function InvCountsTab({locations}) {
                   {s.location_name} · Assigned to {s.assigned_name||'anyone'} · {s.completed_count} completed
                 </div>
                 {s.next_block_at&&<div style={{fontSize:10,color:'#4a9eff',marginBottom:4}}>📅 On schedule: {new Date(s.next_block_at).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>}
+                {s.assigned_to&&s.active&&!s.next_block_at&&(booking?.id===s.id ? (
+                  <div style={{background:'#4a9eff0d',border:'1px solid #4a9eff33',borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr 1fr',gap:8,marginBottom:8}}>
+                      <input type="date" value={booking.date} onChange={e=>setBooking(b=>({...b,date:e.target.value}))} style={inp}/>
+                      <input type="time" value={booking.time} onChange={e=>setBooking(b=>({...b,time:e.target.value}))} style={inp}/>
+                      <select value={booking.duration_minutes} onChange={e=>setBooking(b=>({...b,duration_minutes:parseInt(e.target.value)}))} style={inp}>
+                        {[30,60,90,120,180,240].map(m=><option key={m} value={m}>{m<60?`${m} min`:`${m/60} hr${m>60?'s':''}`}</option>)}
+                      </select>
+                    </div>
+                    <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                      <button onClick={()=>setBooking(null)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'5px 12px',color:'var(--muted)',fontSize:12,cursor:'pointer'}}>Cancel</button>
+                      <button onClick={bookNext} disabled={saving} style={{background:'#4a9eff22',border:'1px solid #4a9eff',borderRadius:6,padding:'5px 12px',color:'#4a9eff',fontSize:12,fontWeight:600,cursor:'pointer'}}>{saving?'Booking...':'Add to Schedule'}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:8}}>
+                    <span style={{fontSize:10,color:'#e8a84a'}}>⚠ Next count not on {s.assigned_name?.split(' ')[0]||'tech'}'s schedule</span>
+                    <button onClick={()=>setBooking({id:s.id,date:tomorrow(),time:'08:00',duration_minutes:s.duration_minutes||60})} style={{background:'#4a9eff18',border:'1px solid #4a9eff44',borderRadius:6,padding:'4px 10px',color:'#4a9eff',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>📅 Schedule Next Count</button>
+                  </div>
+                ))}
                 {s.last_count&&<div style={{fontSize:10,color:'var(--dim)',marginBottom:8}}>Last count: {new Date(s.last_count).toLocaleDateString()}</div>}
                 <button onClick={()=>startCount(s)} style={{width:'100%',background:'#4a9eff18',border:'1px solid #4a9eff44',borderRadius:8,padding:'7px',color:'#4a9eff',fontSize:12,cursor:'pointer'}}>▶ Start Count Now</button>
               </div>
@@ -2668,7 +2700,7 @@ function InvCountsTab({locations}) {
               </div>
               {form.assigned_to&&(
                 <div style={{gridColumn:'1/-1',background:'#4a9eff0d',border:'1px solid #4a9eff33',borderRadius:10,padding:12}}>
-                  <div style={{fontSize:11,color:'#4a9eff',marginBottom:10}}>Blocks time on the technician's schedule and alerts them in the mobile app. The next count is booked automatically when this one is done.</div>
+                  <div style={{fontSize:11,color:'#4a9eff',marginBottom:10}}>Blocks time on the technician's schedule and alerts them in the mobile app. After each count, schedule the next one from this schedule's card.</div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
                     <div><label style={lbl}>FIRST COUNT DATE *</label><input type="date" value={form.first_date} onChange={e=>setForm(f=>({...f,first_date:e.target.value}))} style={inp}/></div>
                     <div><label style={lbl}>START TIME *</label><input type="time" value={form.start_time} onChange={e=>setForm(f=>({...f,start_time:e.target.value}))} style={inp}/></div>
