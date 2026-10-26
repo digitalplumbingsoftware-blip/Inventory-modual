@@ -4,8 +4,42 @@ import {
   StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { C } from '../theme';
+import dayjs from 'dayjs';
 import { getInventoryLocations, getLocationStock } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCycleCounts } from '../hooks/useCycleCounts';
+
+// Alert for cycle counts the office assigned to this tech
+function CountDueBanner({ blocks, onStart }) {
+  if (!blocks.length) return null;
+  return (
+    <View style={s.countWrap}>
+      {blocks.map(b => {
+        const start   = dayjs(b.start_at);
+        const overdue = dayjs(b.end_at).isBefore(dayjs()) && b.status !== 'in_progress';
+        const isToday = start.isSame(dayjs(), 'day');
+        const when    = isToday ? `Today · ${start.format('h:mm A')}` : start.format('ddd, MMM D · h:mm A');
+        const tone    = overdue ? C.red : b.status === 'in_progress' ? C.amber : C.purple;
+        const label   = overdue ? 'OVERDUE' : b.status === 'in_progress' ? 'IN PROGRESS' : isToday ? 'DUE TODAY' : 'SCHEDULED';
+        return (
+          <TouchableOpacity key={b.id} style={[s.countCard, { borderColor: tone + '88', backgroundColor: tone + '14' }]} onPress={() => onStart(b)} activeOpacity={0.8}>
+            <Text style={s.countIcon}>📋</Text>
+            <View style={{ flex: 1 }}>
+              <View style={s.countTopRow}>
+                <Text style={[s.countLabel, { color: tone }]}>CYCLE COUNT · {label}</Text>
+              </View>
+              <Text style={s.countTitle} numberOfLines={1}>{b.location_name || b.schedule_name}</Text>
+              <Text style={s.countSub}>{when}{b.item_count ? ` · ${b.item_count} items` : ''}</Text>
+            </View>
+            <View style={[s.countBtn, { backgroundColor: tone }]}>
+              <Text style={s.countBtnText}>{b.status === 'in_progress' ? 'Resume' : 'Start'}</Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -104,8 +138,10 @@ function KpiBanner({ items, truckName }) {
   );
 }
 
-export default function InventoryBrowseScreen() {
+export default function InventoryBrowseScreen({ navigation }) {
   const { user } = useAuth();
+  const { blocks: countBlocks, refresh: refreshCounts } = useCycleCounts();
+  const openCount = b => navigation.navigate('CycleCount', { blockId: b.id, title: b.location_name });
   const [items, setItems]             = useState([]);
   const [truckLocation, setTruck]     = useState(null);
   const [loading, setLoading]         = useState(true);
@@ -136,6 +172,12 @@ export default function InventoryBrowseScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Back from a count → stock and alerts may have changed
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => { refreshCounts(); load(true); });
+    return unsub;
+  }, [navigation, load, refreshCounts]);
+
   const filtered = items.filter(i => {
     if (statusFilter !== 'all' && itemStatus(i) !== statusFilter) return false;
     if (search) {
@@ -157,6 +199,7 @@ export default function InventoryBrowseScreen() {
   if (noTruck) {
     return (
       <View style={s.center}>
+        <CountDueBanner blocks={countBlocks} onStart={openCount} />
         <Text style={s.noTruckIcon}>🚚</Text>
         <Text style={s.noTruckTitle}>No truck assigned</Text>
         <Text style={s.noTruckSub}>Ask your manager to assign a truck location to your account.</Text>
@@ -166,6 +209,8 @@ export default function InventoryBrowseScreen() {
 
   return (
     <View style={s.root}>
+
+      <CountDueBanner blocks={countBlocks} onStart={openCount} />
 
       {/* Search */}
       <View style={s.searchWrap}>
@@ -232,6 +277,17 @@ const s = StyleSheet.create({
   noTruckIcon:  { fontSize: 48 },
   noTruckTitle: { fontSize: 17, fontWeight: '700', color: C.text, textAlign: 'center' },
   noTruckSub:   { fontSize: 13, color: C.muted, textAlign: 'center', lineHeight: 20 },
+
+  // Cycle count alert
+  countWrap:    { paddingHorizontal: 12, paddingTop: 12, gap: 8, alignSelf: 'stretch' },
+  countCard:    { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, padding: 12, gap: 10 },
+  countIcon:    { fontSize: 24 },
+  countTopRow:  { flexDirection: 'row', alignItems: 'center' },
+  countLabel:   { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  countTitle:   { fontSize: 15, fontWeight: '700', color: C.text, marginTop: 2 },
+  countSub:     { fontSize: 12, color: C.muted, marginTop: 1 },
+  countBtn:     { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  countBtnText: { color: '#0b0e13', fontWeight: '800', fontSize: 13 },
 
   // Search
   searchWrap: {

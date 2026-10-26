@@ -111,6 +111,8 @@ export const api = {
   startCount: (data) => req("POST", "/inventory/counts", data),
   getCount: (id) => req("GET", `/inventory/counts/${id}`),
   updateCount: (id, data) => req("PATCH", `/inventory/counts/${id}`, data),
+  // Schedule blocks (non-job time on the dispatch board, e.g. cycle counts)
+  getScheduleBlocks: (params = {}) => req("GET", `/schedule-blocks?${new URLSearchParams(params)}`),
 
   // Invoices
   getInvoices: (params = {}) => {

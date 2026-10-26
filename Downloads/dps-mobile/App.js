@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Text, View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
+import { CycleCountProvider, useCycleCounts } from './src/hooks/useCycleCounts';
 import { startOfflineSync, stopOfflineSync } from './src/services/offlineQueue';
 import { C } from './src/theme';
 
@@ -25,6 +26,7 @@ import EstimatesHomeScreen       from './src/screens/EstimatesHomeScreen';
 import EstimatesScreen        from './src/screens/EstimatesScreen';
 import EstimateDetailScreen   from './src/screens/EstimateDetailScreen';
 import CustomerHistoryScreen  from './src/screens/CustomerHistoryScreen';
+import CycleCountScreen       from './src/screens/CycleCountScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -81,6 +83,8 @@ function InventoryStack() {
     <Stack.Navigator screenOptions={H}>
       <Stack.Screen name="InventoryBrowse" component={InventoryBrowseScreen}
         options={({ navigation }) => ({ title:'Inventory', headerRight:()=><SettingsBtn navigation={navigation}/> })}/>
+      <Stack.Screen name="CycleCount" component={CycleCountScreen}
+        options={({ route }) => ({ title: route.params?.title ? `Count · ${route.params.title}` : 'Cycle Count' })}/>
       <Stack.Screen name="Settings" component={ProfileScreen} options={{ title:'Settings' }}/>
     </Stack.Navigator>
   );
@@ -116,13 +120,16 @@ function TabIcon({ emoji, label, focused }) {
 }
 
 function MainTabs() {
+  const { blocks: countBlocks } = useCycleCounts();
   return (
     <Tab.Navigator screenOptions={{ headerShown:false, tabBarShowLabel:false,
       tabBarStyle:{ backgroundColor:'#080b10', borderTopColor:C.border, height:82, paddingBottom:18 } }}>
       <Tab.Screen name="Jobs"      component={JobsStack}
         options={{ tabBarIcon:({focused})=><TabIcon emoji="📋" label="JOBS"      focused={focused}/> }}/>
       <Tab.Screen name="Inventory" component={InventoryStack}
-        options={{ tabBarIcon:({focused})=><TabIcon emoji="📦" label="INVENTORY" focused={focused}/> }}/>
+        options={{ tabBarIcon:({focused})=><TabIcon emoji="📦" label="INVENTORY" focused={focused}/>,
+          tabBarBadge: countBlocks.length || undefined,
+          tabBarBadgeStyle:{ backgroundColor:C.red, color:'#fff', fontSize:10, fontWeight:'800' } }}/>
       <Tab.Screen name="Scorecard" component={ScorecardStack}
         options={{ tabBarIcon:({focused})=><TabIcon emoji="📊" label="SCORECARD" focused={focused}/> }}/>
     </Tab.Navigator>
@@ -134,7 +141,7 @@ function AppNavigator() {
   if (loading) return <View style={{ flex:1, backgroundColor:C.bg, justifyContent:'center', alignItems:'center' }}><ActivityIndicator color={C.green} size="large"/></View>;
   return (
     <NavigationContainer theme={{ dark:true, colors:{ primary:C.amber, background:C.bg, card:'#080b10', text:C.text, border:C.border, notification:C.red } }}>
-      {user ? <MainTabs/> : (
+      {user ? <CycleCountProvider><MainTabs/></CycleCountProvider> : (
         <Stack.Navigator screenOptions={{ headerShown:false }}>
           <Stack.Screen name="Login" component={LoginScreen}/>
         </Stack.Navigator>

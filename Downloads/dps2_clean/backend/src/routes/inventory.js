@@ -1,6 +1,8 @@
 const router = require("express").Router();
 const { query } = require("../db/pool");
 const { authenticate } = require("../middleware/auth");
+const { createCountBlock, completeCountBlock } = require("../lib/scheduleBlocks");
+const { createInventoryCount } = require("../lib/inventoryCounts");
 
 // ── Schema migration (idempotent) ─────────────────────────────
 async function ensureInventorySchema() {
@@ -529,7 +531,8 @@ router.get("/count-schedules", authenticate, async (req, res) => {
         l.name as location_name, l.type as location_type,
         u.first_name || ' ' || u.last_name as assigned_name,
         (SELECT MAX(created_at) FROM inventory_counts WHERE schedule_id = cs.id) as last_count,
-        (SELECT COUNT(*) FROM inventory_counts WHERE schedule_id = cs.id AND status='completed') as completed_count
+        (SELECT COUNT(*) FROM inventory_counts WHERE schedule_id = cs.id AND status='completed') as completed_count,
+        (SELECT MIN(start_at) FROM schedule_blocks WHERE count_schedule_id = cs.id AND status <> 'completed') as next_block_at
       FROM inventory_count_schedules cs
       LEFT JOIN inventory_locations l ON l.id = cs.location_id
       LEFT JOIN users u ON u.id = cs.assigned_to
@@ -541,12 +544,14 @@ router.get("/count-schedules", authenticate, async (req, res) => {
 
 router.post("/count-schedules", authenticate, async (req, res) => {
   try {
-    const { name, location_id, frequency, day_of_week, day_of_month, assigned_to } = req.body;
+    const { name, location_id, frequency, day_of_week, day_of_month, assigned_to, duration_minutes, first_start } = req.body;
     const { rows } = await query(`
-      INSERT INTO inventory_count_schedules (name, location_id, frequency, day_of_week, day_of_month, assigned_to)
-      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
-    `, [name, location_id||null, frequency||'monthly', day_of_week||null, day_of_month||null, assigned_to||null]);
-    res.status(201).json(rows[0]);
+      INSERT INTO inventory_count_schedules (name, location_id, frequency, day_of_week, day_of_month, assigned_to, duration_minutes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *
+    `, [name, location_id||null, frequency||'monthly', day_of_week||null, day_of_month||null, assigned_to||null, parseInt(duration_minutes)||60]);
+    // Assigned to a tech → reserve time on their schedule for the first count
+    const block = await createCountBlock(rows[0], first_start);
+    res.status(201).json({ ...rows[0], next_block_at: block?.start_at || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -557,6 +562,12 @@ router.put("/count-schedules/:id", authenticate, async (req, res) => {
       UPDATE inventory_count_schedules SET name=$1,location_id=$2,frequency=$3,day_of_week=$4,day_of_month=$5,assigned_to=$6,active=$7
       WHERE id=$8 RETURNING *
     `, [name, location_id||null, frequency, day_of_week||null, day_of_month||null, assigned_to||null, active!==false, req.params.id]);
+    // Keep the open (not yet started) block in step: drop it if paused/unassigned, else move it to the new tech
+    if (active === false || !assigned_to) {
+      await query("DELETE FROM schedule_blocks WHERE count_schedule_id=$1 AND status='scheduled'", [req.params.id]);
+    } else {
+      await query("UPDATE schedule_blocks SET technician_id=$2 WHERE count_schedule_id=$1 AND status='scheduled'", [req.params.id, assigned_to]);
+    }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -589,27 +600,7 @@ router.get("/counts", authenticate, async (req, res) => {
 router.post("/counts", authenticate, async (req, res) => {
   try {
     const { schedule_id, location_id } = req.body;
-    const { rows: stockItems } = await query(`
-      SELECT s.item_id, s.qty as expected_qty, i.name, i.sku, i.category
-      FROM inventory_stock s
-      JOIN inventory_items i ON i.id = s.item_id
-      WHERE s.location_id = $1 AND i.active = true
-      ORDER BY i.category, i.name
-    `, [location_id]);
-
-    const { rows } = await query(`
-      INSERT INTO inventory_counts (schedule_id, location_id, status, counted_by)
-      VALUES ($1,$2,'in_progress',$3) RETURNING *
-    `, [schedule_id||null, location_id, req.user.id]);
-    const count = rows[0];
-
-    for (const item of stockItems) {
-      await query(`
-        INSERT INTO inventory_count_items (count_id, item_id, expected_qty) VALUES ($1,$2,$3)
-      `, [count.id, item.item_id, item.expected_qty]);
-    }
-
-    count.items = stockItems.map(i => ({ ...i, actual_qty: null }));
+    const count = await createInventoryCount({ schedule_id, location_id, userId: req.user.id });
     res.status(201).json(count);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -671,6 +662,7 @@ router.patch("/counts/:id", authenticate, async (req, res) => {
     const { rows } = await query(
       `UPDATE inventory_counts SET ${sets.join(',')} WHERE id=$${vals.length} RETURNING *`, vals
     );
+    if (status === 'completed' && rows[0]) await completeCountBlock(rows[0]);
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

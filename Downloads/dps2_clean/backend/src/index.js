@@ -38,6 +38,7 @@ const glAccountsRoutes   = require("./routes/glAccounts");
 const settingsRoutes     = require("./routes/settings");
 const marketingRoutes    = require("./routes/marketing");
 const timesheetsRoutes   = require("./routes/timesheets");
+const scheduleBlocksRoutes = require("./routes/scheduleBlocks");
 
 const app = express();
 const server = http.createServer(app);
@@ -91,6 +92,7 @@ app.use("/api/gl-accounts",        glAccountsRoutes);
 app.use("/api",                    settingsRoutes);
 app.use("/api/marketing",          marketingRoutes);
 app.use("/api/timesheets",         timesheetsRoutes);
+app.use("/api/schedule-blocks",    scheduleBlocksRoutes);
 
 // Health check
 app.get("/health", (_req, res) => res.json({ status: "ok", ts: new Date() }));

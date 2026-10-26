@@ -2560,13 +2560,22 @@ function InvCountsTab({locations}) {
   const {data:techs} = useApi(()=>api.getTechnicians());
   const [schedModal, setSchedModal] = useState(false);
   const [activeCount, setActiveCount] = useState(null);
-  const [form, setForm] = useState({name:'',location_id:'',frequency:'monthly',day_of_month:1,assigned_to:''});
+  const tomorrow = () => { const d=new Date(); d.setDate(d.getDate()+1); return d.toLocaleDateString('en-CA'); };
+  const blankForm = () => ({name:'',location_id:'',frequency:'monthly',day_of_month:1,assigned_to:'',first_date:tomorrow(),start_time:'08:00',duration_minutes:60});
+  const [form, setForm] = useState(blankForm);
   const [saving, setSaving] = useState(false);
 
   const saveSchedule = async () => {
     if(!form.name||!form.location_id) return toast.warn('Required', 'Name and location required');
+    if(form.assigned_to&&(!form.first_date||!form.start_time)) return toast.warn('Required', 'Pick a date and time for the technician\'s count');
     setSaving(true);
-    try { await api.createCountSchedule(form); setSchedModal(false); setForm({name:'',location_id:'',frequency:'monthly',day_of_month:1,assigned_to:''}); reloadS(); }
+    try {
+      // Local date + time → exact instant, so the block lands where the dispatcher picked it
+      const first_start = form.assigned_to ? new Date(`${form.first_date}T${form.start_time}`).toISOString() : null;
+      await api.createCountSchedule({...form, first_start});
+      if(form.assigned_to) toast.success('Count scheduled', 'Added to the technician\'s schedule and mobile app');
+      setSchedModal(false); setForm(blankForm()); reloadS();
+    }
     catch(e) { toast.error('Error', e.message); }
     finally { setSaving(false); }
   };
@@ -2600,6 +2609,7 @@ function InvCountsTab({locations}) {
                 <div style={{fontSize:11,color:'var(--muted)',marginBottom:8}}>
                   {s.location_name} · Assigned to {s.assigned_name||'anyone'} · {s.completed_count} completed
                 </div>
+                {s.next_block_at&&<div style={{fontSize:10,color:'#4a9eff',marginBottom:4}}>📅 On schedule: {new Date(s.next_block_at).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>}
                 {s.last_count&&<div style={{fontSize:10,color:'var(--dim)',marginBottom:8}}>Last count: {new Date(s.last_count).toLocaleDateString()}</div>}
                 <button onClick={()=>startCount(s)} style={{width:'100%',background:'#4a9eff18',border:'1px solid #4a9eff44',borderRadius:8,padding:'7px',color:'#4a9eff',fontSize:12,cursor:'pointer'}}>▶ Start Count Now</button>
               </div>
@@ -2656,6 +2666,20 @@ function InvCountsTab({locations}) {
                   {(techs||[]).map(t=><option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
                 </select>
               </div>
+              {form.assigned_to&&(
+                <div style={{gridColumn:'1/-1',background:'#4a9eff0d',border:'1px solid #4a9eff33',borderRadius:10,padding:12}}>
+                  <div style={{fontSize:11,color:'#4a9eff',marginBottom:10}}>Blocks time on the technician's schedule and alerts them in the mobile app. The next count is booked automatically when this one is done.</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                    <div><label style={lbl}>FIRST COUNT DATE *</label><input type="date" value={form.first_date} onChange={e=>setForm(f=>({...f,first_date:e.target.value}))} style={inp}/></div>
+                    <div><label style={lbl}>START TIME *</label><input type="time" value={form.start_time} onChange={e=>setForm(f=>({...f,start_time:e.target.value}))} style={inp}/></div>
+                    <div><label style={lbl}>DURATION</label>
+                      <select value={form.duration_minutes} onChange={e=>setForm(f=>({...f,duration_minutes:parseInt(e.target.value)}))} style={inp}>
+                        {[30,60,90,120,180,240].map(m=><option key={m} value={m}>{m<60?`${m} min`:`${m/60} hr${m>60?'s':''}`}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
               <button onClick={()=>setSchedModal(false)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 20px',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
@@ -11443,6 +11467,7 @@ function DispatchPage({ activeAlerts = {} }) {
   const [date, setDate] = useState(today);
   const [jobs, setJobs] = useState([]);
   const [techs, setTechs] = useState([]);
+  const [blocks, setBlocks] = useState([]);   // non-job time (cycle counts)
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState(null);
   const [dragOffset, setDragOffset] = useState(0);
@@ -11465,9 +11490,14 @@ function DispatchPage({ activeAlerts = {} }) {
     setLoading(true);
     setCancelledOpen(false); // collapse cancelled tray when navigating to a new day
     try {
-      const [j, t] = await Promise.all([api.getJobs({date}), api.getTechnicians()]);
+      const dayStart = new Date(`${date}T00:00`), dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate()+1);
+      const [j, t, b] = await Promise.all([
+        api.getJobs({date}), api.getTechnicians(),
+        api.getScheduleBlocks({from: dayStart.toISOString(), to: dayEnd.toISOString()}).catch(() => []),
+      ]);
       setJobs(j || []);
       setTechs(t || []);
+      setBlocks(b || []);
     } catch(e) { console.error(e); }
     finally { setLoading(false); }
   }, [date]);
@@ -11858,6 +11888,21 @@ function DispatchPage({ activeAlerts = {} }) {
                                 </div>
                               )];
                             });
+                          })}
+
+                          {/* Reserved time (cycle counts) — full-height hatched band behind job pills */}
+                          {blocks.filter(b=>b.technician_id===tech.id).map(b=>{
+                            const done = b.status==='completed';
+                            const color = done ? '#5daf7c' : '#a78bfa';
+                            const time = `${new Date(b.start_at).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})} – ${new Date(b.end_at).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
+                            return (
+                              <div key={b.id} title={`${b.title}\n${time}\n${done?'Completed':b.status==='in_progress'?'In progress':'Scheduled'}`}
+                                style={{position:"absolute",left:timeToX(b.start_at),width:jobWidth({scheduled_start:b.start_at,scheduled_end:b.end_at}),top:2,bottom:2,zIndex:0,borderRadius:6,
+                                  border:`1px dashed ${color}88`,background:`repeating-linear-gradient(135deg, ${color}14 0 6px, ${color}06 6px 12px)`,padding:"4px 6px",overflow:"hidden",pointerEvents:"auto"}}>
+                                <div style={{fontSize:9,fontWeight:700,color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{done?'✓ ':'📦 '}{b.title}</div>
+                                <div style={{fontSize:8,fontFamily:"var(--font-mono)",color:"var(--muted)",whiteSpace:"nowrap"}}>{time}</div>
+                              </div>
+                            );
                           })}
 
                           {/* Job blocks — ServiceTitan-style pills */}

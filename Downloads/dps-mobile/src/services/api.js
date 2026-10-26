@@ -189,6 +189,27 @@ export const getLocationStock = async (locationId) => {
   return res.data;
 };
 
+// ── Cycle counts (schedule blocks assigned from the web app) ─────────────────
+export const getMyCountBlocks = async () => {
+  const res = await api.get('/api/schedule-blocks/mine');
+  return res.data;
+};
+
+export const startCountBlock = async (blockId) => {
+  const res = await api.post(`/api/schedule-blocks/${blockId}/start`);
+  return res.data; // { count_id }
+};
+
+export const getCount = async (countId) => {
+  const res = await api.get(`/api/inventory/counts/${countId}`);
+  return res.data;
+};
+
+export const saveCount = async (countId, { status, notes, items }) => {
+  const res = await api.patch(`/api/inventory/counts/${countId}`, { status, notes, items });
+  return res.data;
+};
+
 export const getJobMaterialCost = async (jobId) => {
   const res = await api.get(`/api/jobs/${jobId}/material-cost`);
   return res.data;
