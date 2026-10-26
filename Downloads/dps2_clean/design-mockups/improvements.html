@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>DPS — Design Improvements</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:wght@700;800;900&family=Syne:wght@600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07091a;--s:#0d1123;--s2:#12183a;--s3:#1a2248;
+  --bd:#1e2d5a;--bd2:#273472;
+  --red:#E20613;--reddim:#E2061322;--redbright:#ff1a24;
+  --blue:#1D70B7;--bluedim:#1D70B718;--bluelit:#3a8fd4;
+  --navy:#273472;
+  --green:#22c55e;--greendim:#22c55e18;
+  --amber:#f59e0b;--amberdim:#f59e0b18;
+  --purple:#6366f1;
+  --text:#e8eaf4;--muted:#6b7aaa;--dim:#1a2248;
+  --mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif;--serif:'Playfair Display',serif;--head:'Syne',sans-serif;
+}
+body{font-family:var(--sans);background:#030408;color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* ── Selector bar ───────────────────────────── */
+.selector{position:fixed;top:0;left:0;right:0;z-index:1000;background:#030408;border-bottom:1px solid #0f1428;padding:10px 20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.selector span{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;margin-right:4px}
+.sel-btn{font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:5px 12px;border-radius:5px;border:1px solid var(--bd);background:var(--s);color:var(--muted);cursor:pointer;transition:all .15s;white-space:nowrap}
+.sel-btn:hover{border-color:var(--blue);color:var(--blue)}
+.sel-btn.active{background:var(--reddim);border-color:var(--red);color:var(--red)}
+
+/* ── Sections ───────────────────────────────── */
+.section{display:none;padding:72px 32px 60px;max-width:1200px;margin:0 auto}
+.section.visible{display:block}
+.section-title{font-family:var(--head);font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px}
+.section-sub{font-size:13px;color:var(--muted);margin-bottom:32px;line-height:1.6}
+.label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--muted);margin-bottom:10px;text-transform:uppercase}
+
+/* ── Demo shell ─────────────────────────────── */
+.demo-shell{background:var(--bg);border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+.demo-note{font-size:11px;color:var(--muted);margin-top:10px;font-style:italic}
+
+/* ── 1. SIDEBAR ─────────────────────────────── */
+.app-frame{display:flex;height:560px}
+.sidebar{width:220px;background:#0a0d22;border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid var(--bd)}
+.logo-mark{width:34px;height:30px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-svg polygon{fill:var(--red)}
+.logo-text{margin-left:10px}
+.logo-name{font-family:var(--serif);font-size:16px;font-weight:800;color:var(--text);line-height:1}
+.logo-sub{font-family:var(--mono);font-size:7px;letter-spacing:.18em;color:var(--blue);margin-top:2px}
+.sidebar-nav{flex:1;padding:12px 8px;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:7px;cursor:pointer;transition:all .15s;margin-bottom:2px;font-size:13px;font-weight:500;color:var(--muted);position:relative}
+.nav-item:hover{background:var(--s2);color:var(--text)}
+.nav-item.active{background:var(--reddim);color:var(--red);font-weight:600}
+.nav-item.active::before{content:'';position:absolute;left:0;top:4px;bottom:4px;width:3px;background:var(--red);border-radius:0 2px 2px 0}
+.nav-item .nav-icon{font-size:15px;width:18px;text-align:center}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px}
+.nav-section{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--dim);padding:12px 10px 4px;text-transform:uppercase}
+.sidebar-footer{padding:12px 8px;border-top:1px solid var(--bd)}
+.user-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;cursor:pointer}
+.user-row:hover{background:var(--s2)}
+.avatar{width:28px;height:28px;border-radius:14px;background:var(--navy);border:1px solid var(--bd2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--blue);flex-shrink:0}
+.user-name{font-size:12px;font-weight:600;color:var(--text)}
+.user-role{font-size:10px;color:var(--muted);font-family:var(--mono)}
+
+.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{height:48px;background:#0a0d22;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0}
+.topbar-title{font-family:var(--head);font-size:15px;font-weight:700;color:var(--text)}
+.live-badge{background:var(--reddim);border:1px solid var(--red);border-radius:20px;padding:3px 10px;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--red);font-weight:600}
+.live-dot{width:6px;height:6px;background:var(--red);border-radius:50%;animation:pulse2 1.4s ease-in-out infinite}
+@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.3}}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.icon-btn{width:30px;height:30px;border-radius:8px;background:var(--s2);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px}
+.content-area{flex:1;overflow:auto;padding:20px}
+
+/* ── 2. TOPBAR BADGE ────────────────────────── */
+
+/* ── 3. STAT CARDS ──────────────────────────── */
+.stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.stat-card{background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:16px;position:relative;overflow:hidden;transition:transform .15s,box-shadow .15s}
+.stat-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px #00000044}
+.stat-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px}
+.stat-card.red::before{background:var(--red)}
+.stat-card.blue::before{background:var(--blue)}
+.stat-card.green::before{background:var(--green)}
+.stat-card.amber::before{background:var(--amber)}
+.stat-card.purple::before{background:var(--purple)}
+.stat-label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.stat-val{font-family:var(--head);font-size:26px;font-weight:800;line-height:1;margin-bottom:4px}
+.stat-card.red .stat-val{color:var(--red)}
+.stat-card.blue .stat-val{color:var(--blue)}
+.stat-card.green .stat-val{color:var(--green)}
+.stat-card.amber .stat-val{color:var(--amber)}
+.stat-card.purple .stat-val{color:var(--purple)}
+.stat-sub{font-size:10px;color:var(--muted)}
+.stat-trend{font-size:10px;font-weight:600;margin-top:2px}
+.stat-trend.up{color:var(--green)}
+.stat-trend.down{color:var(--red)}
+
+/* ── 4. SKELETON ────────────────────────────── */
+@keyframes shimmer{0%{background-position:-600px 0}100%{background-position:600px 0}}
+.skel{background:linear-gradient(90deg,var(--s) 25%,var(--s3) 50%,var(--s) 75%);background-size:600px 100%;animation:shimmer 1.6s infinite;border-radius:4px}
+.skel-card{background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:16px;position:relative;overflow:hidden}
+.skel-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--bd2)}
+.skel-line{height:8px;margin-bottom:8px}
+.skel-val{height:28px;width:60%;margin-bottom:6px}
+.skel-sub{height:8px;width:40%}
+.skel-table-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--bd)}
+.skel-avatar{width:32px;height:32px;border-radius:16px;flex-shrink:0}
+.skel-col{flex:1;display:flex;flex-direction:column;gap:6px}
+
+/* ── 5. TABLE ROWS ──────────────────────────── */
+.table-demo{background:var(--s);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.table-head{display:grid;grid-template-columns:2fr 1.5fr 1fr 1fr 1fr;padding:10px 16px;border-bottom:1px solid var(--bd);font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+.table-row{display:grid;grid-template-columns:2fr 1.5fr 1fr 1fr 1fr;padding:13px 16px;border-bottom:1px solid var(--bd);align-items:center;cursor:pointer;transition:all .15s;position:relative}
+.table-row:last-child{border-bottom:none}
+.table-row:hover{background:var(--s2);transform:translateY(-1px);box-shadow:0 4px 12px #00000033;z-index:1}
+.table-row:hover .row-name{color:var(--blue)}
+.row-name{font-size:13px;font-weight:600;color:var(--text);transition:color .15s}
+.row-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.row-phone{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.row-amt{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--green)}
+.pill{display:inline-flex;align-items:center;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.07em;padding:2px 8px;border-radius:3px;border-width:1px;border-style:solid}
+.pill-red{background:var(--reddim);color:var(--red);border-color:#E2061333}
+.pill-blue{background:var(--bluedim);color:var(--blue);border-color:#1D70B733}
+.pill-green{background:var(--greendim);color:var(--green);border-color:#22c55e33}
+.pill-amber{background:var(--amberdim);color:var(--amber);border-color:#f59e0b33}
+.pill-purple{background:#6366f118;color:var(--purple);border-color:#6366f133}
+.row-actions{display:flex;gap:6px;opacity:0;transition:opacity .15s}
+.table-row:hover .row-actions{opacity:1}
+.row-btn{padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;font-family:var(--mono);cursor:pointer;border:1px solid var(--bd);background:var(--s3);color:var(--muted);transition:all .12s}
+.row-btn:hover{border-color:var(--blue);color:var(--blue)}
+
+/* ── 6. DRAWER ──────────────────────────────── */
+.drawer-demo{position:relative;height:480px;background:var(--bg);border:1px solid var(--bd);border-radius:12px;overflow:hidden;display:flex}
+.dispatch-bg{flex:1;padding:20px;overflow:hidden}
+.dispatch-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.dispatch-title{font-family:var(--head);font-size:14px;font-weight:700}
+.gantt-row{display:flex;align-items:center;margin-bottom:8px}
+.gantt-name{width:110px;font-size:11px;color:var(--muted);flex-shrink:0;padding-right:10px;font-family:var(--mono)}
+.gantt-track{flex:1;height:36px;background:var(--s);border-radius:6px;position:relative;overflow:hidden;border:1px solid var(--bd)}
+.gantt-block{position:absolute;top:4px;bottom:4px;border-radius:4px;display:flex;align-items:center;padding:0 8px;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.04em;cursor:pointer;transition:filter .15s}
+.gantt-block:hover{filter:brightness(1.2)}
+.gb-red{background:linear-gradient(90deg,#E2061388,#E2061322);color:var(--red);border:1px solid #E2061344}
+.gb-blue{background:linear-gradient(90deg,#1D70B788,#1D70B722);color:var(--blue);border:1px solid #1D70B744}
+.gb-green{background:linear-gradient(90deg,#22c55e88,#22c55e22);color:var(--green);border:1px solid #22c55e44}
+.gb-purple{background:linear-gradient(90deg,#6366f188,#6366f122);color:var(--purple);border:1px solid #6366f144}
+.now-line{position:absolute;top:0;bottom:0;width:1px;background:var(--red);opacity:.7}
+.now-label{position:absolute;top:0;background:var(--red);color:#fff;font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 5px;border-radius:0 0 3px 3px;white-space:nowrap}
+
+.job-drawer{width:320px;background:#0a0d22;border-left:1px solid var(--bd);display:flex;flex-direction:column;animation:slideIn .25s ease}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.drawer-header{padding:16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px}
+.drawer-close{width:24px;height:24px;border-radius:6px;background:var(--s2);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;color:var(--muted);margin-left:auto;flex-shrink:0}
+.drawer-title{font-family:var(--head);font-size:14px;font-weight:700}
+.drawer-body{flex:1;overflow-y:auto;padding:16px}
+.drawer-section{margin-bottom:16px}
+.drawer-section-label{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px}
+.info-row:last-child{border-bottom:none}
+.info-key{color:var(--muted)}
+.info-val{color:var(--text);font-weight:500}
+.drawer-footer{padding:12px 16px;border-top:1px solid var(--bd);display:flex;gap:8px}
+.btn-primary{flex:1;padding:9px;background:var(--red);border:none;border-radius:7px;color:#fff;font-size:12px;font-weight:700;font-family:var(--mono);cursor:pointer;letter-spacing:.04em;transition:all .12s}
+.btn-primary:hover{background:var(--redbright)}
+.btn-primary:active{transform:scale(0.97)}
+.btn-secondary{padding:9px 14px;background:var(--s2);border:1px solid var(--bd);border-radius:7px;color:var(--muted);font-size:12px;font-weight:600;font-family:var(--mono);cursor:pointer;transition:all .12s}
+.btn-secondary:hover{border-color:var(--blue);color:var(--blue)}
+.btn-secondary:active{transform:scale(0.97)}
+
+/* ── 7. FOCUS RINGS ─────────────────────────── */
+.form-demo{background:var(--s);border:1px solid var(--bd);border-radius:10px;padding:24px;max-width:460px}
+.form-row{margin-bottom:16px}
+.form-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:7px}
+.form-input{width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:7px;padding:10px 14px;font-size:13px;color:var(--text);font-family:var(--sans);outline:none;transition:all .15s}
+.form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px #1D70B722}
+.form-input.error-state{border-color:var(--red);box-shadow:0 0 0 3px var(--reddim)}
+.form-input.success-state{border-color:var(--green);box-shadow:0 0 0 3px var(--greendim)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-select{width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:7px;padding:10px 14px;font-size:13px;color:var(--text);font-family:var(--sans);outline:none;transition:all .15s;appearance:none}
+.form-select:focus{border-color:var(--blue);box-shadow:0 0 0 3px #1D70B722}
+.form-hint{font-size:11px;color:var(--muted);margin-top:5px}
+.form-hint.error{color:var(--red)}
+.form-hint.success{color:var(--green)}
+.btn-row{display:flex;gap:8px;margin-top:20px}
+.btn-lg{padding:11px 24px;border-radius:8px;font-size:13px;font-weight:700;font-family:var(--mono);cursor:pointer;letter-spacing:.04em;transition:all .12s;border:none}
+.btn-lg:active{transform:scale(0.97)}
+.btn-save{background:var(--red);color:#fff}
+.btn-save:hover{background:var(--redbright);box-shadow:0 4px 14px #E2061344}
+.btn-cancel{background:var(--s3);border:1px solid var(--bd2);color:var(--muted)}
+.btn-cancel:hover{border-color:var(--blue);color:var(--blue)}
+
+/* ── 8. DISPATCH GRADIENT BLOCKS ────────────── */
+
+/* ── 9. NOW LINE LABEL ──────────────────────── */
+
+/* ── 10. TOASTS ─────────────────────────────── */
+.toast-demo{position:relative;height:320px;background:var(--s);border:1px solid var(--bd);border-radius:10px;overflow:hidden;padding:20px}
+.toast-trigger-area{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.toast-btn{padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;font-family:var(--mono);cursor:pointer;border:1px solid;transition:all .12s}
+.toast-btn:active{transform:scale(.97)}
+.tb-success{background:var(--greendim);border-color:#22c55e44;color:var(--green)}
+.tb-error{background:var(--reddim);border-color:#E2061344;color:var(--red)}
+.tb-info{background:var(--bluedim);border-color:#1D70B744;color:var(--blue)}
+.tb-warn{background:var(--amberdim);border-color:#f59e0b44;color:var(--amber)}
+.toast-stack{position:absolute;bottom:16px;right:16px;display:flex;flex-direction:column-reverse;gap:8px;width:300px}
+.toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:9px;border:1px solid;animation:toastIn .25s ease;background:var(--s3)}
+@keyframes toastIn{from{transform:translateX(60px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(60px)}}
+.toast.hiding{animation:toastOut .2s ease forwards}
+.toast-icon{font-size:14px;flex-shrink:0;margin-top:1px}
+.toast-content{flex:1}
+.toast-title{font-size:12px;font-weight:700;margin-bottom:2px}
+.toast-msg{font-size:11px;color:var(--muted);line-height:1.4}
+.toast-close{font-size:12px;color:var(--muted);cursor:pointer;padding:0 2px;flex-shrink:0;line-height:1;margin-top:1px}
+.toast-close:hover{color:var(--text)}
+.toast-progress{position:absolute;bottom:0;left:0;height:2px;border-radius:0 0 0 9px;animation:shrink 3s linear forwards}
+@keyframes shrink{from{width:100%}to{width:0%}}
+.toast-success{border-color:#22c55e33;background:#22c55e08}
+.toast-success .toast-title{color:var(--green)}
+.toast-success .toast-progress{background:var(--green)}
+.toast-error{border-color:#E2061333;background:#E206130a}
+.toast-error .toast-title{color:var(--red)}
+.toast-error .toast-progress{background:var(--red)}
+.toast-info{border-color:#1D70B733;background:#1D70B70a}
+.toast-info .toast-title{color:var(--blue)}
+.toast-info .toast-progress{background:var(--blue)}
+.toast-warn{border-color:#f59e0b33;background:#f59e0b08}
+.toast-warn .toast-title{color:var(--amber)}
+.toast-warn .toast-progress{background:var(--amber)}
+
+/* ── 11. BUTTONS ────────────────────────────── */
+.btn-showcase{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:28px;background:var(--s);border:1px solid var(--bd);border-radius:10px}
+.showcase-btn{padding:10px 22px;border-radius:8px;font-size:13px;font-weight:700;font-family:var(--mono);cursor:pointer;letter-spacing:.04em;transition:all .12s;position:relative;overflow:hidden}
+.showcase-btn:active{transform:scale(0.96)}
+.sb-primary{background:var(--red);border:none;color:#fff;box-shadow:0 2px 8px #E2061333}
+.sb-primary:hover{background:var(--redbright);box-shadow:0 4px 16px #E2061355;transform:translateY(-1px)}
+.sb-primary:active{transform:scale(0.96) translateY(0)}
+.sb-secondary{background:transparent;border:1px solid var(--bd2);color:var(--muted)}
+.sb-secondary:hover{border-color:var(--blue);color:var(--blue);background:var(--bluedim)}
+.sb-ghost{background:transparent;border:1px solid transparent;color:var(--muted)}
+.sb-ghost:hover{color:var(--text);background:var(--s2);border-color:var(--bd)}
+.sb-danger{background:var(--reddim);border:1px solid #E2061333;color:var(--red)}
+.sb-danger:hover{background:var(--red);color:#fff;border-color:var(--red)}
+.sb-success{background:var(--greendim);border:1px solid #22c55e33;color:var(--green)}
+.sb-success:hover{background:var(--green);color:#fff;border-color:var(--green)}
+.sb-icon{width:36px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:var(--s2);border:1px solid var(--bd);color:var(--muted);font-size:14px}
+.sb-icon:hover{border-color:var(--blue);color:var(--blue)}
+.btn-group{display:flex;border:1px solid var(--bd2);border-radius:8px;overflow:hidden}
+.btn-group .showcase-btn{border-radius:0;border:none;border-right:1px solid var(--bd2);background:var(--s2);color:var(--muted);font-size:11px;padding:8px 14px}
+.btn-group .showcase-btn:last-child{border-right:none}
+.btn-group .showcase-btn.active,.btn-group .showcase-btn:hover{background:var(--s3);color:var(--text)}
+.btn-loading{display:flex;align-items:center;gap:8px}
+.mini-spinner{width:12px;height:12px;border:2px solid #ffffff44;border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── FULL LAYOUT PREVIEW ────────────────────── */
+.full-preview{height:600px}
+.fp-sidebar{width:200px;background:#0a0d22;border-right:1px solid var(--bd);display:flex;flex-direction:column}
+.fp-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.fp-topbar{height:46px;background:#0a0d22;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0}
+.breadcrumb{display:flex;align-items:center;gap:6px;font-size:12px}
+.breadcrumb span{color:var(--muted)}
+.breadcrumb .crumb-active{color:var(--text);font-weight:600}
+.search-box{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--bd);border-radius:7px;padding:5px 12px;margin-left:auto;transition:all .15s}
+.search-box:focus-within{border-color:var(--blue);box-shadow:0 0 0 2px #1D70B722}
+.search-box input{background:none;border:none;outline:none;font-size:12px;color:var(--text);width:160px;font-family:var(--sans)}
+.search-box input::placeholder{color:var(--muted)}
+.fp-content{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.fp-stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.fp-stat{background:var(--s);border:1px solid var(--bd);border-radius:9px;padding:14px;position:relative;overflow:hidden}
+.fp-stat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px}
+.fp-stat.c-red::before{background:var(--red)}
+.fp-stat.c-blue::before{background:var(--blue)}
+.fp-stat.c-green::before{background:var(--green)}
+.fp-stat.c-amber::before{background:var(--amber)}
+.fp-stat.c-purple::before{background:var(--purple)}
+.fp-stat-lbl{font-family:var(--mono);font-size:8px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.fp-stat-val{font-family:var(--head);font-size:22px;font-weight:800;line-height:1;margin-bottom:3px}
+.fp-stat.c-red .fp-stat-val{color:var(--red)}
+.fp-stat.c-blue .fp-stat-val{color:var(--blue)}
+.fp-stat.c-green .fp-stat-val{color:var(--green)}
+.fp-stat.c-amber .fp-stat-val{color:var(--amber)}
+.fp-stat.c-purple .fp-stat-val{color:var(--purple)}
+.fp-stat-sub{font-size:10px;color:var(--muted)}
+.fp-lower{display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1}
+.fp-panel{background:var(--s);border:1px solid var(--bd);border-radius:9px;padding:14px;overflow:hidden}
+.fp-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.fp-panel-title{font-family:var(--head);font-size:12px;font-weight:700;color:var(--text)}
+.fp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);cursor:pointer;transition:all .12s}
+.fp-row:last-child{border-bottom:none}
+.fp-row:hover{padding-left:4px}
+.fp-row:hover .fp-row-name{color:var(--blue)}
+.fp-row-name{font-size:12px;font-weight:600;color:var(--text);transition:color .12s}
+.fp-row-sub{font-size:10px;color:var(--muted);margin-top:1px}
+.fp-row-right{margin-left:auto;text-align:right}
+.fp-row-amt{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--green)}
+.fp-row-time{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.fp-av{width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;flex-shrink:0;border:2px solid transparent}
+.three-color-bar{height:2px;background:linear-gradient(90deg,var(--navy) 0%,var(--blue) 50%,var(--red) 100%);margin-bottom:0}
+</style>
+</head>
+<body>
+
+<div class="three-color-bar"></div>
+
+<div class="selector">
+  <span>IMPROVEMENTS ▸</span>
+  <button class="sel-btn active" onclick="show('full')">Full Layout</button>
+  <button class="sel-btn" onclick="show('sidebar')">Sidebar Nav</button>
+  <button class="sel-btn" onclick="show('stats')">Stat Cards</button>
+  <button class="sel-btn" onclick="show('skeleton')">Skeleton Loader</button>
+  <button class="sel-btn" onclick="show('table')">Table Rows</button>
+  <button class="sel-btn" onclick="show('drawer')">Job Drawer</button>
+  <button class="sel-btn" onclick="show('forms')">Forms & Inputs</button>
+  <button class="sel-btn" onclick="show('dispatch')">Dispatch Board</button>
+  <button class="sel-btn" onclick="show('toasts')">Toast System</button>
+  <button class="sel-btn" onclick="show('buttons')">Buttons</button>
+</div>
+
+<!-- ══ FULL LAYOUT ══════════════════════════════════════════ -->
+<div class="section visible" id="sec-full">
+  <div class="section-title">Complete Layout Preview</div>
+  <div class="section-sub">Sidebar nav + topbar with live badge + stat cards with left-border accents + table row hover. Everything together.</div>
+  <div class="demo-shell">
+    <div class="app-frame full-preview">
+      <!-- Sidebar -->
+      <div class="fp-sidebar">
+        <div class="sidebar-logo" style="padding:16px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">
+          <svg width="28" height="24" viewBox="0 0 40 34" fill="none">
+            <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
+            <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" stroke-width="1.2" stroke-opacity=".3"/>
+            <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" stroke-width="1.2" stroke-opacity=".3"/>
+            <line x1="12" y1="22" x2="40" y2="22" stroke="#fff" stroke-width="1.2" stroke-opacity=".3"/>
+          </svg>
+          <div>
+            <div style="font-family:var(--serif);font-size:14px;font-weight:800;color:var(--text);line-height:1">Davis Plumbing</div>
+            <div style="font-family:var(--mono);font-size:6px;letter-spacing:.16em;color:var(--blue);margin-top:2px">DIGITAL PLUMBING SOFTWARE</div>
+          </div>
+        </div>
+        <div style="flex:1;padding:10px 8px;overflow-y:auto">
+          <div class="nav-item active"><span class="nav-icon">📋</span> Dispatch <span class="nav-badge">4</span></div>
+          <div class="nav-item"><span class="nav-icon">🏠</span> Dashboard</div>
+          <div class="nav-item"><span class="nav-icon">👤</span> Customers</div>
+          <div class="nav-item"><span class="nav-icon">🧾</span> Invoices</div>
+          <div class="nav-item"><span class="nav-icon">📄</span> Estimates</div>
+          <div class="nav-section">Operations</div>
+          <div class="nav-item"><span class="nav-icon">📦</span> Inventory</div>
+          <div class="nav-item"><span class="nav-icon">📊</span> Reports</div>
+          <div class="nav-item"><span class="nav-icon">🗺️</span> GPS Fleet</div>
+          <div class="nav-item"><span class="nav-icon">📞</span> Calls <span class="nav-badge" style="background:var(--blue)">2</span></div>
+          <div class="nav-section">Settings</div>
+          <div class="nav-item"><span class="nav-icon">⚙️</span> Settings</div>
+        </div>
+        <div class="sidebar-footer">
+          <div class="user-row">
+            <div class="avatar">AD</div>
+            <div><div class="user-name">Admin User</div><div class="user-role">admin</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Main -->
+      <div class="fp-main">
+        <div class="fp-topbar">
+          <div class="breadcrumb"><span>DPS</span><span style="color:var(--bd2)">›</span><span class="crumb-active">Dispatch</span></div>
+          <div class="live-badge"><div class="live-dot"></div>4 Active</div>
+          <div class="search-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6b7aaa" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input placeholder="Search jobs, customers..."/></div>
+          <div class="icon-btn">🔔</div>
+          <div class="avatar" style="width:30px;height:30px;border-radius:15px">AD</div>
+        </div>
+        <div class="fp-content">
+          <div class="fp-stat-grid">
+            <div class="fp-stat c-red"><div class="fp-stat-lbl">Unassigned</div><div class="fp-stat-val">3</div><div class="fp-stat-sub">needs dispatch</div></div>
+            <div class="fp-stat c-amber"><div class="fp-stat-lbl">On Site</div><div class="fp-stat-val">4</div><div class="fp-stat-sub">active jobs</div></div>
+            <div class="fp-stat c-blue"><div class="fp-stat-lbl">En Route</div><div class="fp-stat-val">2</div><div class="fp-stat-sub">in transit</div></div>
+            <div class="fp-stat c-green"><div class="fp-stat-lbl">Revenue</div><div class="fp-stat-val">$8.4k</div><div class="fp-stat-sub">today</div></div>
+            <div class="fp-stat c-purple"><div class="fp-stat-lbl">Avg Ticket</div><div class="fp-stat-val">$610</div><div class="fp-stat-sub">last 30 days</div></div>
+          </div>
+          <div class="fp-lower">
+            <div class="fp-panel">
+              <div class="fp-panel-head"><span class="fp-panel-title">Today's Jobs</span><span class="pill pill-red" style="display:inline-flex">3 UNASSIGNED</span></div>
+              <div class="fp-row"><div class="fp-av" style="background:#E2061318;border-color:#E2061333;color:var(--red)">MR</div><div><div class="fp-row-name">Ana Rivera — Water Heater</div><div class="fp-row-sub">143 Oak Blvd · Marcus Reed</div></div><div class="fp-row-right"><span class="pill pill-red">ON SITE</span><div class="fp-row-time" style="margin-top:4px">2h left</div></div></div>
+              <div class="fp-row"><div class="fp-av" style="background:#1D70B718;border-color:#1D70B733;color:var(--blue)">DL</div><div><div class="fp-row-name">Bill Thompson — Drain</div><div class="fp-row-sub">88 Pine St · Devon Liu</div></div><div class="fp-row-right"><span class="pill pill-blue">EN ROUTE</span></div></div>
+              <div class="fp-row"><div class="fp-av" style="background:#22c55e18;border-color:#22c55e33;color:var(--green)">PS</div><div><div class="fp-row-name">Kavya Patel — Fixture</div><div class="fp-row-sub">210 Cedar Ave · Priya Sharma</div></div><div class="fp-row-right"><span class="pill pill-green">DONE</span><div class="fp-row-amt">$210</div></div></div>
+              <div class="fp-row"><div class="fp-av" style="background:#E2061318;border-color:#E2061333;color:var(--red)">CT</div><div><div class="fp-row-name">Dario Castellano — Slab Leak</div><div class="fp-row-sub">47 Maple Ct · Carl Torres</div></div><div class="fp-row-right"><span class="pill pill-red">ON SITE</span></div></div>
+            </div>
+            <div class="fp-panel">
+              <div class="fp-panel-head"><span class="fp-panel-title">Recent Invoices</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted)">Last 7 days</span></div>
+              <div class="fp-row"><div class="fp-av" style="background:#22c55e18;border-color:#22c55e33;color:var(--green)">✓</div><div><div class="fp-row-name">Kavya Patel</div><div class="fp-row-sub">Faucet Install</div></div><div class="fp-row-right"><div class="fp-row-amt">$210</div><div class="fp-row-time">paid</div></div></div>
+              <div class="fp-row"><div class="fp-av" style="background:#1D70B718;border-color:#1D70B733;color:var(--blue)">●</div><div><div class="fp-row-name">Ana Rivera</div><div class="fp-row-sub">Tankless WH Install</div></div><div class="fp-row-right"><div class="fp-row-amt">$3,200</div><div class="fp-row-time">pending</div></div></div>
+              <div class="fp-row"><div class="fp-av" style="background:#f59e0b18;border-color:#f59e0b33;color:var(--amber)">!</div><div><div class="fp-row-name">Sam McKinley</div><div class="fp-row-sub">Slab Detection</div></div><div class="fp-row-right"><div class="fp-row-amt">$485</div><div class="fp-row-time" style="color:var(--amber)">overdue</div></div></div>
+              <div class="fp-row"><div class="fp-av" style="background:#22c55e18;border-color:#22c55e33;color:var(--green)">✓</div><div><div class="fp-row-name">Lily Nguyen</div><div class="fp-row-sub">Main Drain Clearing</div></div><div class="fp-row-right"><div class="fp-row-amt">$320</div><div class="fp-row-time">paid</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SIDEBAR ══════════════════════════════════════════════ -->
+<div class="section" id="sec-sidebar">
+  <div class="section-title">Sidebar Navigation</div>
+  <div class="section-sub">Replaces the horizontal tab bar. Collapsible, persistent, shows active section with a red left-border indicator and badge counts. Way more room for the content area.</div>
+  <div class="demo-shell">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sidebar-logo">
+          <div style="display:flex;align-items:center;gap:10px">
+            <svg width="28" height="24" viewBox="0 0 40 34" fill="none"><polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/><line x1="10" y1="10" x2="38" y2="10" stroke="#fff" stroke-width="1.2" stroke-opacity=".3"/><line x1="11" y1="16" x2="39" y2="16" stroke="#fff" stroke-width="1.2" stroke-opacity=".3"/></svg>
+            <div><div class="logo-name">Davis Plumbing</div><div class="logo-sub">DIGITAL PLUMBING SOFTWARE</div></div>
+          </div>
+        </div>
+        <div class="sidebar-nav">
+          <div class="nav-item"><span class="nav-icon">🏠</span> Dashboard</div>
+          <div class="nav-item active"><span class="nav-icon">📋</span> Dispatch <span class="nav-badge">4</span></div>
+          <div class="nav-item"><span class="nav-icon">👤</span> Customers</div>
+          <div class="nav-item"><span class="nav-icon">🧾</span> Invoices</div>
+          <div class="nav-item"><span class="nav-icon">📄</span> Estimates</div>
+          <div class="nav-section">Operations</div>
+          <div class="nav-item"><span class="nav-icon">📞</span> Calls <span class="nav-badge" style="background:var(--blue)">2</span></div>
+          <div class="nav-item"><span class="nav-icon">📦</span> Inventory</div>
+          <div class="nav-item"><span class="nav-icon">📊</span> Reports</div>
+          <div class="nav-item"><span class="nav-icon">🗺️</span> GPS Fleet</div>
+          <div class="nav-section">Settings</div>
+          <div class="nav-item"><span class="nav-icon">⚙️</span> Settings</div>
+        </div>
+        <div class="sidebar-footer">
+          <div class="user-row">
+            <div class="avatar">AD</div>
+            <div><div class="user-name">Admin User</div><div class="user-role">admin · Davis Plumbing</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="main-area">
+        <div class="topbar">
+          <div class="breadcrumb"><span>DPS</span><span style="color:var(--bd2)">›</span><span class="crumb-active">Dispatch</span></div>
+          <div class="live-badge" style="margin-left:12px"><div class="live-dot"></div> 4 Active Jobs</div>
+          <div class="topbar-right">
+            <div class="icon-btn">🔔</div>
+            <div class="icon-btn">🔍</div>
+            <div class="avatar" style="width:30px;height:30px;border-radius:15px">AD</div>
+          </div>
+        </div>
+        <div class="content-area" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px">
+          <div style="font-size:32px">📋</div>
+          <div style="font-family:var(--head);font-size:16px;font-weight:700;color:var(--text)">Dispatch Board</div>
+          <div style="font-size:12px;color:var(--muted)">Content renders here — full width, no tab bar eating space</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="demo-note">Active item gets a red left-border strip. Badge counts stay visible at all times. Footer anchors the current user.</p>
+</div>
+
+<!-- ══ STAT CARDS ══════════════════════════════════════════ -->
+<div class="section" id="sec-stats">
+  <div class="section-title">Stat Cards — Left Border Accents</div>
+  <div class="section-sub">Each KPI card gets a 3px left border in its semantic color. Instantly scannable — the color tells you the category before you read the number. Hover lifts the card.</div>
+  <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:24px">
+    <div class="stat-grid">
+      <div class="stat-card red">
+        <div class="stat-label">Unassigned</div>
+        <div class="stat-val">3</div>
+        <div class="stat-sub">needs dispatch now</div>
+        <div class="stat-trend down">▲ 2 from yesterday</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-label">On Site</div>
+        <div class="stat-val">4</div>
+        <div class="stat-sub">active right now</div>
+        <div class="stat-trend up">— steady</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">En Route</div>
+        <div class="stat-val">2</div>
+        <div class="stat-sub">in transit</div>
+        <div class="stat-trend up">↓ 1 from avg</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Today's Revenue</div>
+        <div class="stat-val">$8.4k</div>
+        <div class="stat-sub">4 completed jobs</div>
+        <div class="stat-trend up">▲ 12% vs last week</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-label">Avg Ticket</div>
+        <div class="stat-val">$610</div>
+        <div class="stat-sub">last 30 days</div>
+        <div class="stat-trend up">▲ $42 from last month</div>
+      </div>
+    </div>
+  </div>
+  <p class="demo-note">Hover over a card to see the lift effect. 3px border + colored value = no legend needed.</p>
+</div>
+
+<!-- ══ SKELETON ════════════════════════════════════════════ -->
+<div class="section" id="sec-skeleton">
+  <div class="section-title">Skeleton Loaders</div>
+  <div class="section-sub">While data loads, ghost placeholder cards animate with a shimmer. Feels like the app is alive and working rather than frozen with a spinner.</div>
+  <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:20px">
+    <div>
+      <div class="label">Stat cards loading...</div>
+      <div class="stat-grid">
+        <div class="skel-card"><div class="skel skel-line" style="width:50%"></div><div class="skel skel-val"></div><div class="skel skel-sub"></div></div>
+        <div class="skel-card"><div class="skel skel-line" style="width:40%"></div><div class="skel skel-val"></div><div class="skel skel-sub"></div></div>
+        <div class="skel-card"><div class="skel skel-line" style="width:55%"></div><div class="skel skel-val"></div><div class="skel skel-sub"></div></div>
+        <div class="skel-card"><div class="skel skel-line" style="width:60%"></div><div class="skel skel-val"></div><div class="skel skel-sub"></div></div>
+        <div class="skel-card"><div class="skel skel-line" style="width:45%"></div><div class="skel skel-val"></div><div class="skel skel-sub"></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="label">Table loading...</div>
+      <div style="background:var(--s);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+        <div class="skel-table-row" style="background:var(--s3)">
+          <div class="skel skel-avatar"></div>
+          <div class="skel-col"><div class="skel" style="height:10px;width:160px"></div><div class="skel" style="height:8px;width:100px"></div></div>
+          <div class="skel" style="height:10px;width:80px;margin-left:auto"></div>
+          <div class="skel" style="height:22px;width:60px;border-radius:3px;margin-left:16px"></div>
+        </div>
+        <div class="skel-table-row">
+          <div class="skel skel-avatar"></div>
+          <div class="skel-col"><div class="skel" style="height:10px;width:140px"></div><div class="skel" style="height:8px;width:90px"></div></div>
+          <div class="skel" style="height:10px;width:80px;margin-left:auto"></div>
+          <div class="skel" style="height:22px;width:60px;border-radius:3px;margin-left:16px"></div>
+        </div>
+        <div class="skel-table-row">
+          <div class="skel skel-avatar"></div>
+          <div class="skel-col"><div class="skel" style="height:10px;width:180px"></div><div class="skel" style="height:8px;width:110px"></div></div>
+          <div class="skel" style="height:10px;width:80px;margin-left:auto"></div>
+          <div class="skel" style="height:22px;width:60px;border-radius:3px;margin-left:16px"></div>
+        </div>
+        <div class="skel-table-row">
+          <div class="skel skel-avatar"></div>
+          <div class="skel-col"><div class="skel" style="height:10px;width:120px"></div><div class="skel" style="height:8px;width:80px"></div></div>
+          <div class="skel" style="height:10px;width:80px;margin-left:auto"></div>
+          <div class="skel" style="height:22px;width:60px;border-radius:3px;margin-left:16px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="demo-note">Shimmer matches the layout exactly — users know what's coming before the data arrives.</p>
+</div>
+
+<!-- ══ TABLE ═══════════════════════════════════════════════ -->
+<div class="section" id="sec-table">
+  <div class="section-title">Table Row Hover</div>
+  <div class="section-sub">Rows lift on hover: translateY(-1px) + shadow + blue name color + reveal action buttons. Makes any list feel interactive and fast to navigate.</div>
+  <div class="demo-shell" style="padding:0">
+    <div class="table-demo">
+      <div class="table-head">
+        <div>Customer</div>
+        <div>Phone</div>
+        <div>Last Job</div>
+        <div>Status</div>
+        <div>Actions</div>
+      </div>
+      <div class="table-row">
+        <div><div class="row-name">Ana Rivera</div><div class="row-sub">143 Oak Blvd, Houston TX</div></div>
+        <div class="row-phone">(713) 555-2041</div>
+        <div class="row-sub">Water Heater Install</div>
+        <div><span class="pill pill-red">ON SITE</span></div>
+        <div class="row-actions"><button class="row-btn">View</button><button class="row-btn">Call</button></div>
+      </div>
+      <div class="table-row">
+        <div><div class="row-name">Bill Thompson</div><div class="row-sub">88 Pine St, Houston TX</div></div>
+        <div class="row-phone">(713) 555-2042</div>
+        <div class="row-sub">Drain Clearing</div>
+        <div><span class="pill pill-blue">EN ROUTE</span></div>
+        <div class="row-actions"><button class="row-btn">View</button><button class="row-btn">Call</button></div>
+      </div>
+      <div class="table-row">
+        <div><div class="row-name">Kavya Patel</div><div class="row-sub">210 Cedar Ave, Houston TX</div></div>
+        <div class="row-phone">(713) 555-2043</div>
+        <div class="row-sub">Fixture Repair</div>
+        <div><span class="pill pill-green">DONE</span></div>
+        <div class="row-actions"><button class="row-btn">View</button><button class="row-btn">Invoice</button></div>
+      </div>
+      <div class="table-row">
+        <div><div class="row-name">Dario Castellano</div><div class="row-sub">47 Maple Ct, Houston TX</div></div>
+        <div class="row-phone">(713) 555-2046</div>
+        <div class="row-sub">Slab Leak Detection</div>
+        <div><span class="pill pill-red">ON SITE</span></div>
+        <div class="row-actions"><button class="row-btn">View</button><button class="row-btn">Call</button></div>
+      </div>
+      <div class="table-row">
+        <div><div class="row-name">Sam McKinley</div><div class="row-sub">55 Elm Dr, Houston TX</div></div>
+        <div class="row-phone">(713) 555-2044</div>
+        <div class="row-sub">—</div>
+        <div><span class="pill pill-amber">FOLLOW-UP</span></div>
+        <div class="row-actions"><button class="row-btn">View</button><button class="row-btn">Schedule</button></div>
+      </div>
+    </div>
+  </div>
+  <p class="demo-note">Hover a row to see the lift + name color change + action buttons reveal. Actions only appear on hover — keeps the table clean at rest.</p>
+</div>
+
+<!-- ══ DRAWER ══════════════════════════════════════════════ -->
+<div class="section" id="sec-drawer">
+  <div class="section-title">Job Detail Drawer</div>
+  <div class="section-sub">Job details slide in from the right as a drawer — dispatch board stays visible behind it. Dispatchers can see the board and the job at the same time. No more full-screen modals that hide context.</div>
+  <div class="drawer-demo">
+    <div class="dispatch-bg">
+      <div class="dispatch-header">
+        <div class="dispatch-title">Dispatch Board</div>
+        <div class="live-badge"><div class="live-dot"></div> Live</div>
+      </div>
+      <div style="font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--muted);display:flex;margin-bottom:8px;margin-left:110px;gap:0">
+        <div style="flex:1;text-align:center">8AM</div><div style="flex:1;text-align:center">10AM</div><div style="flex:1;text-align:center">12PM</div><div style="flex:1;text-align:center">2PM</div><div style="flex:1;text-align:center">4PM</div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-name">Marcus Reed</div>
+        <div class="gantt-track">
+          <div class="gantt-block gb-red" style="left:10%;width:35%">Water Heater Install</div>
+          <div class="now-line" style="left:38%"><div class="now-label">2:34 PM</div></div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-name">Devon Liu</div>
+        <div class="gantt-track">
+          <div class="gantt-block gb-blue" style="left:40%;width:25%">Drain Clear</div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-name">Priya Sharma</div>
+        <div class="gantt-track">
+          <div class="gantt-block gb-green" style="left:5%;width:30%">Fixture Repair</div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-name">Carl Torres</div>
+        <div class="gantt-track">
+          <div class="gantt-block gb-red" style="left:20%;width:40%">Slab Leak Detect</div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-name">Jin Woo</div>
+        <div class="gantt-track">
+          <div class="gantt-block gb-purple" style="left:60%;width:28%">Repipe Consult</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;font-size:11px;color:var(--muted);font-style:italic">← Click any job block to open the drawer →</div>
+    </div>
+    <div class="job-drawer">
+      <div class="drawer-header">
+        <span class="pill pill-red" style="display:inline-flex">ON SITE</span>
+        <div class="drawer-title">Water Heater Install</div>
+        <div class="drawer-close">✕</div>
+      </div>
+      <div class="drawer-body">
+        <div class="drawer-section">
+          <div class="drawer-section-label">Customer</div>
+          <div class="info-row"><span class="info-key">Name</span><span class="info-val">Ana Rivera</span></div>
+          <div class="info-row"><span class="info-key">Phone</span><span class="info-val" style="color:var(--blue)">(713) 555-2041</span></div>
+          <div class="info-row"><span class="info-key">Address</span><span class="info-val">143 Oak Blvd, Houston TX</span></div>
+        </div>
+        <div class="drawer-section">
+          <div class="drawer-section-label">Job</div>
+          <div class="info-row"><span class="info-key">Tech</span><span class="info-val">Marcus Reed</span></div>
+          <div class="info-row"><span class="info-key">Started</span><span class="info-val">10:14 AM</span></div>
+          <div class="info-row"><span class="info-key">Est. End</span><span class="info-val">3:00 PM</span></div>
+          <div class="info-row"><span class="info-key">Est. Total</span><span class="info-val" style="color:var(--green)">$2,040</span></div>
+        </div>
+        <div class="drawer-section">
+          <div class="drawer-section-label">Notes</div>
+          <div style="background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:11px;color:var(--muted);line-height:1.6">Tankless unit, VIP customer. Customer requested Navien NPE-240A. Gas shutoff accessible from garage.</div>
+        </div>
+      </div>
+      <div class="drawer-footer">
+        <button class="btn-secondary">📞 Call</button>
+        <button class="btn-primary">Edit Job →</button>
+      </div>
+    </div>
+  </div>
+  <p class="demo-note">The NOW line shows "2:34 PM" label so dispatchers always know exactly where they are in the day. Drawer slides in, board stays put.</p>
+</div>
+
+<!-- ══ FORMS ═══════════════════════════════════════════════ -->
+<div class="section" id="sec-forms">
+  <div class="section-title">Forms & Inputs</div>
+  <div class="section-sub">Focus rings in brand blue (#1D70B7), red rings on error, green on success. Click any field to see it activate. Night-and-day difference from bare inputs with no feedback.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div>
+      <div class="label">New Customer Form</div>
+      <div class="form-demo">
+        <div class="form-grid">
+          <div class="form-row"><label class="form-label">First Name</label><input class="form-input" value="Ana" style="border-color:var(--green);box-shadow:0 0 0 3px var(--greendim)"/><div class="form-hint success">✓ Looks good</div></div>
+          <div class="form-row"><label class="form-label">Last Name</label><input class="form-input" placeholder="Rivera"/></div>
+        </div>
+        <div class="form-row"><label class="form-label">Phone Number</label><input class="form-input" value="(713) 555-" style="border-color:var(--red);box-shadow:0 0 0 3px var(--reddim)"/><div class="form-hint error">⚠ Enter a valid 10-digit number</div></div>
+        <div class="form-row"><label class="form-label">Email (optional)</label><input class="form-input" placeholder="ana@email.com" onfocus="this.style.borderColor='#1D70B7';this.style.boxShadow='0 0 0 3px #1D70B722'" onblur="this.style.borderColor='';this.style.boxShadow=''"/></div>
+        <div class="form-row"><label class="form-label">Lead Source</label>
+          <select class="form-select" onfocus="this.style.borderColor='#1D70B7';this.style.boxShadow='0 0 0 3px #1D70B722'" onblur="this.style.borderColor='';this.style.boxShadow=''">
+            <option>Google</option><option>Referral</option><option>Yelp</option><option>Facebook</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button class="btn-lg btn-save">Save Customer →</button>
+          <button class="btn-lg btn-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="label">Focus states demo — click each field</div>
+      <div class="form-demo">
+        <div class="form-row" style="margin-bottom:20px"><label class="form-label">Default (click me)</label><input class="form-input" placeholder="Click to see focus ring" onfocus="this.style.borderColor='#1D70B7';this.style.boxShadow='0 0 0 3px #1D70B722'" onblur="this.style.borderColor='';this.style.boxShadow=''"/></div>
+        <div class="form-row" style="margin-bottom:20px"><label class="form-label">Error state</label><input class="form-input error-state" value="bad-email"/><div class="form-hint error">Enter a valid email address</div></div>
+        <div class="form-row" style="margin-bottom:20px"><label class="form-label">Success state</label><input class="form-input success-state" value="marcus@davis.com"/><div class="form-hint success">✓ Email verified</div></div>
+        <div class="form-row"><label class="form-label">Focused (active)</label><input class="form-input" value="Typing now..." style="border-color:var(--blue);box-shadow:0 0 0 3px #1D70B722"/></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ DISPATCH ════════════════════════════════════════════ -->
+<div class="section" id="sec-dispatch">
+  <div class="section-title">Dispatch Board — Gradient Blocks + NOW Label</div>
+  <div class="section-sub">Job blocks fade from solid status color on the left to transparent on the right. The NOW line gets a floating time label. Both changes cost ~10 lines of CSS each.</div>
+  <div class="demo-shell" style="padding:20px">
+    <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--muted);display:flex;margin-left:120px;margin-bottom:8px">
+      <div style="flex:1;text-align:left">8:00 AM</div>
+      <div style="flex:1;text-align:center">11:00 AM</div>
+      <div style="flex:1;text-align:center">2:00 PM</div>
+      <div style="flex:1;text-align:center">5:00 PM</div>
+      <div style="flex:1;text-align:right">8:00 PM</div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-name">Marcus Reed</div>
+      <div class="gantt-track" style="height:44px">
+        <div class="gantt-block gb-red" style="left:8%;width:38%;font-size:10px">Water Heater Install — Ana Rivera</div>
+        <div class="now-line" style="left:37%"><div class="now-label">2:34 PM</div></div>
+      </div>
+    </div>
+    <div class="gantt-row" style="margin-top:6px">
+      <div class="gantt-name">Devon Liu</div>
+      <div class="gantt-track" style="height:44px">
+        <div class="gantt-block gb-blue" style="left:38%;width:22%;font-size:10px">Drain Clear — Bill Thompson</div>
+      </div>
+    </div>
+    <div class="gantt-row" style="margin-top:6px">
+      <div class="gantt-name">Priya Sharma</div>
+      <div class="gantt-track" style="height:44px">
+        <div class="gantt-block gb-green" style="left:5%;width:28%;font-size:10px">Fixture Repair — Kavya Patel</div>
+        <div class="gantt-block gb-purple" style="left:55%;width:25%;font-size:10px">Repipe Consult</div>
+      </div>
+    </div>
+    <div class="gantt-row" style="margin-top:6px">
+      <div class="gantt-name">Carl Torres</div>
+      <div class="gantt-track" style="height:44px">
+        <div class="gantt-block gb-red" style="left:18%;width:36%;font-size:10px">Slab Leak Detect — Dario Castellano</div>
+      </div>
+    </div>
+    <div class="gantt-row" style="margin-top:6px">
+      <div class="gantt-name">Jin Woo</div>
+      <div class="gantt-track" style="height:44px">
+        <div class="gantt-block gb-blue" style="left:62%;width:22%;font-size:10px">New Customer Call</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:16px">
+      <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--muted)"><div style="width:20px;height:8px;background:linear-gradient(90deg,#E20613,#E2061322);border-radius:3px"></div> ON SITE</div>
+      <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--muted)"><div style="width:20px;height:8px;background:linear-gradient(90deg,#1D70B7,#1D70B722);border-radius:3px"></div> EN ROUTE</div>
+      <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--muted)"><div style="width:20px;height:8px;background:linear-gradient(90deg,#22c55e,#22c55e22);border-radius:3px"></div> COMPLETED</div>
+      <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--muted)"><div style="width:20px;height:8px;background:linear-gradient(90deg,#6366f1,#6366f122);border-radius:3px"></div> SCHEDULED</div>
+    </div>
+  </div>
+  <p class="demo-note">Gradient blocks read left-to-right: you can tell at a glance how far into a job the tech is. The "2:34 PM" label on the NOW line means zero mental math.</p>
+</div>
+
+<!-- ══ TOASTS ══════════════════════════════════════════════ -->
+<div class="section" id="sec-toasts">
+  <div class="section-title">Toast Notification System</div>
+  <div class="section-sub">Replaces every alert() call in the app. Slides in from bottom-right, auto-dismisses in 3 seconds, progress bar shows remaining time. Hit the buttons to fire them.</div>
+  <div class="toast-demo">
+    <div class="toast-trigger-area">
+      <button class="toast-btn tb-success" onclick="fireToast('success','Invoice Sent','$2,040 invoice emailed to Ana Rivera.')">✓ Success</button>
+      <button class="toast-btn tb-error" onclick="fireToast('error','Payment Failed','Card declined — please retry or collect cash.')">✕ Error</button>
+      <button class="toast-btn tb-info" onclick="fireToast('info','Tech En Route','Marcus Reed is 8 minutes away from job site.')">ℹ Info</button>
+      <button class="toast-btn tb-warn" onclick="fireToast('warn','Low Inventory','40-Gal Water Heater is below minimum stock.')">⚠ Warning</button>
+      <button class="toast-btn tb-success" onclick="fireToast('success','Status Updated','Job #1042 marked On Site.')">Job Update</button>
+      <button class="toast-btn tb-info" onclick="fireToast('info','Offline Synced','3 changes synced from mobile app.')">Sync</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);font-style:italic">↓ Toasts appear bottom-right, stack up, auto-dismiss in 3s</div>
+    <div class="toast-stack" id="toast-stack"></div>
+  </div>
+  <p class="demo-note">Each alert() in the app gets replaced with a one-liner: <code style="background:var(--s2);color:var(--blue);padding:2px 6px;border-radius:3px;font-family:var(--mono);font-size:11px">toast.success('Invoice Sent', '...')</code></p>
+</div>
+
+<!-- ══ BUTTONS ══════════════════════════════════════════════ -->
+<div class="section" id="sec-buttons">
+  <div class="section-title">Button System</div>
+  <div class="section-sub">Every button gets scale(0.96) on click, hover lifts the primary button. Consistent variants: Primary (red CTA), Secondary, Ghost, Danger, Success, Icon, Group.</div>
+  <div class="btn-showcase">
+    <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+      <div class="label">Primary — main CTAs</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="showcase-btn sb-primary">Save Customer →</button>
+        <button class="showcase-btn sb-primary" style="display:flex;align-items:center;gap:8px"><span class="mini-spinner"></span> Saving...</button>
+        <button class="showcase-btn sb-primary" style="opacity:.45;cursor:not-allowed">Disabled</button>
+      </div>
+      <div class="label" style="margin-top:12px">Secondary & Ghost</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="showcase-btn sb-secondary">Cancel</button>
+        <button class="showcase-btn sb-secondary">Edit Job</button>
+        <button class="showcase-btn sb-ghost">Skip</button>
+        <button class="showcase-btn sb-ghost">← Back</button>
+      </div>
+      <div class="label" style="margin-top:12px">Semantic</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="showcase-btn sb-danger">Delete Customer</button>
+        <button class="showcase-btn sb-success">✓ Approve Estimate</button>
+        <button class="showcase-btn sb-icon">📋</button>
+        <button class="showcase-btn sb-icon">⚙️</button>
+        <button class="showcase-btn sb-icon">📞</button>
+        <button class="showcase-btn sb-icon">🗺️</button>
+      </div>
+      <div class="label" style="margin-top:12px">Button Group — filter / segmented control</div>
+      <div style="display:flex;gap:0">
+        <div class="btn-group">
+          <button class="showcase-btn active">All Jobs</button>
+          <button class="showcase-btn">Today</button>
+          <button class="showcase-btn">This Week</button>
+          <button class="showcase-btn">Unassigned</button>
+        </div>
+      </div>
+      <div class="label" style="margin-top:12px">Click any button to feel the press feedback</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('visible'));
+  document.querySelectorAll('.sel-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sec-' + id).classList.add('visible');
+  event.target.classList.add('active');
+}
+
+// Toast system
+const icons = {success:'✓',error:'✕',info:'ℹ',warn:'⚠'};
+const classes = {success:'toast-success',error:'toast-error',info:'toast-info',warn:'toast-warn'};
+function fireToast(type, title, msg) {
+  const stack = document.getElementById('toast-stack');
+  const t = document.createElement('div');
+  t.className = `toast ${classes[type]}`;
+  t.style.position = 'relative';
+  t.innerHTML = `
+    <div class="toast-icon">${icons[type]}</div>
+    <div class="toast-content"><div class="toast-title">${title}</div><div class="toast-msg">${msg}</div></div>
+    <div class="toast-close" onclick="dismissToast(this.parentElement)">✕</div>
+    <div class="toast-progress"></div>
+  `;
+  stack.appendChild(t);
+  setTimeout(() => dismissToast(t), 3200);
+}
+function dismissToast(el) {
+  el.classList.add('hiding');
+  setTimeout(() => el.remove(), 200);
+}
+</script>
+
+</body>
+</html>

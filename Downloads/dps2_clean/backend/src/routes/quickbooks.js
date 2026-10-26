@@ -4,6 +4,19 @@ const QuickBooks = require("node-quickbooks");
 const { query } = require("../db/pool");
 const { authenticate } = require("../middleware/auth");
 
+// Ensure the simple key/value settings table this route uses to persist tokens exists.
+// Without this, fresh DBs blow up the process on first /qb/status call.
+(async () => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key   TEXT PRIMARY KEY,
+        value JSONB
+      )
+    `);
+  } catch (e) { /* ignore */ }
+})();
+
 function makeOAuthClient() {
   return new OAuthClient({
     clientId: process.env.QB_CLIENT_ID,
@@ -22,9 +35,14 @@ async function saveTokens(tokenData) {
 }
 
 async function loadTokens() {
-  const { rows } = await query("SELECT value FROM settings WHERE key = 'qb_tokens'");
-  if (!rows[0]) return null;
-  return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+  try {
+    const { rows } = await query("SELECT value FROM settings WHERE key = 'qb_tokens'");
+    if (!rows[0]) return null;
+    return typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+  } catch (e) {
+    // Table missing or other transient issue — treat as "not connected" rather than crash.
+    return null;
+  }
 }
 
 async function getQBClient() {
@@ -86,8 +104,12 @@ router.get("/callback", async (req, res) => {
 
 // GET /api/qb/status  — check connection state
 router.get("/status", authenticate, async (_req, res) => {
-  const tokens = await loadTokens();
-  res.json({ connected: !!tokens });
+  try {
+    const tokens = await loadTokens();
+    res.json({ connected: !!tokens });
+  } catch (e) {
+    res.json({ connected: false, error: e.message });
+  }
 });
 
 // POST /api/qb/sync/customer/:id  — push customer to QB

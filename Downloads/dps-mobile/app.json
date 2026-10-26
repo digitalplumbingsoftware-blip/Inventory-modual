@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "DPS Mobile",
+    "slug": "dps-mobile",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dps.mobile"
+    },
+    "android": {
+      "package": "com.dps.mobile"
+    },
+    "plugins": [
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.dps.mobile",
+          "enableGooglePay": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-status-bar"
+    ]
+  }
+}

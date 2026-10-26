@@ -4,25 +4,8 @@ import {
   StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { C } from '../theme';
-import { getInventory, getInventoryLocations } from '../services/api';
-
-// Stock status helpers
-function getStatus(item) {
-  const total = (item.stock || []).reduce((s, l) => s + parseInt(l.qty || 0, 10), 0);
-  if (total === 0) return 'out';
-  if (item.min_qty && total <= item.min_qty) return 'low';
-  return 'ok';
-}
-
-function getTotalQty(item) {
-  return (item.stock || []).reduce((s, l) => s + parseInt(l.qty || 0, 10), 0);
-}
-
-const STATUS_CONFIG = {
-  ok:  { label: 'In Stock',      bg: '#0d2a1c', text: '#3ecf8e', border: '#3ecf8e' },
-  low: { label: 'Low Stock',     bg: '#2a1d06', text: '#f5a623', border: '#f5a623' },
-  out: { label: 'Out of Stock',  bg: '#2a0d0d', text: '#f56565', border: '#f56565' },
-};
+import { getInventoryLocations, getLocationStock } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -31,25 +14,29 @@ const FILTERS = [
   { id: 'out', label: 'Out of Stock' },
 ];
 
-// ── Item card ──────────────────────────────────────────────────────────────────
-function ItemCard({ item, locations }) {
-  const status = getStatus(item);
+function itemStatus(item) {
+  const qty = parseInt(item.qty || 0, 10);
+  if (qty === 0) return 'out';
+  if (item.is_low || (item.min_qty && qty <= item.min_qty)) return 'low';
+  return 'ok';
+}
+
+const STATUS_CONFIG = {
+  ok:  { label: 'In Stock',     bg: '#0d2a1c', text: '#3ecf8e', border: '#3ecf8e' },
+  low: { label: 'Low Stock',    bg: '#2a1d06', text: '#f5a623', border: '#f5a623' },
+  out: { label: 'Out of Stock', bg: '#2a0d0d', text: '#f56565', border: '#f56565' },
+};
+
+function ItemCard({ item }) {
+  const status = itemStatus(item);
   const cfg    = STATUS_CONFIG[status];
-  const total  = getTotalQty(item);
+  const qty    = parseInt(item.qty || 0, 10);
   const maxQty = Math.max((item.min_qty || 1) * 2, 1);
-  const fill   = Math.min(1, total / maxQty);
-
+  const fill   = Math.min(1, qty / maxQty);
   const barColor = status === 'ok' ? C.green : status === 'low' ? C.amber : C.red;
-  const topBorderColor = status === 'ok' ? C.green : status === 'low' ? C.amber : C.red;
-
-  const truckStock = (item.stock || []).find((s) => {
-    const loc = (locations || []).find((l) => l.id === s.location_id);
-    return loc?.type === 'truck';
-  });
 
   return (
-    <View style={[s.card, { borderTopColor: topBorderColor }]}>
-      {/* Header */}
+    <View style={[s.card, { borderTopColor: barColor }]}>
       <View style={s.cardHeader}>
         <View style={s.cardTitleBlock}>
           <Text style={s.cardName} numberOfLines={1}>{item.name}</Text>
@@ -60,12 +47,12 @@ function ItemCard({ item, locations }) {
         </View>
       </View>
 
-      {/* Stock bar */}
+      {/* Stock bar — based on truck qty vs min */}
       <View style={s.barSection}>
         <View style={s.barLabels}>
-          <Text style={s.barLabel}>Total Stock</Text>
+          <Text style={s.barLabel}>🚚 Truck Stock</Text>
           <Text style={s.barQty}>
-            {total} <Text style={s.barMin}>/ {item.min_qty || 0} min</Text>
+            {qty} <Text style={s.barMin}>/ {item.min_qty || 0} min</Text>
           </Text>
         </View>
         <View style={s.barTrack}>
@@ -73,86 +60,84 @@ function ItemCard({ item, locations }) {
         </View>
       </View>
 
-      {/* Footer row */}
       <View style={s.cardFooter}>
         <Text style={s.cost}>
           {item.cost != null ? `$${parseFloat(item.cost).toFixed(2)}` : ''}
         </Text>
-        {truckStock ? (
-          <Text style={s.truckLabel}>
-            🚚 Truck:{' '}
-            <Text style={{
-              fontWeight: '700',
-              color: parseInt(truckStock.qty || 0, 10) === 0 ? C.red
-                   : parseInt(truckStock.qty || 0, 10) <= item.min_qty ? C.amber
-                   : C.text,
-            }}>
-              {truckStock.qty}
-            </Text>
-          </Text>
-        ) : null}
         {item.item_type ? (
           <View style={s.typeBadge}>
             <Text style={s.typeBadgeText}>{item.item_type}</Text>
           </View>
         ) : null}
+        <Text style={[s.qtyBig, { color: barColor }]}>{qty}</Text>
       </View>
     </View>
   );
 }
 
-// ── KPI banner ─────────────────────────────────────────────────────────────────
-function KpiBanner({ items }) {
-  const low   = items.filter((i) => { const s = getStatus(i); return s === 'low' || s === 'out'; }).length;
-  const val   = items.reduce((s, i) => s + getTotalQty(i) * parseFloat(i.cost || 0), 0);
+function KpiBanner({ items, truckName }) {
+  const low = items.filter(i => { const st = itemStatus(i); return st === 'low' || st === 'out'; }).length;
+  const val = items.reduce((s, i) => s + parseInt(i.qty || 0, 10) * parseFloat(i.cost || 0), 0);
 
   return (
-    <View style={s.kpiRow}>
-      <View style={s.kpiCard}>
-        <Text style={s.kpiVal}>{items.length}</Text>
-        <Text style={s.kpiLabel}>SKUs</Text>
+    <View>
+      <View style={s.truckBadge}>
+        <Text style={s.truckBadgeText}>🚚 {truckName || 'My Truck'}</Text>
       </View>
-      <View style={[s.kpiCard, low > 0 ? s.kpiCardAlert : null]}>
-        <Text style={[s.kpiVal, low > 0 ? { color: C.red } : null]}>{low}</Text>
-        <Text style={s.kpiLabel}>Low/Out</Text>
-      </View>
-      <View style={s.kpiCard}>
-        <Text style={[s.kpiVal, { color: C.green }]}>
-          ${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toFixed(0)}
-        </Text>
-        <Text style={s.kpiLabel}>Value</Text>
+      <View style={s.kpiRow}>
+        <View style={s.kpiCard}>
+          <Text style={s.kpiVal}>{items.length}</Text>
+          <Text style={s.kpiLabel}>SKUs</Text>
+        </View>
+        <View style={[s.kpiCard, low > 0 ? s.kpiCardAlert : null]}>
+          <Text style={[s.kpiVal, low > 0 ? { color: C.red } : null]}>{low}</Text>
+          <Text style={s.kpiLabel}>Low / Out</Text>
+        </View>
+        <View style={s.kpiCard}>
+          <Text style={[s.kpiVal, { color: C.green }]}>
+            ${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toFixed(0)}
+          </Text>
+          <Text style={s.kpiLabel}>Value</Text>
+        </View>
       </View>
     </View>
   );
 }
 
-// ── Main screen ────────────────────────────────────────────────────────────────
-export default function InventoryBrowseScreen({ navigation }) {
-  const [items, setItems]           = useState([]);
-  const [locations, setLocations]   = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch]         = useState('');
-  const [statusFilter, setStatus]   = useState('all');
+export default function InventoryBrowseScreen() {
+  const { user } = useAuth();
+  const [items, setItems]             = useState([]);
+  const [truckLocation, setTruck]     = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [noTruck, setNoTruck]         = useState(false);
+  const [search, setSearch]           = useState('');
+  const [statusFilter, setStatus]     = useState('all');
 
   const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
-      const [inv, locs] = await Promise.all([getInventory(), getInventoryLocations()]);
-      setItems(Array.isArray(inv) ? inv : (inv.items || []));
-      setLocations(Array.isArray(locs) ? locs : (locs.locations || []));
+      // 1. Find this tech's truck location
+      const locs  = await getInventoryLocations();
+      const truck = locs.find(l => l.technician_id === user?.id && l.type === 'truck');
+      if (!truck) { setNoTruck(true); return; }
+      setTruck(truck);
+
+      // 2. Load only that truck's stock
+      const stock = await getLocationStock(truck.id);
+      setItems(Array.isArray(stock) ? stock : []);
     } catch (e) {
       console.warn('InventoryBrowseScreen load error:', e.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = items.filter((i) => {
-    if (statusFilter !== 'all' && getStatus(i) !== statusFilter) return false;
+  const filtered = items.filter(i => {
+    if (statusFilter !== 'all' && itemStatus(i) !== statusFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       return i.name?.toLowerCase().includes(q) || (i.sku || '').toLowerCase().includes(q);
@@ -163,20 +148,31 @@ export default function InventoryBrowseScreen({ navigation }) {
   if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator color={C.blue} size="large" />
-        <Text style={s.loadingText}>Loading inventory...</Text>
+        <ActivityIndicator color={C.green} size="large" />
+        <Text style={s.loadingText}>Loading truck stock…</Text>
+      </View>
+    );
+  }
+
+  if (noTruck) {
+    return (
+      <View style={s.center}>
+        <Text style={s.noTruckIcon}>🚚</Text>
+        <Text style={s.noTruckTitle}>No truck assigned</Text>
+        <Text style={s.noTruckSub}>Ask your manager to assign a truck location to your account.</Text>
       </View>
     );
   }
 
   return (
     <View style={s.root}>
-      {/* Search bar */}
+
+      {/* Search */}
       <View style={s.searchWrap}>
         <Text style={s.searchIcon}>⌕</Text>
         <TextInput
           style={s.searchInput}
-          placeholder="Search SKU or item name..."
+          placeholder="Search item name or SKU…"
           placeholderTextColor={C.muted}
           value={search}
           onChangeText={setSearch}
@@ -187,7 +183,7 @@ export default function InventoryBrowseScreen({ navigation }) {
 
       {/* Filter pills */}
       <View style={s.filterRow}>
-        {FILTERS.map((f) => (
+        {FILTERS.map(f => (
           <TouchableOpacity
             key={f.id}
             style={[s.filterPill, statusFilter === f.id && s.filterPillActive]}
@@ -201,27 +197,25 @@ export default function InventoryBrowseScreen({ navigation }) {
         ))}
       </View>
 
-      {/* KPI */}
-      <KpiBanner items={items} />
+      {/* KPI banner */}
+      <KpiBanner items={items} truckName={truckLocation?.name} />
 
       {/* List */}
       <FlatList
         data={filtered}
-        keyExtractor={(i) => String(i.id)}
-        renderItem={({ item }) => <ItemCard item={item} locations={locations} />}
+        keyExtractor={i => String(i.id)}
+        renderItem={({ item }) => <ItemCard item={item} />}
         contentContainerStyle={s.list}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => load(true)}
-            tintColor={C.blue}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={C.green} />
         }
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={s.emptyIcon}>📦</Text>
             <Text style={s.emptyText}>
-              {search || statusFilter !== 'all' ? 'No items match your filters.' : 'No inventory items yet.'}
+              {search || statusFilter !== 'all'
+                ? 'No items match your filters.'
+                : 'No stock on your truck yet.'}
             </Text>
           </View>
         }
@@ -230,44 +224,42 @@ export default function InventoryBrowseScreen({ navigation }) {
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root:   { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  center: { flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 32 },
   loadingText: { color: C.muted, fontSize: 13 },
+
+  noTruckIcon:  { fontSize: 48 },
+  noTruckTitle: { fontSize: 17, fontWeight: '700', color: C.text, textAlign: 'center' },
+  noTruckSub:   { fontSize: 13, color: C.muted, textAlign: 'center', lineHeight: 20 },
 
   // Search
   searchWrap: {
     flexDirection: 'row', alignItems: 'center',
     margin: 12, marginBottom: 8,
     backgroundColor: C.surface, borderRadius: 10,
-    borderWidth: 1, borderColor: C.border,
-    paddingHorizontal: 12,
+    borderWidth: 1, borderColor: C.border, paddingHorizontal: 12,
   },
   searchIcon:  { fontSize: 16, color: C.muted, marginRight: 8 },
   searchInput: { flex: 1, height: 42, color: C.text, fontSize: 14 },
 
   // Filter pills
-  filterRow: { flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginBottom: 8 },
-  filterPill: {
-    paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1,
-    borderColor: C.border, backgroundColor: C.surface,
-  },
-  filterPillActive: { borderColor: C.blue, backgroundColor: '#0a1929' },
-  filterPillText:   { fontSize: 12, fontWeight: '600', color: C.muted },
-  filterPillTextActive: { color: C.blue },
+  filterRow:           { flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginBottom: 8 },
+  filterPill:          { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
+  filterPillActive:    { borderColor: C.green, backgroundColor: C.green + '18' },
+  filterPillText:      { fontSize: 12, fontWeight: '600', color: C.muted },
+  filterPillTextActive:{ color: C.green },
+
+  // Truck badge
+  truckBadge: { marginHorizontal: 12, marginBottom: 8, backgroundColor: C.surface2, borderRadius: 8, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, paddingVertical: 6, alignSelf: 'flex-start' },
+  truckBadgeText: { fontSize: 12, fontWeight: '700', color: C.muted },
 
   // KPI
-  kpiRow: { flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginBottom: 10 },
-  kpiCard: {
-    flex: 1, backgroundColor: C.surface,
-    borderRadius: 10, borderWidth: 1, borderColor: C.border,
-    padding: 12, alignItems: 'center',
-  },
-  kpiCardAlert: { borderColor: '#4a1a1a', backgroundColor: '#1a0b0b' },
-  kpiVal:   { fontSize: 22, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
-  kpiLabel: { fontSize: 10, color: C.muted, fontWeight: '600', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.8 },
+  kpiRow:      { flexDirection: 'row', paddingHorizontal: 12, gap: 8, marginBottom: 10 },
+  kpiCard:     { flex: 1, backgroundColor: C.surface, borderRadius: 10, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: 'center' },
+  kpiCardAlert:{ borderColor: '#4a1a1a', backgroundColor: '#1a0b0b' },
+  kpiVal:      { fontSize: 22, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
+  kpiLabel:    { fontSize: 10, color: C.muted, fontWeight: '600', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.8 },
 
   // List
   list: { paddingHorizontal: 12, paddingBottom: 24 },
@@ -278,17 +270,12 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
     borderTopWidth: 3, marginBottom: 10, overflow: 'hidden',
   },
-  cardHeader: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    justifyContent: 'space-between', padding: 12, paddingBottom: 8,
-  },
+  cardHeader:     { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', padding: 12, paddingBottom: 8 },
   cardTitleBlock: { flex: 1, marginRight: 10 },
-  cardName: { fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 2 },
-  cardSku:  { fontSize: 11, color: C.muted, fontFamily: 'System' },
-
-  // Pill
-  pill: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
-  pillText: { fontSize: 10, fontWeight: '700' },
+  cardName:       { fontSize: 14, fontWeight: '700', color: C.text, marginBottom: 2 },
+  cardSku:        { fontSize: 11, color: C.muted },
+  pill:           { borderRadius: 10, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  pillText:       { fontSize: 10, fontWeight: '700' },
 
   // Stock bar
   barSection: { paddingHorizontal: 12, paddingBottom: 10 },
@@ -296,19 +283,15 @@ const s = StyleSheet.create({
   barLabel:   { fontSize: 11, color: C.muted },
   barQty:     { fontSize: 11, fontWeight: '700', color: C.text },
   barMin:     { fontWeight: '400', color: C.muted },
-  barTrack:   { height: 5, backgroundColor: C.surface3, borderRadius: 3, overflow: 'hidden' },
+  barTrack:   { height: 5, backgroundColor: C.surface2, borderRadius: 3, overflow: 'hidden' },
   barFill:    { height: '100%', borderRadius: 3 },
 
   // Footer
-  cardFooter: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 8,
-    borderTopWidth: 1, borderTopColor: C.border, gap: 8,
-  },
-  cost:        { fontSize: 13, fontWeight: '700', color: C.text, flex: 1 },
-  truckLabel:  { fontSize: 11, color: C.muted },
-  typeBadge:   { backgroundColor: C.surface3, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  cardFooter: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border, gap: 8 },
+  cost:       { fontSize: 13, fontWeight: '700', color: C.text, flex: 1 },
+  typeBadge:  { backgroundColor: C.surface2, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   typeBadgeText: { fontSize: 10, color: C.muted, fontWeight: '600' },
+  qtyBig:     { fontSize: 20, fontWeight: '800' },
 
   // Empty
   empty:     { alignItems: 'center', paddingTop: 60, gap: 8 },

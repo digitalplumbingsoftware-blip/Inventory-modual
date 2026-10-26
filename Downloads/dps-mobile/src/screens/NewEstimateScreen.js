@@ -4,6 +4,7 @@ import {
   StyleSheet, Alert, ActivityIndicator, Switch
 } from 'react-native';
 import api from '../api';
+import PricebookPickerSheet from '../components/PricebookPickerSheet';
 
 const OPTION_LABELS = ['Good', 'Better', 'Best'];
 const TIER_KEYS = ['price_good', 'price_better', 'price_best', 'price_premium', 'price_elite'];
@@ -36,6 +37,8 @@ export default function NewEstimateScreen({ navigation }) {
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Pricebook sheet state
+  const [pbSheet, setPbSheet] = useState(null); // null | { targetType, optionIndex }
 
   useEffect(() => {
     loadData();
@@ -69,31 +72,40 @@ export default function NewEstimateScreen({ navigation }) {
 
   // ── Pricebook integration ──────────────────────────────────
   const openPricebook = (targetType, optionIndex = null) => {
-    navigation.navigate('PricebookMain', {
-      pricebook: 'all',
-      onSelect: (pbItem) => {
-        if (targetType === 'single') {
-          setSingleItems(prev => [...prev, {
-            description: `[${pbItem.tier}] ${pbItem.description}`,
-            quantity: '1',
-            unit_price: String(pbItem.unit_price),
-          }]);
-        } else {
-          // Add to specific option
-          setOptions(prev => prev.map((opt, i) => {
-            if (i !== optionIndex) return opt;
-            return {
-              ...opt,
-              items: [...opt.items, {
-                description: `[${pbItem.tier}] ${pbItem.description}`,
-                quantity: '1',
-                unit_price: String(pbItem.unit_price),
-              }],
-            };
-          }));
-        }
-      },
-    });
+    setPbSheet({ targetType, optionIndex });
+  };
+
+  const handlePbPick = (items) => {
+    // items = [{ description, flat_rate, quantity, task_id, tag }]
+    if (!pbSheet) return;
+    const { targetType, optionIndex } = pbSheet;
+
+    if (targetType === 'single') {
+      setSingleItems(prev => [
+        ...prev,
+        ...items.map(it => ({
+          description: it.description,
+          quantity: String(it.quantity || 1),
+          unit_price: String(it.flat_rate || 0),
+        })),
+      ]);
+    } else {
+      setOptions(prev => prev.map((opt, i) => {
+        if (i !== optionIndex) return opt;
+        return {
+          ...opt,
+          items: [
+            ...opt.items,
+            ...items.map(it => ({
+              description: it.description,
+              quantity: String(it.quantity || 1),
+              unit_price: String(it.flat_rate || 0),
+            })),
+          ],
+        };
+      }));
+    }
+    setPbSheet(null);
   };
 
   // ── Line item helpers ──────────────────────────────────────
@@ -435,6 +447,13 @@ export default function NewEstimateScreen({ navigation }) {
       </TouchableOpacity>
 
       <View style={{ height: 60 }} />
+
+      {/* ServiceTitan-style pricebook picker sheet */}
+      <PricebookPickerSheet
+        visible={!!pbSheet}
+        onClose={() => setPbSheet(null)}
+        onPickMultiple={handlePbPick}
+      />
     </ScrollView>
   );
 }

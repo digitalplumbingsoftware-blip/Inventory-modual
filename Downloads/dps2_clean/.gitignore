@@ -17,3 +17,10 @@ backend/dist/
 
 # Docker volumes
 postgres_data/
+
+# local backups and user uploads
+*.bak
+*.bak[0-9]*
+*.bak_*
+*.STABLE_*
+uploads/

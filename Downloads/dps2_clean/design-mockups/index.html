@@ -1,0 +1,1965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DPS Design Directions</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Inter', sans-serif; background: #050a0e; color: #fff; }
+
+  /* ── Selector bar ── */
+  #selector {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+    background: #000; border-bottom: 1px solid #222;
+    display: flex; align-items: center; padding: 0 20px; height: 48px; gap: 6px;
+  }
+  #selector span { font-size: 11px; color: #555; margin-right: 8px; letter-spacing: .06em; text-transform: uppercase; }
+  .sel-btn {
+    padding: 6px 16px; border-radius: 6px; border: 1px solid #333; background: transparent;
+    color: #777; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+  }
+  .sel-btn.active { border-color: currentColor; }
+  .sel-btn[data-d="1"].active  { background: #0ea5e91a; color: #0ea5e9; border-color: #0ea5e9; }
+  .sel-btn[data-d="2"].active  { background: #c97b3a1a; color: #c97b3a; border-color: #c97b3a; }
+  .sel-btn[data-d="3"].active  { background: #2563eb1a; color: #2563eb; border-color: #2563eb; }
+  .sel-btn[data-d="4"].active  { background: #f973161a; color: #f97316; border-color: #f97316; }
+  .sel-btn[data-d="5"].active  { background: #d4783a1a; color: #d4783a; border-color: #d4783a; }
+  .sel-btn[data-d="6"].active  { background: #e206131a; color: #E20613; border-color: #E20613; }
+
+  .design { display: none; margin-top: 48px; }
+  .design.active { display: block; }
+</style>
+</head>
+<body>
+
+<!-- ── Direction selector ── -->
+<div id="selector">
+  <span>DPS Design</span>
+  <button class="sel-btn active" data-d="1" onclick="show(1)">1 · Dark Command</button>
+  <button class="sel-btn" data-d="2" onclick="show(2)">2 · Trades Premium</button>
+  <button class="sel-btn" data-d="3" onclick="show(3)">3 · Clean Ops</button>
+  <button class="sel-btn" data-d="4" onclick="show(4)">4 · Field-First</button>
+  <div style="width:1px;background:#333;height:20px;margin:0 6px;"></div>
+  <button class="sel-btn" data-d="5" onclick="show(5)" style="border-color:#d4783a44;">⭐ 2 + 4 Mix</button>
+  <button class="sel-btn" data-d="6" onclick="show(6)" style="border-color:#E2061344;">🔴 Brand Colors</button>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DIRECTION 1 — DARK COMMAND CENTER
+     Base: #09111a  Accent: sky blue  Font: system/Inter
+     ════════════════════════════════════════════════════════════════ -->
+<div class="design active" id="d1">
+<style>
+#d1 {
+  --bg: #09111a; --s1: #0d1825; --s2: #111e2e; --s3: #162438;
+  --border: #1e3045; --border2: #243a55;
+  --accent: #0ea5e9; --accentdim: #0ea5e915;
+  --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --purple: #a78bfa;
+  --text: #e2eaf4; --muted: #4a6580; --dim: #1a2d42;
+  --font: 'Inter', system-ui, sans-serif;
+  background: var(--bg); color: var(--text); font-family: var(--font);
+  min-height: 100vh;
+}
+#d1 .topbar {
+  height: 52px; background: var(--s1); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 16px; gap: 14px;
+}
+#d1 .logo { display: flex; align-items: center; gap: 10px; }
+#d1 .logo-mark {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #0ea5e9, #0369a1);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 900; color: #fff; letter-spacing: -.5px;
+}
+#d1 .logo-text { font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: -.3px; }
+#d1 .logo-sub { font-size: 9px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+#d1 .navtabs { display: flex; align-items: center; gap: 2px; margin-left: 24px; }
+#d1 .navtab {
+  padding: 8px 14px; border-radius: 6px; font-size: 13px; color: var(--muted);
+  cursor: pointer; transition: all .15s; font-weight: 500;
+  border: none; background: transparent;
+}
+#d1 .navtab.active { background: var(--accentdim); color: var(--accent); font-weight: 600; }
+#d1 .navtab:hover:not(.active) { color: var(--text); background: var(--s3); }
+#d1 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+#d1 .badge {
+  background: #22c55e18; border: 1px solid #22c55e44;
+  border-radius: 20px; padding: 4px 10px; display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #22c55e; font-weight: 600;
+}
+#d1 .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: blink1 1.2s infinite; }
+@keyframes blink1 { 0%,100%{opacity:1}50%{opacity:.3} }
+#d1 .user-chip {
+  display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+  background: var(--s2); border: 1px solid var(--border); border-radius: 8px;
+}
+#d1 .user-avatar {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #fff;
+}
+#d1 .main { display: flex; height: calc(100vh - 52px - 48px); }
+#d1 .sidebar {
+  width: 220px; background: var(--s1); border-right: 1px solid var(--border);
+  padding: 16px 10px; display: flex; flex-direction: column; gap: 2px;
+  flex-shrink: 0;
+}
+#d1 .sitem {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border-radius: 7px; font-size: 13px; color: var(--muted); cursor: pointer;
+  transition: all .12s; font-weight: 500;
+}
+#d1 .sitem.active { background: var(--accentdim); color: var(--accent); }
+#d1 .sitem:hover:not(.active) { background: var(--s3); color: var(--text); }
+#d1 .sitem-icon { width: 18px; text-align: center; font-size: 14px; }
+#d1 .content { flex: 1; overflow: auto; padding: 22px; background: var(--bg); }
+#d1 .page-title { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 18px; letter-spacing: -.3px; }
+#d1 .dispatch-grid { display: grid; grid-template-columns: 180px 1fr; gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+#d1 .dispatch-header { background: var(--s2); border-bottom: 1px solid var(--border); padding: 10px 14px; font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+#d1 .tech-col { border-right: 1px solid var(--border); }
+#d1 .tech-row {
+  display: flex; align-items: center; gap: 10px; padding: 14px;
+  border-bottom: 1px solid var(--border); background: var(--s1);
+}
+#d1 .tech-avatar {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: #fff;
+}
+#d1 .tech-name { font-size: 12px; font-weight: 600; color: var(--text); }
+#d1 .tech-status { font-size: 10px; color: var(--muted); margin-top: 1px; }
+#d1 .timeline-row { position: relative; height: 62px; border-bottom: 1px solid var(--border); display: flex; align-items: center; background: var(--bg); }
+#d1 .job-block {
+  position: absolute; border-radius: 7px; height: 42px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600;
+  cursor: pointer; border: 1px solid transparent; transition: transform .1s;
+}
+#d1 .job-block:hover { transform: translateY(-1px); }
+#d1 .pill {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  border: 1px solid transparent;
+}
+#d1 .stat-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 18px; }
+#d1 .stat-card {
+  background: var(--s1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px;
+}
+#d1 .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+#d1 .stat-val { font-size: 28px; font-weight: 800; color: var(--text); margin-top: 6px; letter-spacing: -.5px; }
+#d1 .stat-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+#d1 .section-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+</style>
+
+<div id="d1">
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-mark">DPS</div>
+      <div><div class="logo-text">DPS</div><div class="logo-sub">Digital Plumbing Software</div></div>
+    </div>
+    <div class="navtabs">
+      <button class="navtab">Dashboard</button>
+      <button class="navtab active">Dispatch</button>
+      <button class="navtab">Jobs</button>
+      <button class="navtab">Customers</button>
+      <button class="navtab">Invoices</button>
+      <button class="navtab">Reports</button>
+    </div>
+    <div class="topbar-right">
+      <div class="badge"><div class="badge-dot"></div>4 Active Jobs</div>
+      <div style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;">10:47:32 AM</div>
+      <div class="user-chip">
+        <div class="user-avatar">RD</div>
+        <span style="font-size:12px;color:var(--text);font-weight:600;">Ray Davis</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div style="font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;padding:6px 12px 8px;font-weight:700;">Operations</div>
+      <div class="sitem"><span class="sitem-icon">◼</span> Dashboard</div>
+      <div class="sitem active"><span class="sitem-icon">📅</span> Dispatch</div>
+      <div class="sitem"><span class="sitem-icon">🔧</span> Jobs</div>
+      <div class="sitem"><span class="sitem-icon">👥</span> Customers</div>
+      <div style="font-size:9px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;padding:14px 12px 8px;font-weight:700;">Finance</div>
+      <div class="sitem"><span class="sitem-icon">🧾</span> Invoices</div>
+      <div class="sitem"><span class="sitem-icon">📊</span> Reports</div>
+      <div class="sitem"><span class="sitem-icon">💰</span> Payroll</div>
+      <div style="margin-top:auto;"></div>
+      <div class="sitem"><span class="sitem-icon">⚙️</span> Settings</div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <!-- Stats -->
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-label">Jobs Today</div>
+          <div class="stat-val" style="color:var(--accent);">12</div>
+          <div class="stat-sub">↑ 2 from yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Now</div>
+          <div class="stat-val" style="color:var(--green);">4</div>
+          <div class="stat-sub">3 en route · 1 on site</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Revenue Today</div>
+          <div class="stat-val">$4,820</div>
+          <div class="stat-sub">3 invoices pending</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Completion</div>
+          <div class="stat-val" style="color:var(--amber);">67%</div>
+          <div class="stat-sub">8 of 12 complete</div>
+        </div>
+      </div>
+
+      <!-- Dispatch -->
+      <div class="section-label">Dispatch Board — Thursday, Apr 17</div>
+      <div class="dispatch-grid">
+        <div class="tech-col">
+          <div class="dispatch-header">Technician</div>
+          <div class="tech-row">
+            <div class="tech-avatar" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)">MJ</div>
+            <div><div class="tech-name">Marcus Johnson</div><div class="tech-status" style="color:#22c55e">● En Route</div></div>
+          </div>
+          <div class="tech-row">
+            <div class="tech-avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">TR</div>
+            <div><div class="tech-name">Tyler Reed</div><div class="tech-status" style="color:#0ea5e9">● On Site</div></div>
+          </div>
+          <div class="tech-row">
+            <div class="tech-avatar" style="background:linear-gradient(135deg,#22c55e,#0ea5e9)">DW</div>
+            <div><div class="tech-name">Devon Williams</div><div class="tech-status" style="color:#4a6580">● Available</div></div>
+          </div>
+          <div class="tech-row">
+            <div class="tech-avatar" style="background:linear-gradient(135deg,#a78bfa,#ec4899)">KP</div>
+            <div><div class="tech-name">Kevin Park</div><div class="tech-status" style="color:#f59e0b">● Scheduled</div></div>
+          </div>
+        </div>
+        <div>
+          <div class="dispatch-header" style="display:grid;grid-template-columns:repeat(8,1fr);text-align:center;">
+            <span>8 AM</span><span>9 AM</span><span>10 AM</span><span>11 AM</span>
+            <span>12 PM</span><span>1 PM</span><span>2 PM</span><span>3 PM</span>
+          </div>
+          <!-- Marcus -->
+          <div class="timeline-row" style="background:#0d1825;">
+            <div class="job-block" style="left:2%;width:22%;background:#0ea5e918;border-color:#0ea5e944;color:#0ea5e9;">
+              <span>🚿</span><span>Water Heater · Smith</span>
+            </div>
+            <div class="job-block" style="left:26%;width:18%;background:#22c55e18;border-color:#22c55e44;color:#22c55e;">
+              <span>🔧</span><span>Leak Fix · Brown</span>
+            </div>
+          </div>
+          <!-- Tyler -->
+          <div class="timeline-row" style="background:#0d1825;">
+            <div class="job-block" style="left:0%;width:30%;background:#f59e0b18;border-color:#f59e0b44;color:#f59e0b;">
+              <span>🪠</span><span>Drain Clean · Garcia</span>
+            </div>
+          </div>
+          <!-- Devon -->
+          <div class="timeline-row" style="background:#0d1825;">
+            <div class="job-block" style="left:38%;width:24%;background:#0ea5e918;border-color:#0ea5e944;color:#0ea5e9;">
+              <span>💧</span><span>Pipe Repair · Davis</span>
+            </div>
+          </div>
+          <!-- Kevin -->
+          <div class="timeline-row" style="background:#0d1825;">
+            <div class="job-block" style="left:50%;width:20%;background:#a78bfa18;border-color:#a78bfa44;color:#a78bfa;">
+              <span>🔩</span><span>Inspection · Lee</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Job list -->
+      <div class="section-label" style="margin-top:22px;">Recent Jobs</div>
+      <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:var(--s2);border-bottom:1px solid var(--border);">
+              <th style="padding:9px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.07em;">JOB</th>
+              <th style="padding:9px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.07em;">CUSTOMER</th>
+              <th style="padding:9px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.07em;">TECH</th>
+              <th style="padding:9px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.07em;">STATUS</th>
+              <th style="padding:9px 14px;text-align:right;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.07em;">AMOUNT</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:11px 14px;font-size:13px;font-weight:600;">Water Heater Install</td>
+              <td style="padding:11px 14px;font-size:12px;color:var(--muted);">Smith, James</td>
+              <td style="padding:11px 14px;font-size:12px;color:var(--muted);">Marcus Johnson</td>
+              <td style="padding:11px 14px;"><span class="pill" style="background:#0ea5e918;color:#0ea5e9;border-color:#0ea5e944;">EN ROUTE</span></td>
+              <td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;">$1,240</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:11px 14px;font-size:13px;font-weight:600;">Drain Cleaning</td>
+              <td style="padding:11px 14px;font-size:12px;color:var(--muted);">Garcia, Maria</td>
+              <td style="padding:11px 14px;font-size:12px;color:var(--muted);">Tyler Reed</td>
+              <td style="padding:11px 14px;"><span class="pill" style="background:#f59e0b18;color:#f59e0b;border-color:#f59e0b44;">ON SITE</span></td>
+              <td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;">$285</td>
+            </tr>
+            <tr>
+              <td style="padding:11px 14px;font-size:13px;font-weight:600;">Pipe Repair</td>
+              <td style="padding:11px 14px;font-size:12px;color:var(--muted);">Davis, Robert</td>
+              <td style="padding:11px 14px;font-size:12px;color:var(--muted);">Devon Williams</td>
+              <td style="padding:11px 14px;"><span class="pill" style="background:#22c55e18;color:#22c55e;border-color:#22c55e44;">COMPLETE</span></td>
+              <td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;">$560</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DIRECTION 2 — TRADES PREMIUM (Navy + Copper)
+     ════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d2">
+<style>
+#d2 {
+  --bg: #080c18; --s1: #0c1220; --s2: #101828; --s3: #172035;
+  --border: #1e2d45; --border2: #263855;
+  --copper: #c97b3a; --copperdim: #c97b3a18; --gold: #e2b97a;
+  --green: #34d399; --red: #f87171; --blue: #60a5fa;
+  --text: #edf2f7; --muted: #4a6080; --dim: #1a2640;
+  --font: 'Georgia', 'Times New Roman', serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; font-family: 'Inter', system-ui, sans-serif;
+}
+#d2 .topbar {
+  height: 56px; background: var(--s1);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 16px;
+}
+#d2 .logo-mark2 {
+  width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+  background: linear-gradient(135deg, #c97b3a, #8b5e28);
+  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
+}
+#d2 .logo-mark2::before {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(255,255,255,.05) 3px, rgba(255,255,255,.05) 6px);
+}
+#d2 .logo-mark2 span { font-size: 13px; font-weight: 900; color: #fff; position: relative; z-index: 1; letter-spacing: -.5px; }
+#d2 .logo-wordmark { font-family: 'Georgia', serif; font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: .02em; }
+#d2 .logo-sub2 { font-size: 9px; color: var(--copper); letter-spacing: .14em; text-transform: uppercase; margin-top: 0px; }
+#d2 .nav2 { display: flex; align-items: center; gap: 0; margin-left: 32px; }
+#d2 .ntab {
+  padding: 18px 16px; font-size: 13px; color: var(--muted); font-weight: 500;
+  cursor: pointer; border: none; background: transparent;
+  border-bottom: 2px solid transparent; transition: all .15s;
+  height: 56px; display: flex; align-items: center;
+}
+#d2 .ntab.active { color: var(--copper); border-bottom-color: var(--copper); font-weight: 600; }
+#d2 .ntab:hover:not(.active) { color: var(--text); }
+#d2 .topbar-right2 { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+#d2 .chip2 {
+  padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700;
+  letter-spacing: .05em; display: flex; align-items: center; gap: 6px;
+}
+#d2 .main2 { display: flex; height: calc(100vh - 56px - 48px); }
+#d2 .content2 { flex: 1; overflow: auto; padding: 24px; }
+#d2 .section-hd {
+  font-family: 'Georgia', serif; font-size: 22px; font-weight: 700;
+  color: var(--text); margin-bottom: 20px; letter-spacing: .01em;
+  display: flex; align-items: center; gap: 10px;
+}
+#d2 .section-hd::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+#d2 .stat-row2 { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 24px; }
+#d2 .stat2 {
+  background: var(--s1); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px 20px; position: relative; overflow: hidden;
+}
+#d2 .stat2::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+}
+#d2 .stat2.c::before { background: var(--copper); }
+#d2 .stat2.g::before { background: var(--green); }
+#d2 .stat2.b::before { background: var(--blue); }
+#d2 .stat2.r::before { background: var(--red); }
+#d2 .slabel { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+#d2 .sval { font-size: 32px; font-weight: 800; margin-top: 8px; letter-spacing: -.5px; }
+#d2 .ssub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+#d2 .dispatch2 { background: var(--s1); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+#d2 .dhead2 {
+  background: var(--s2); border-bottom: 1px solid var(--border);
+  padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+}
+#d2 .dhead-title { font-family: 'Georgia', serif; font-size: 14px; font-weight: 700; color: var(--text); }
+#d2 .drow2 { display: grid; grid-template-columns: 200px 1fr; border-bottom: 1px solid var(--border); }
+#d2 .tech2 {
+  padding: 14px 16px; border-right: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; background: var(--s2);
+}
+#d2 .ta2 {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff;
+  border: 2px solid;
+}
+#d2 .tname2 { font-size: 13px; font-weight: 700; color: var(--text); }
+#d2 .tstatus2 { font-size: 10px; margin-top: 2px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+#d2 .timeline2 { position: relative; height: 64px; display: flex; align-items: center; }
+#d2 .job2 {
+  position: absolute; height: 44px; border-radius: 8px; border-left: 3px solid;
+  padding: 0 12px; display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all .15s;
+}
+#d2 .job2:hover { filter: brightness(1.1); }
+#d2 .pill2 {
+  display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em;
+}
+</style>
+<div id="d2">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="logo-mark2"><span>DPS</span></div>
+      <div>
+        <div class="logo-wordmark">Davis Plumbing</div>
+        <div class="logo-sub2">Digital Operations Platform</div>
+      </div>
+    </div>
+    <div class="nav2">
+      <button class="ntab">Dashboard</button>
+      <button class="ntab active">Dispatch</button>
+      <button class="ntab">Jobs</button>
+      <button class="ntab">Customers</button>
+      <button class="ntab">Invoices</button>
+      <button class="ntab">Reports</button>
+    </div>
+    <div class="topbar-right2">
+      <div class="chip2" style="background:#34d39918;border:1px solid #34d39944;color:#34d399;"><div style="width:6px;height:6px;border-radius:50%;background:#34d399;"></div>4 Active</div>
+      <div style="font-size:12px;color:var(--muted);">10:47 AM · Thu Apr 17</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--copperdim);border:1px solid var(--copper);border-radius:8px;">
+        <div style="width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,#c97b3a,#8b5e28);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;">RD</div>
+        <span style="font-size:12px;color:var(--copper);font-weight:700;">Ray Davis</span>
+      </div>
+    </div>
+  </div>
+  <div class="main2">
+    <div class="content2">
+      <div class="stat-row2">
+        <div class="stat2 c">
+          <div class="slabel">Jobs Today</div>
+          <div class="sval" style="color:var(--copper)">12</div>
+          <div class="ssub">2 unassigned</div>
+        </div>
+        <div class="stat2 g">
+          <div class="slabel">Active Now</div>
+          <div class="sval" style="color:var(--green)">4</div>
+          <div class="ssub">3 en route · 1 on site</div>
+        </div>
+        <div class="stat2 b">
+          <div class="slabel">Today's Revenue</div>
+          <div class="sval" style="color:var(--blue)">$4,820</div>
+          <div class="ssub">3 invoices pending</div>
+        </div>
+        <div class="stat2 r">
+          <div class="slabel">Completion Rate</div>
+          <div class="sval" style="color:var(--gold)">67%</div>
+          <div class="ssub">8 of 12 done</div>
+        </div>
+      </div>
+
+      <div class="dispatch2">
+        <div class="dhead2">
+          <div class="dhead-title">Dispatch Board — Thursday, April 17, 2026</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button style="padding:6px 14px;background:var(--copperdim);border:1px solid var(--copper);border-radius:6px;color:var(--copper);font-size:12px;font-weight:700;cursor:pointer;">+ New Job</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:200px 1fr;border-bottom:1px solid var(--border);">
+          <div style="padding:8px 16px;border-right:1px solid var(--border);background:var(--s2);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600;">Technician</div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);padding:8px 0;background:var(--s2);">
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">8 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">9 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">10 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">11 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">12 PM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">1 PM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">2 PM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">3 PM</div>
+          </div>
+        </div>
+        <div class="drow2">
+          <div class="tech2"><div class="ta2" style="background:linear-gradient(135deg,#c97b3a,#8b5e28);border-color:#c97b3a44;">MJ</div><div><div class="tname2">Marcus J.</div><div class="tstatus2" style="color:#34d399;">● En Route</div></div></div>
+          <div class="timeline2">
+            <div class="job2" style="left:2%;width:24%;background:#c97b3a12;border-color:#c97b3a;color:#e2b97a;"><span>🚿</span> Water Heater · Smith</div>
+            <div class="job2" style="left:28%;width:16%;background:#34d39912;border-color:#34d399;color:#34d399;"><span>🔧</span> Leak · Brown</div>
+          </div>
+        </div>
+        <div class="drow2">
+          <div class="tech2"><div class="ta2" style="background:linear-gradient(135deg,#60a5fa,#3b82f6);border-color:#60a5fa44;">TR</div><div><div class="tname2">Tyler R.</div><div class="tstatus2" style="color:#60a5fa;">● On Site</div></div></div>
+          <div class="timeline2">
+            <div class="job2" style="left:0%;width:30%;background:#60a5fa12;border-color:#60a5fa;color:#60a5fa;"><span>🪠</span> Drain Clean · Garcia</div>
+          </div>
+        </div>
+        <div class="drow2">
+          <div class="tech2"><div class="ta2" style="background:linear-gradient(135deg,#34d399,#059669);border-color:#34d39944;">DW</div><div><div class="tname2">Devon W.</div><div class="tstatus2" style="color:#4a6080;">● Available</div></div></div>
+          <div class="timeline2">
+            <div class="job2" style="left:40%;width:22%;background:#c97b3a12;border-color:#c97b3a;color:#e2b97a;"><span>💧</span> Pipe Repair · Davis</div>
+          </div>
+        </div>
+        <div class="drow2" style="border-bottom:none;">
+          <div class="tech2"><div class="ta2" style="background:linear-gradient(135deg,#a78bfa,#7c3aed);border-color:#a78bfa44;">KP</div><div><div class="tname2">Kevin P.</div><div class="tstatus2" style="color:#a78bfa;">● Scheduled</div></div></div>
+          <div class="timeline2">
+            <div class="job2" style="left:50%;width:20%;background:#a78bfa12;border-color:#a78bfa;color:#a78bfa;"><span>🔩</span> Inspection · Lee</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Job cards below -->
+      <div class="section-hd" style="margin-top:28px;">Active Jobs</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+        <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;border-top:3px solid #34d399;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+            <div style="font-size:14px;font-weight:700;color:var(--text);">Water Heater Install</div>
+            <span class="pill2" style="background:#34d39918;color:#34d399;">EN ROUTE</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">👤 James Smith · 4521 Oak Lane</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">🔧 Marcus Johnson</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:var(--muted);">8:00 AM – 10:00 AM</span>
+            <span style="font-size:16px;font-weight:800;color:var(--copper);">$1,240</span>
+          </div>
+        </div>
+        <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;border-top:3px solid #60a5fa;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+            <div style="font-size:14px;font-weight:700;color:var(--text);">Drain Cleaning</div>
+            <span class="pill2" style="background:#60a5fa18;color:#60a5fa;">ON SITE</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">👤 Maria Garcia · 8920 Elm St</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">🔧 Tyler Reed</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:var(--muted);">8:00 AM – 12:00 PM</span>
+            <span style="font-size:16px;font-weight:800;color:var(--copper);">$285</span>
+          </div>
+        </div>
+        <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;border-top:3px solid #c97b3a;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+            <div style="font-size:14px;font-weight:700;color:var(--text);">Pipe Repair</div>
+            <span class="pill2" style="background:#c97b3a18;color:#c97b3a;">SCHEDULED</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">👤 Robert Davis · 3317 Pine Ave</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">🔧 Devon Williams</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:var(--muted);">1:00 PM – 3:00 PM</span>
+            <span style="font-size:16px;font-weight:800;color:var(--copper);">$560</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DIRECTION 3 — CLEAN OPS (Light mode)
+     ════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d3">
+<style>
+#d3 {
+  --bg: #f8fafc; --s1: #ffffff; --s2: #f1f5f9; --s3: #e2e8f0;
+  --border: #e2e8f0; --border2: #cbd5e1;
+  --blue: #2563eb; --bluedim: #2563eb10; --bluelite: #eff6ff;
+  --green: #16a34a; --amber: #d97706; --red: #dc2626; --purple: #7c3aed;
+  --text: #0f172a; --muted: #64748b; --dim: #94a3b8;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; font-family: 'Inter', system-ui, sans-serif;
+}
+#d3 .topbar3 {
+  height: 56px; background: var(--s1); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+#d3 .logo3 {
+  width: 34px; height: 34px; border-radius: 8px; background: var(--blue);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 900; color: #fff; letter-spacing: -.5px;
+  flex-shrink: 0;
+}
+#d3 .wordmark3 { font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: -.3px; }
+#d3 .sub3 { font-size: 10px; color: var(--muted); }
+#d3 .nav3 { display: flex; align-items: center; gap: 4px; margin-left: 32px; }
+#d3 .ntab3 {
+  padding: 7px 14px; border-radius: 7px; font-size: 13px; color: var(--muted);
+  font-weight: 500; cursor: pointer; border: none; background: transparent; transition: all .12s;
+}
+#d3 .ntab3.active { background: var(--bluedim); color: var(--blue); font-weight: 600; }
+#d3 .ntab3:hover:not(.active) { background: var(--s2); color: var(--text); }
+#d3 .topbar-right3 { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+#d3 .badge3 {
+  padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+}
+#d3 .main3 { display: flex; height: calc(100vh - 56px - 48px); }
+#d3 .sidebar3 {
+  width: 220px; background: var(--s1); border-right: 1px solid var(--border);
+  padding: 12px 8px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px;
+}
+#d3 .sitem3 {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border-radius: 7px; font-size: 13px; color: var(--muted);
+  cursor: pointer; transition: all .1s; font-weight: 500;
+}
+#d3 .sitem3.active { background: var(--bluelite); color: var(--blue); font-weight: 600; }
+#d3 .sitem3:hover:not(.active) { background: var(--s2); color: var(--text); }
+#d3 .content3 { flex: 1; overflow: auto; padding: 24px; background: var(--bg); }
+#d3 .stat-row3 { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 22px; }
+#d3 .stat3 {
+  background: var(--s1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+#d3 .slabel3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+#d3 .sval3 { font-size: 28px; font-weight: 800; margin-top: 6px; letter-spacing: -.5px; }
+#d3 .pill3 {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+}
+#d3 .card3 {
+  background: var(--s1); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+#d3 .drow3 { display: grid; grid-template-columns: 200px 1fr; border-bottom: 1px solid var(--border); }
+#d3 .tech3 {
+  padding: 12px 14px; border-right: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+#d3 .ta3 {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0;
+}
+#d3 .tname3 { font-size: 13px; font-weight: 600; color: var(--text); }
+#d3 .tstatus3 { font-size: 11px; margin-top: 1px; }
+#d3 .timeline3 { position: relative; height: 60px; display: flex; align-items: center; }
+#d3 .job3 {
+  position: absolute; height: 40px; border-radius: 7px; padding: 0 10px;
+  display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all .12s; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+}
+#d3 .job3:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,.12); }
+</style>
+<div id="d3">
+  <div class="topbar3">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="logo3">DPS</div>
+      <div><div class="wordmark3">DPS</div><div class="sub3">Digital Plumbing Software</div></div>
+    </div>
+    <div class="nav3">
+      <button class="ntab3">Dashboard</button>
+      <button class="ntab3 active">Dispatch</button>
+      <button class="ntab3">Jobs</button>
+      <button class="ntab3">Customers</button>
+      <button class="ntab3">Invoices</button>
+      <button class="ntab3">Reports</button>
+    </div>
+    <div class="topbar-right3">
+      <div class="badge3" style="background:#dcfce7;color:#16a34a;">● 4 Active Jobs</div>
+      <div style="font-size:12px;color:var(--muted);">10:47 AM</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bluedim);border:1px solid #2563eb33;border-radius:8px;">
+        <div style="width:28px;height:28px;border-radius:6px;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;">RD</div>
+        <span style="font-size:12px;color:var(--blue);font-weight:600;">Ray Davis</span>
+      </div>
+    </div>
+  </div>
+  <div class="main3">
+    <div class="sidebar3">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:6px 12px 8px;font-weight:700;">Operations</div>
+      <div class="sitem3">📊 Dashboard</div>
+      <div class="sitem3 active">📅 Dispatch</div>
+      <div class="sitem3">🔧 Jobs</div>
+      <div class="sitem3">👥 Customers</div>
+      <div style="font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:14px 12px 8px;font-weight:700;">Finance</div>
+      <div class="sitem3">🧾 Invoices</div>
+      <div class="sitem3">📈 Reports</div>
+      <div class="sitem3">💰 Payroll</div>
+      <div style="margin-top:auto;"></div>
+      <div class="sitem3">⚙️ Settings</div>
+    </div>
+    <div class="content3">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+        <div style="font-size:20px;font-weight:800;color:var(--text);">Dispatch Board</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="padding:6px 14px;background:var(--s2);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--muted);">← Thu Apr 17 →</div>
+          <button style="padding:7px 16px;background:var(--blue);border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">+ New Job</button>
+        </div>
+      </div>
+      <div class="stat-row3">
+        <div class="stat3"><div class="slabel3">Jobs Today</div><div class="sval3" style="color:var(--blue)">12</div><div style="font-size:11px;color:var(--muted);margin-top:3px;">2 unassigned</div></div>
+        <div class="stat3"><div class="slabel3">Active Now</div><div class="sval3" style="color:var(--green)">4</div><div style="font-size:11px;color:var(--muted);margin-top:3px;">3 en route · 1 on site</div></div>
+        <div class="stat3"><div class="slabel3">Revenue Today</div><div class="sval3">$4,820</div><div style="font-size:11px;color:var(--muted);margin-top:3px;">3 invoices pending</div></div>
+        <div class="stat3"><div class="slabel3">Completion</div><div class="sval3" style="color:var(--amber)">67%</div><div style="font-size:11px;color:var(--muted);margin-top:3px;">8 of 12 done</div></div>
+      </div>
+      <div class="card3" style="overflow:hidden;">
+        <div style="display:grid;grid-template-columns:200px 1fr;border-bottom:1px solid var(--border);background:var(--s2);">
+          <div style="padding:9px 14px;border-right:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;">Technician</div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);padding:9px 0;">
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">8 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">9 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">10 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">11 AM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">12 PM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">1 PM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">2 PM</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:600;">3 PM</div>
+          </div>
+        </div>
+        <div class="drow3">
+          <div class="tech3"><div class="ta3" style="background:#2563eb;">MJ</div><div><div class="tname3">Marcus J.</div><div class="tstatus3" style="color:#16a34a;font-weight:600;">● En Route</div></div></div>
+          <div class="timeline3" style="background:#fafbfc;">
+            <div class="job3" style="left:2%;width:24%;background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;">🚿 Water Heater · Smith</div>
+            <div class="job3" style="left:28%;width:16%;background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;">🔧 Leak · Brown</div>
+          </div>
+        </div>
+        <div class="drow3">
+          <div class="tech3"><div class="ta3" style="background:#d97706;">TR</div><div><div class="tname3">Tyler R.</div><div class="tstatus3" style="color:#d97706;font-weight:600;">● On Site</div></div></div>
+          <div class="timeline3" style="background:#fafbfc;">
+            <div class="job3" style="left:0%;width:30%;background:#fef3c7;color:#92400e;border:1px solid #fde68a;">🪠 Drain Clean · Garcia</div>
+          </div>
+        </div>
+        <div class="drow3">
+          <div class="tech3"><div class="ta3" style="background:#16a34a;">DW</div><div><div class="tname3">Devon W.</div><div class="tstatus3" style="color:#64748b;font-weight:600;">● Available</div></div></div>
+          <div class="timeline3" style="background:#fafbfc;">
+            <div class="job3" style="left:40%;width:22%;background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;">💧 Pipe Repair · Davis</div>
+          </div>
+        </div>
+        <div class="drow3" style="border-bottom:none;">
+          <div class="tech3"><div class="ta3" style="background:#7c3aed;">KP</div><div><div class="tname3">Kevin P.</div><div class="tstatus3" style="color:#7c3aed;font-weight:600;">● Scheduled</div></div></div>
+          <div class="timeline3" style="background:#fafbfc;">
+            <div class="job3" style="left:50%;width:20%;background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;">🔩 Inspection · Lee</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 10px;">Recent Jobs</div>
+      <div class="card3" style="overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:var(--s2);border-bottom:1px solid var(--border);">
+            <th style="padding:9px 14px;text-align:left;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;">JOB TYPE</th>
+            <th style="padding:9px 14px;text-align:left;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;">CUSTOMER</th>
+            <th style="padding:9px 14px;text-align:left;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;">TECH</th>
+            <th style="padding:9px 14px;text-align:left;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;">STATUS</th>
+            <th style="padding:9px 14px;text-align:right;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;">AMOUNT</th>
+          </tr></thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:11px 14px;font-size:13px;font-weight:600;">Water Heater Install</td>
+              <td style="padding:11px 14px;font-size:13px;color:var(--muted);">Smith, James</td>
+              <td style="padding:11px 14px;font-size:13px;color:var(--muted);">Marcus Johnson</td>
+              <td style="padding:11px 14px;"><span class="pill3" style="background:#dbeafe;color:#1d4ed8;">En Route</span></td>
+              <td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;">$1,240</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:11px 14px;font-size:13px;font-weight:600;">Drain Cleaning</td>
+              <td style="padding:11px 14px;font-size:13px;color:var(--muted);">Garcia, Maria</td>
+              <td style="padding:11px 14px;font-size:13px;color:var(--muted);">Tyler Reed</td>
+              <td style="padding:11px 14px;"><span class="pill3" style="background:#fef3c7;color:#92400e;">On Site</span></td>
+              <td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;">$285</td>
+            </tr>
+            <tr>
+              <td style="padding:11px 14px;font-size:13px;font-weight:600;">Pipe Repair</td>
+              <td style="padding:11px 14px;font-size:13px;color:var(--muted);">Davis, Robert</td>
+              <td style="padding:11px 14px;font-size:13px;color:var(--muted);">Devon Williams</td>
+              <td style="padding:11px 14px;"><span class="pill3" style="background:#dcfce7;color:#15803d;">Complete</span></td>
+              <td style="padding:11px 14px;text-align:right;font-size:13px;font-weight:700;">$560</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DIRECTION 4 — FIELD-FIRST (High contrast orange)
+     ════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d4">
+<style>
+#d4 {
+  --bg: #0a0a0a; --s1: #111111; --s2: #161616; --s3: #1c1c1c;
+  --border: #222222; --border2: #2a2a2a;
+  --orange: #f97316; --orangedim: #f9731618; --orangelite: #f9731608;
+  --green: #4ade80; --red: #f87171; --blue: #38bdf8; --amber: #fbbf24;
+  --text: #f5f5f5; --muted: #555555; --dim: #1a1a1a;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; font-family: 'Inter', system-ui, sans-serif;
+}
+#d4 .topbar4 {
+  height: 56px; background: #000; border-bottom: 2px solid var(--border2);
+  display: flex; align-items: center; padding: 0 20px; gap: 14px;
+}
+#d4 .logo4 {
+  width: 36px; height: 36px; border-radius: 0; flex-shrink: 0;
+  background: var(--orange);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 900; color: #000; letter-spacing: -.5px;
+  clip-path: polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%);
+}
+#d4 .wordmark4 { font-size: 16px; font-weight: 900; color: var(--text); letter-spacing: -.3px; text-transform: uppercase; }
+#d4 .sub4 { font-size: 9px; color: var(--orange); letter-spacing: .12em; text-transform: uppercase; font-weight: 700; }
+#d4 .nav4 { display: flex; align-items: stretch; gap: 0; margin-left: 32px; height: 56px; }
+#d4 .ntab4 {
+  padding: 0 18px; font-size: 13px; color: var(--muted);
+  font-weight: 700; cursor: pointer; border: none; background: transparent;
+  text-transform: uppercase; letter-spacing: .04em; font-size: 11px;
+  border-bottom: 3px solid transparent; display: flex; align-items: center;
+  transition: all .1s;
+}
+#d4 .ntab4.active { color: var(--orange); border-bottom-color: var(--orange); }
+#d4 .ntab4:hover:not(.active) { color: var(--text); }
+#d4 .main4 { display: flex; height: calc(100vh - 56px - 48px); }
+#d4 .content4 { flex: 1; overflow: auto; padding: 22px; }
+#d4 .stat-row4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
+#d4 .stat4 {
+  background: var(--s1); border: 1px solid var(--border2); border-radius: 10px;
+  padding: 18px 20px; border-left: 3px solid;
+}
+#d4 .slabel4 { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+#d4 .sval4 { font-size: 36px; font-weight: 900; margin-top: 6px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+#d4 .dispatch4 { background: var(--s1); border: 1px solid var(--border2); border-radius: 10px; overflow: hidden; }
+#d4 .dhead4 { background: var(--s2); border-bottom: 1px solid var(--border2); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+#d4 .drow4 { display: grid; grid-template-columns: 200px 1fr; border-bottom: 1px solid var(--border); }
+#d4 .tech4 { padding: 14px 16px; border-right: 1px solid var(--border2); display: flex; align-items: center; gap: 12px; background: var(--s2); }
+#d4 .ta4 { width: 38px; height: 38px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; color: #000; flex-shrink: 0; }
+#d4 .tname4 { font-size: 13px; font-weight: 800; color: var(--text); text-transform: uppercase; letter-spacing: .02em; }
+#d4 .tstatus4 { font-size: 10px; margin-top: 3px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+#d4 .timeline4 { position: relative; height: 68px; display: flex; align-items: center; }
+#d4 .job4 {
+  position: absolute; height: 48px; border-radius: 8px; padding: 0 12px;
+  display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800;
+  cursor: pointer; text-transform: uppercase; letter-spacing: .02em;
+}
+#d4 .pill4 {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 4px;
+  font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+}
+</style>
+<div id="d4">
+  <div class="topbar4">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="logo4">DPS</div>
+      <div><div class="wordmark4">DPS</div><div class="sub4">Digital Plumbing</div></div>
+    </div>
+    <div class="nav4">
+      <button class="ntab4">Dashboard</button>
+      <button class="ntab4 active">Dispatch</button>
+      <button class="ntab4">Jobs</button>
+      <button class="ntab4">Customers</button>
+      <button class="ntab4">Invoices</button>
+      <button class="ntab4">Reports</button>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+      <div style="padding:6px 14px;background:var(--orangedim);border:1px solid var(--orange);border-radius:6px;font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:.05em;">4 ACTIVE</div>
+      <div style="font-size:13px;color:var(--muted);font-weight:700;font-variant-numeric:tabular-nums;">10:47 AM</div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--orangedim);border:2px solid var(--orange);border-radius:6px;">
+        <div style="width:28px;height:28px;border-radius:4px;background:var(--orange);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#000;">RD</div>
+        <span style="font-size:12px;color:var(--orange);font-weight:800;text-transform:uppercase;">Ray Davis</span>
+      </div>
+    </div>
+  </div>
+  <div class="main4">
+    <div class="content4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+        <div style="font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:-.2px;">Dispatch Board</div>
+        <div style="display:flex;gap:8px;">
+          <div style="padding:8px 16px;background:var(--s2);border:1px solid var(--border2);border-radius:7px;font-size:13px;color:var(--muted);font-weight:700;">THU APR 17</div>
+          <button style="padding:8px 18px;background:var(--orange);border:none;border-radius:7px;color:#000;font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;">+ New Job</button>
+        </div>
+      </div>
+      <div class="stat-row4">
+        <div class="stat4" style="border-left-color:var(--orange)"><div class="slabel4">Jobs Today</div><div class="sval4" style="color:var(--orange)">12</div><div style="font-size:11px;color:var(--muted);margin-top:4px;font-weight:700;">2 UNASSIGNED</div></div>
+        <div class="stat4" style="border-left-color:var(--green)"><div class="slabel4">Active Now</div><div class="sval4" style="color:var(--green)">4</div><div style="font-size:11px;color:var(--muted);margin-top:4px;font-weight:700;">3 EN ROUTE · 1 ON SITE</div></div>
+        <div class="stat4" style="border-left-color:var(--blue)"><div class="slabel4">Revenue</div><div class="sval4">$4,820</div><div style="font-size:11px;color:var(--muted);margin-top:4px;font-weight:700;">3 INVOICES PENDING</div></div>
+        <div class="stat4" style="border-left-color:var(--amber)"><div class="slabel4">Completion</div><div class="sval4" style="color:var(--amber)">67%</div><div style="font-size:11px;color:var(--muted);margin-top:4px;font-weight:700;">8 OF 12 COMPLETE</div></div>
+      </div>
+      <div class="dispatch4">
+        <div class="dhead4">
+          <div style="font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;">Live Dispatch</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);font-weight:700;">
+            <div style="width:7px;height:7px;border-radius:50%;background:var(--orange);animation:blink1 1s infinite;"></div>
+            LIVE
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:200px 1fr;border-bottom:1px solid var(--border2);background:var(--s2);">
+          <div style="padding:8px 16px;border-right:1px solid var(--border2);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:800;">Tech</div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);padding:8px 0;">
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">8A</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">9A</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">10A</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">11A</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">12P</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">1P</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">2P</div>
+            <div style="text-align:center;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;">3P</div>
+          </div>
+        </div>
+        <div class="drow4">
+          <div class="tech4"><div class="ta4" style="background:var(--orange);">MJ</div><div><div class="tname4">Marcus J.</div><div class="tstatus4" style="color:var(--green);">● En Route</div></div></div>
+          <div class="timeline4">
+            <div class="job4" style="left:2%;width:24%;background:#f9731620;border:1px solid var(--orange);color:var(--orange);">🚿 Water Heater · Smith</div>
+            <div class="job4" style="left:28%;width:16%;background:#4ade8020;border:1px solid var(--green);color:var(--green);">🔧 Leak · Brown</div>
+          </div>
+        </div>
+        <div class="drow4">
+          <div class="tech4"><div class="ta4" style="background:var(--blue);">TR</div><div><div class="tname4">Tyler R.</div><div class="tstatus4" style="color:var(--blue);">● On Site</div></div></div>
+          <div class="timeline4">
+            <div class="job4" style="left:0%;width:30%;background:#38bdf820;border:1px solid var(--blue);color:var(--blue);">🪠 Drain Clean · Garcia</div>
+          </div>
+        </div>
+        <div class="drow4">
+          <div class="tech4"><div class="ta4" style="background:var(--green);">DW</div><div><div class="tname4">Devon W.</div><div class="tstatus4" style="color:var(--muted);">● Available</div></div></div>
+          <div class="timeline4">
+            <div class="job4" style="left:40%;width:22%;background:#f9731620;border:1px solid var(--orange);color:var(--orange);">💧 Pipe Repair · Davis</div>
+          </div>
+        </div>
+        <div class="drow4" style="border-bottom:none;">
+          <div class="tech4"><div class="ta4" style="background:#a78bfa;">KP</div><div><div class="tname4">Kevin P.</div><div class="tstatus4" style="color:#a78bfa;">● Scheduled</div></div></div>
+          <div class="timeline4">
+            <div class="job4" style="left:50%;width:20%;background:#a78bfa20;border:1px solid #a78bfa;color:#a78bfa;">🔩 Inspection · Lee</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Big job cards -->
+      <div style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:22px 0 12px;">Active Jobs</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <div style="background:var(--s1);border:1px solid var(--border2);border-radius:10px;padding:18px;border-top:4px solid var(--green);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+            <div style="font-size:15px;font-weight:900;text-transform:uppercase;letter-spacing:.01em;">Water Heater Install</div>
+            <span class="pill4" style="background:#4ade8018;color:var(--green);border:1px solid #4ade8044;">EN ROUTE</span>
+          </div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:5px;font-weight:700;">JAMES SMITH</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">4521 Oak Lane, Houston TX</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--border);">
+            <span style="font-size:12px;color:var(--muted);font-weight:700;">8:00 – 10:00 AM</span>
+            <span style="font-size:22px;font-weight:900;color:var(--orange);">$1,240</span>
+          </div>
+        </div>
+        <div style="background:var(--s1);border:1px solid var(--border2);border-radius:10px;padding:18px;border-top:4px solid var(--blue);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+            <div style="font-size:15px;font-weight:900;text-transform:uppercase;">Drain Cleaning</div>
+            <span class="pill4" style="background:#38bdf818;color:var(--blue);border:1px solid #38bdf844;">ON SITE</span>
+          </div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:5px;font-weight:700;">MARIA GARCIA</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">8920 Elm St, Houston TX</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--border);">
+            <span style="font-size:12px;color:var(--muted);font-weight:700;">8:00 AM – 12:00 PM</span>
+            <span style="font-size:22px;font-weight:900;color:var(--orange);">$285</span>
+          </div>
+        </div>
+        <div style="background:var(--s1);border:1px solid var(--border2);border-radius:10px;padding:18px;border-top:4px solid var(--orange);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+            <div style="font-size:15px;font-weight:900;text-transform:uppercase;">Pipe Repair</div>
+            <span class="pill4" style="background:#f9731618;color:var(--orange);border:1px solid #f9731644;">SCHEDULED</span>
+          </div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:5px;font-weight:700;">ROBERT DAVIS</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">3317 Pine Ave, Houston TX</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--border);">
+            <span style="font-size:12px;color:var(--muted);font-weight:700;">1:00 – 3:00 PM</span>
+            <span style="font-size:22px;font-weight:900;color:var(--orange);">$560</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DIRECTION 5 — MIX OF 2 + 4
+     Navy base from D2 · Copper-orange accent · Bold uppercase type from D4
+     Serif logo wordmark · Thick left-border cards · High contrast status
+     ════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d5">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700;800;900&display=swap');
+#d5 {
+  --bg: #070c17;
+  --s1: #0b1220;
+  --s2: #101828;
+  --s3: #16202f;
+  --border: #1a2840;
+  --border2: #22334f;
+  --copper: #d4783a;
+  --copperdim: #d4783a18;
+  --copperlite: #d4783a08;
+  --gold: #e8a84a;
+  --green: #3dd68c;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --text: #eef2f8;
+  --muted: #3d5570;
+  --muted2: #5a7a9a;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ── Topbar ── */
+#d5 .bar {
+  height: 58px; background: var(--s1);
+  border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; padding: 0 22px; gap: 16px;
+  box-shadow: 0 1px 0 var(--border2);
+}
+#d5 .logo5 {
+  display: flex; align-items: center; gap: 11px;
+}
+#d5 .logomark5 {
+  width: 38px; height: 38px; flex-shrink: 0;
+  background: linear-gradient(150deg, #d4783a 0%, #8b4a1f 100%);
+  clip-path: polygon(10% 0%, 100% 0%, 90% 100%, 0% 100%);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+#d5 .logomark5::after {
+  content: '';
+  position: absolute; inset: 2px;
+  background: repeating-linear-gradient(
+    -45deg, transparent, transparent 2px,
+    rgba(255,255,255,.06) 2px, rgba(255,255,255,.06) 4px
+  );
+}
+#d5 .logomark5 span {
+  font-size: 11px; font-weight: 900; color: #fff;
+  position: relative; z-index: 1; letter-spacing: -.3px;
+}
+#d5 .wordmark5 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 17px; font-weight: 800; color: var(--text);
+  letter-spacing: .02em; line-height: 1;
+}
+#d5 .sub5 {
+  font-size: 8px; color: var(--copper); letter-spacing: .18em;
+  text-transform: uppercase; font-weight: 700; margin-top: 3px;
+}
+
+/* ── Nav tabs (D2 border-bottom style + D4 uppercase) ── */
+#d5 .nav5 { display: flex; align-items: stretch; height: 58px; gap: 0; margin-left: 28px; }
+#d5 .nt5 {
+  padding: 0 18px; font-size: 11px; font-weight: 800;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); cursor: pointer; border: none; background: transparent;
+  border-bottom: 3px solid transparent; display: flex; align-items: center;
+  transition: all .15s; white-space: nowrap;
+}
+#d5 .nt5.active { color: var(--copper); border-bottom-color: var(--copper); }
+#d5 .nt5:hover:not(.active) { color: var(--text); border-bottom-color: var(--border2); }
+
+/* ── Right cluster ── */
+#d5 .topright5 { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+#d5 .live-badge {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 14px; border-radius: 6px;
+  background: var(--copperdim); border: 1px solid var(--copper);
+  font-size: 11px; font-weight: 800; color: var(--copper);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+#d5 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--copper); animation: pulse5 1.2s infinite; }
+@keyframes pulse5 { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+#d5 .user5 {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 12px; background: var(--s2);
+  border: 1px solid var(--border2); border-radius: 8px;
+}
+#d5 .ua5 {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, var(--copper), #8b4a1f);
+  clip-path: polygon(10% 0%, 100% 0%, 90% 100%, 0% 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 900; color: #fff;
+}
+
+/* ── Layout ── */
+#d5 .main5 { display: flex; height: calc(100vh - 58px - 48px); }
+#d5 .sidebar5 {
+  width: 228px; background: var(--s1); border-right: 1px solid var(--border2);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
+}
+#d5 .sg { font-size: 9px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; font-weight: 800; padding: 8px 12px; margin-top: 6px; }
+#d5 .si5 {
+  display: flex; align-items: center; gap: 10px; padding: 10px 13px;
+  border-radius: 7px; font-size: 12px; font-weight: 700; color: var(--muted);
+  cursor: pointer; transition: all .12s; text-transform: uppercase; letter-spacing: .04em;
+}
+#d5 .si5.active { background: var(--copperdim); color: var(--copper); border-left: 2px solid var(--copper); padding-left: 11px; }
+#d5 .si5:hover:not(.active) { background: var(--s3); color: var(--text); }
+
+/* ── Content ── */
+#d5 .content5 { flex: 1; overflow: auto; padding: 24px; }
+#d5 .pg-hd {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+}
+#d5 .pg-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: .01em;
+}
+#d5 .pg-sub { font-size: 11px; color: var(--muted2); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; margin-top: 3px; }
+#d5 .btn-primary5 {
+  padding: 9px 20px; background: var(--copper); border: none; border-radius: 7px;
+  color: #fff; font-size: 12px; font-weight: 800; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .06em;
+  transition: filter .15s;
+}
+#d5 .btn-primary5:hover { filter: brightness(1.1); }
+#d5 .btn-sec5 {
+  padding: 9px 16px; background: var(--s2); border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--muted2); font-size: 12px; font-weight: 700;
+  cursor: pointer; text-transform: uppercase; letter-spacing: .05em;
+}
+
+/* ── Stat cards ── */
+#d5 .stats5 { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 22px; }
+#d5 .sc5 {
+  background: var(--s1); border: 1px solid var(--border2); border-radius: 10px;
+  padding: 18px 20px; border-left: 3px solid; position: relative; overflow: hidden;
+}
+#d5 .sc5::after {
+  content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 60px;
+  background: linear-gradient(to left, var(--accent-color, transparent) 0%, transparent 100%);
+  opacity: .04; pointer-events: none;
+}
+#d5 .sc-label { font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted2); font-weight: 800; }
+#d5 .sc-val { font-size: 34px; font-weight: 900; margin-top: 8px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+#d5 .sc-sub { font-size: 11px; color: var(--muted2); margin-top: 4px; font-weight: 600; }
+
+/* ── Dispatch board ── */
+#d5 .board5 { background: var(--s1); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden; }
+#d5 .bh5 {
+  background: var(--s2); border-bottom: 1px solid var(--border2);
+  padding: 13px 18px; display: flex; align-items: center; justify-content: space-between;
+}
+#d5 .bh-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+#d5 .brow5 { display: grid; grid-template-columns: 210px 1fr; border-bottom: 1px solid var(--border); }
+#d5 .tech5 {
+  padding: 14px 16px; border-right: 1px solid var(--border2);
+  display: flex; align-items: center; gap: 12px; background: var(--s2);
+}
+#d5 .ta5 {
+  width: 36px; height: 36px; border-radius: 7px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 900; color: #fff;
+  position: relative;
+}
+#d5 .status-ring {
+  position: absolute; bottom: -2px; right: -2px;
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--s2);
+}
+#d5 .tname5 { font-size: 13px; font-weight: 800; color: var(--text); letter-spacing: .01em; }
+#d5 .tstatus5 { font-size: 9px; margin-top: 3px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+#d5 .tl5 { position: relative; height: 66px; display: flex; align-items: center; overflow: hidden; }
+#d5 .jb5 {
+  position: absolute; height: 46px; border-radius: 8px;
+  border-left: 3px solid; padding: 0 12px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: transform .12s, filter .12s;
+}
+#d5 .jb5:hover { transform: translateY(-2px); filter: brightness(1.1); }
+#d5 .jb5-name { font-size: 12px; font-weight: 700; }
+#d5 .jb5-cust { font-size: 10px; opacity: .7; font-weight: 600; }
+
+/* ── Status pills ── */
+#d5 .pill5 {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 4px;
+  font-size: 9px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+  border: 1px solid;
+}
+
+/* ── Job cards ── */
+#d5 .jcards { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-top: 22px; }
+#d5 .jcard5 {
+  background: var(--s1); border: 1px solid var(--border2); border-radius: 12px;
+  padding: 18px; border-top: 3px solid; cursor: pointer;
+  transition: transform .12s, box-shadow .12s;
+}
+#d5 .jcard5:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+#d5 .jc-type {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px;
+}
+#d5 .jc-cust { font-size: 12px; color: var(--muted2); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+#d5 .jc-addr { font-size: 11px; color: var(--muted); margin-top: 3px; }
+#d5 .jc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+#d5 .jc-time { font-size: 11px; color: var(--muted2); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+#d5 .jc-amt { font-family: 'Playfair Display', Georgia, serif; font-size: 22px; font-weight: 800; color: var(--copper); }
+</style>
+
+<div id="d5">
+  <!-- Topbar -->
+  <div class="bar">
+    <div class="logo5">
+      <div class="logomark5"><span>DPS</span></div>
+      <div>
+        <div class="wordmark5">Davis Plumbing</div>
+        <div class="sub5">Digital Operations</div>
+      </div>
+    </div>
+    <nav class="nav5">
+      <button class="nt5">Dashboard</button>
+      <button class="nt5 active">Dispatch</button>
+      <button class="nt5">Jobs</button>
+      <button class="nt5">Customers</button>
+      <button class="nt5">Invoices</button>
+      <button class="nt5">Reports</button>
+    </nav>
+    <div class="topright5">
+      <div class="live-badge"><div class="live-dot"></div>4 Active</div>
+      <div style="font-size:12px;color:var(--muted2);font-weight:700;font-variant-numeric:tabular-nums;">10:47 AM · Thu Apr 17</div>
+      <div class="user5">
+        <div class="ua5">RD</div>
+        <div>
+          <div style="font-size:12px;font-weight:800;color:var(--text);">Ray Davis</div>
+          <div style="font-size:9px;color:var(--copper);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Owner</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="main5">
+    <!-- Sidebar -->
+    <div class="sidebar5">
+      <div class="sg">Operations</div>
+      <div class="si5"><span>◼</span> Dashboard</div>
+      <div class="si5 active"><span>📅</span> Dispatch</div>
+      <div class="si5"><span>🔧</span> Jobs</div>
+      <div class="si5"><span>👥</span> Customers</div>
+      <div class="sg">Finance</div>
+      <div class="si5"><span>🧾</span> Invoices</div>
+      <div class="si5"><span>📊</span> Reports</div>
+      <div class="si5"><span>💰</span> Payroll</div>
+      <div class="si5"><span>📦</span> Inventory</div>
+      <div style="margin-top:auto;border-top:1px solid var(--border);padding-top:10px;margin-top:auto;"></div>
+      <div class="si5"><span>⚙️</span> Settings</div>
+    </div>
+
+    <!-- Content -->
+    <div class="content5">
+      <div class="pg-hd">
+        <div>
+          <div class="pg-title">Dispatch Board</div>
+          <div class="pg-sub">Thursday, April 17, 2026 · 4 techs active</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn-sec5">← Apr 16</button>
+          <div style="padding:9px 16px;background:var(--copperdim);border:1px solid var(--border2);border-radius:7px;font-size:12px;font-weight:800;color:var(--copper);text-transform:uppercase;letter-spacing:.05em;">Apr 17</div>
+          <button class="btn-sec5">Apr 18 →</button>
+          <button class="btn-primary5">+ New Job</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats5">
+        <div class="sc5" style="border-left-color:var(--copper);--accent-color:var(--copper);">
+          <div class="sc-label">Jobs Today</div>
+          <div class="sc-val" style="color:var(--copper)">12</div>
+          <div class="sc-sub">↑ 2 from yesterday</div>
+        </div>
+        <div class="sc5" style="border-left-color:var(--green);--accent-color:var(--green);">
+          <div class="sc-label">Active Now</div>
+          <div class="sc-val" style="color:var(--green)">4</div>
+          <div class="sc-sub">3 en route · 1 on site</div>
+        </div>
+        <div class="sc5" style="border-left-color:var(--gold);--accent-color:var(--gold);">
+          <div class="sc-label">Revenue Today</div>
+          <div class="sc-val" style="color:var(--gold)">$4,820</div>
+          <div class="sc-sub">3 invoices pending</div>
+        </div>
+        <div class="sc5" style="border-left-color:var(--blue);--accent-color:var(--blue);">
+          <div class="sc-label">Completion Rate</div>
+          <div class="sc-val" style="color:var(--blue)">67%</div>
+          <div class="sc-sub">8 of 12 complete</div>
+        </div>
+      </div>
+
+      <!-- Dispatch board -->
+      <div class="board5">
+        <div class="bh5">
+          <div class="bh-title">Live Dispatch</div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:800;color:var(--copper);text-transform:uppercase;letter-spacing:.07em;">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--copper);animation:pulse5 1.2s infinite;"></div>Live
+            </div>
+            <div style="font-size:10px;color:var(--muted2);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Drag to reschedule</div>
+          </div>
+        </div>
+
+        <!-- Header row -->
+        <div style="display:grid;grid-template-columns:210px 1fr;background:var(--s2);border-bottom:1px solid var(--border2);">
+          <div style="padding:9px 16px;border-right:1px solid var(--border2);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:800;">Technician</div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);padding:9px 0;">
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">8A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">9A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">10A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">11A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">12P</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">1P</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">2P</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">3P</div>
+          </div>
+        </div>
+
+        <!-- Marcus -->
+        <div class="brow5">
+          <div class="tech5">
+            <div class="ta5" style="background:linear-gradient(135deg,#d4783a,#8b4a1f);">
+              MJ<div class="status-ring" style="background:var(--green);"></div>
+            </div>
+            <div>
+              <div class="tname5">Marcus Johnson</div>
+              <div class="tstatus5" style="color:var(--green);">● En Route</div>
+            </div>
+          </div>
+          <div class="tl5">
+            <div class="jb5" style="left:2%;width:24%;background:#d4783a14;border-color:var(--copper);color:var(--gold);">
+              <div><div class="jb5-name">🚿 Water Heater</div><div class="jb5-cust">Smith · 8–10am</div></div>
+            </div>
+            <div class="jb5" style="left:28%;width:16%;background:#3dd68c14;border-color:var(--green);color:var(--green);">
+              <div><div class="jb5-name">🔧 Leak Fix</div><div class="jb5-cust">Brown · 10–11am</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tyler -->
+        <div class="brow5">
+          <div class="tech5">
+            <div class="ta5" style="background:linear-gradient(135deg,#60a5fa,#2563eb);">
+              TR<div class="status-ring" style="background:#60a5fa;"></div>
+            </div>
+            <div>
+              <div class="tname5">Tyler Reed</div>
+              <div class="tstatus5" style="color:#60a5fa;">● On Site</div>
+            </div>
+          </div>
+          <div class="tl5">
+            <div class="jb5" style="left:0%;width:30%;background:#60a5fa14;border-color:#60a5fa;color:#60a5fa;">
+              <div><div class="jb5-name">🪠 Drain Cleaning</div><div class="jb5-cust">Garcia · 8am–12pm</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devon -->
+        <div class="brow5">
+          <div class="tech5">
+            <div class="ta5" style="background:linear-gradient(135deg,#3dd68c,#16a34a);">
+              DW<div class="status-ring" style="background:var(--muted);"></div>
+            </div>
+            <div>
+              <div class="tname5">Devon Williams</div>
+              <div class="tstatus5" style="color:var(--muted2);">● Available</div>
+            </div>
+          </div>
+          <div class="tl5">
+            <div class="jb5" style="left:40%;width:22%;background:#d4783a14;border-color:var(--copper);color:var(--gold);">
+              <div><div class="jb5-name">💧 Pipe Repair</div><div class="jb5-cust">Davis · 1–3pm</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kevin -->
+        <div class="brow5" style="border-bottom:none;">
+          <div class="tech5">
+            <div class="ta5" style="background:linear-gradient(135deg,#a78bfa,#6d28d9);">
+              KP<div class="status-ring" style="background:#a78bfa;"></div>
+            </div>
+            <div>
+              <div class="tname5">Kevin Park</div>
+              <div class="tstatus5" style="color:#a78bfa;">● Scheduled</div>
+            </div>
+          </div>
+          <div class="tl5">
+            <div class="jb5" style="left:50%;width:20%;background:#a78bfa14;border-color:#a78bfa;color:#a78bfa;">
+              <div><div class="jb5-name">🔩 Inspection</div><div class="jb5-cust">Lee · 1–3pm</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Job cards -->
+      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--muted2);margin:24px 0 12px;">Active Jobs</div>
+      <div class="jcards">
+        <div class="jcard5" style="border-top-color:var(--green);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div class="jc-type">Water Heater Install</div>
+            <span class="pill5" style="background:#3dd68c14;color:var(--green);border-color:#3dd68c44;">
+              <div style="width:5px;height:5px;border-radius:50%;background:currentColor;"></div>En Route
+            </span>
+          </div>
+          <div class="jc-cust">James Smith</div>
+          <div class="jc-addr">4521 Oak Lane, Houston TX · Marcus Johnson</div>
+          <div class="jc-foot">
+            <span class="jc-time">8:00 – 10:00 AM</span>
+            <span class="jc-amt">$1,240</span>
+          </div>
+        </div>
+        <div class="jcard5" style="border-top-color:#60a5fa;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div class="jc-type">Drain Cleaning</div>
+            <span class="pill5" style="background:#60a5fa14;color:#60a5fa;border-color:#60a5fa44;">
+              <div style="width:5px;height:5px;border-radius:50%;background:currentColor;"></div>On Site
+            </span>
+          </div>
+          <div class="jc-cust">Maria Garcia</div>
+          <div class="jc-addr">8920 Elm Street, Houston TX · Tyler Reed</div>
+          <div class="jc-foot">
+            <span class="jc-time">8:00 AM – 12:00 PM</span>
+            <span class="jc-amt">$285</span>
+          </div>
+        </div>
+        <div class="jcard5" style="border-top-color:var(--copper);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div class="jc-type">Pipe Repair</div>
+            <span class="pill5" style="background:#d4783a14;color:var(--copper);border-color:#d4783a44;">
+              <div style="width:5px;height:5px;border-radius:50%;background:currentColor;"></div>Scheduled
+            </span>
+          </div>
+          <div class="jc-cust">Robert Davis</div>
+          <div class="jc-addr">3317 Pine Avenue, Houston TX · Devon Williams</div>
+          <div class="jc-foot">
+            <span class="jc-time">1:00 – 3:00 PM</span>
+            <span class="jc-amt">$560</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DIRECTION 6 — DAVIS PLUMBING BRAND COLORS
+     #273472 navy · #1D70B7 blue · #E20613 red
+     Same construction quality as D2+D4 mix
+     ════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d6">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700;800;900&display=swap');
+#d6 {
+  /* ── Brand palette ── */
+  --navy:    #273472;
+  --blue:    #1D70B7;
+  --red:     #E20613;
+  --navydim: #27347218;
+  --bluedim: #1D70B715;
+  --reddim:  #E2061315;
+
+  /* ── Surface scale (dark navy-tinted) ── */
+  --bg:      #07091a;
+  --s1:      #0b0f22;
+  --s2:      #0f1429;
+  --s3:      #141930;
+  --s-navy:  #12183a;   /* sidebar — pulled from brand navy */
+
+  /* ── Borders ── */
+  --border:  #1c2445;
+  --border2: #253060;
+
+  /* ── Semantic status ── */
+  --green:   #22d47a;
+  --amber:   #f59e0b;
+  --purple:  #a78bfa;
+
+  /* ── Type ── */
+  --text:    #eef2f8;
+  --muted:   #3d5270;
+  --muted2:  #5a7490;
+
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ── Topbar ── */
+#d6 .bar6 {
+  height: 58px;
+  background: var(--s-navy);
+  border-bottom: 2px solid var(--navy);
+  display: flex; align-items: center; padding: 0 22px; gap: 16px;
+}
+
+/* ── Logo ── */
+#d6 .logomark6 {
+  width: 40px; height: 40px; flex-shrink: 0;
+  background: var(--red);
+  clip-path: polygon(10% 0%, 100% 0%, 90% 100%, 0% 100%);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+#d6 .logomark6::after {
+  content: '';
+  position: absolute; inset: 2px;
+  background: repeating-linear-gradient(
+    -45deg, transparent, transparent 2px,
+    rgba(255,255,255,.08) 2px, rgba(255,255,255,.08) 4px
+  );
+}
+#d6 .logomark6 span {
+  font-size: 11px; font-weight: 900; color: #fff;
+  position: relative; z-index: 1; letter-spacing: -.3px;
+}
+#d6 .wordmark6 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 17px; font-weight: 800; color: var(--text); letter-spacing: .02em; line-height: 1;
+}
+#d6 .sub6 {
+  font-size: 8px; color: var(--blue); letter-spacing: .18em;
+  text-transform: uppercase; font-weight: 700; margin-top: 3px;
+}
+
+/* ── Nav ── */
+#d6 .nav6 { display: flex; align-items: stretch; height: 58px; margin-left: 28px; }
+#d6 .nt6 {
+  padding: 0 18px; font-size: 11px; font-weight: 800;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(255,255,255,.35); cursor: pointer; border: none;
+  background: transparent; border-bottom: 3px solid transparent;
+  display: flex; align-items: center; transition: all .15s; white-space: nowrap;
+}
+#d6 .nt6.active { color: var(--red); border-bottom-color: var(--red); }
+#d6 .nt6:hover:not(.active) { color: var(--text); border-bottom-color: rgba(255,255,255,.12); }
+
+/* ── Topbar right ── */
+#d6 .topright6 { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+#d6 .live6 {
+  display: flex; align-items: center; gap: 7px; padding: 6px 14px;
+  background: var(--reddim); border: 1px solid var(--red);
+  border-radius: 6px; font-size: 11px; font-weight: 800;
+  color: var(--red); text-transform: uppercase; letter-spacing: .07em;
+}
+#d6 .livedot6 { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: pulse6 1.2s infinite; }
+@keyframes pulse6 { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+#d6 .user6 {
+  display: flex; align-items: center; gap: 9px; padding: 6px 12px;
+  background: var(--s2); border: 1px solid var(--border2); border-radius: 8px;
+}
+#d6 .ua6 {
+  width: 30px; height: 30px; background: var(--red);
+  clip-path: polygon(10% 0%, 100% 0%, 90% 100%, 0% 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 900; color: #fff;
+}
+
+/* ── Layout ── */
+#d6 .main6 { display: flex; height: calc(100vh - 58px - 48px); }
+#d6 .sidebar6 {
+  width: 230px; background: var(--s-navy);
+  border-right: 1px solid var(--border2);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
+}
+#d6 .sg6 {
+  font-size: 9px; color: var(--muted); letter-spacing: .14em;
+  text-transform: uppercase; font-weight: 800; padding: 8px 12px; margin-top: 6px;
+}
+#d6 .si6 {
+  display: flex; align-items: center; gap: 10px; padding: 10px 13px;
+  border-radius: 7px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.35);
+  cursor: pointer; transition: all .12s; text-transform: uppercase; letter-spacing: .04em;
+}
+#d6 .si6.active {
+  background: var(--reddim); color: var(--red);
+  border-left: 2px solid var(--red); padding-left: 11px;
+}
+#d6 .si6:hover:not(.active) { background: rgba(255,255,255,.05); color: var(--text); }
+
+/* ── Content ── */
+#d6 .content6 { flex: 1; overflow: auto; padding: 24px; }
+#d6 .pg-title6 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: .01em;
+}
+#d6 .pg-sub6 { font-size: 11px; color: var(--muted2); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; margin-top: 3px; }
+#d6 .btn-red {
+  padding: 9px 20px; background: var(--red); border: none; border-radius: 7px;
+  color: #fff; font-size: 12px; font-weight: 800; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .06em; transition: filter .15s;
+}
+#d6 .btn-red:hover { filter: brightness(1.1); }
+#d6 .btn-ghost6 {
+  padding: 9px 16px; background: transparent; border: 1px solid var(--border2);
+  border-radius: 7px; color: var(--muted2); font-size: 12px; font-weight: 700;
+  cursor: pointer; text-transform: uppercase; letter-spacing: .05em;
+}
+
+/* ── Stats ── */
+#d6 .stats6 { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 22px; }
+#d6 .sc6 {
+  background: var(--s1); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 18px 20px; border-left: 3px solid;
+  position: relative; overflow: hidden;
+}
+#d6 .sc6::after {
+  content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 80px;
+  background: linear-gradient(to left, var(--glow, transparent), transparent);
+  opacity: .05; pointer-events: none;
+}
+#d6 .sc-lbl6 { font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted2); font-weight: 800; }
+#d6 .sc-val6 { font-size: 34px; font-weight: 900; margin-top: 8px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+#d6 .sc-sub6 { font-size: 11px; color: var(--muted2); margin-top: 4px; font-weight: 600; }
+
+/* ── Board ── */
+#d6 .board6 { background: var(--s1); border: 1px solid var(--border2); border-radius: 12px; overflow: hidden; }
+#d6 .bh6 {
+  background: var(--s-navy); border-bottom: 1px solid var(--border2);
+  padding: 13px 18px; display: flex; align-items: center; justify-content: space-between;
+}
+#d6 .bh-title6 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+#d6 .brow6 { display: grid; grid-template-columns: 215px 1fr; border-bottom: 1px solid var(--border); }
+#d6 .tech6 {
+  padding: 14px 16px; border-right: 1px solid var(--border2);
+  display: flex; align-items: center; gap: 12px; background: var(--s-navy);
+}
+#d6 .ta6 {
+  width: 36px; height: 36px; border-radius: 7px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 900; color: #fff; position: relative;
+}
+#d6 .ring6 {
+  position: absolute; bottom: -2px; right: -2px;
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--s-navy);
+}
+#d6 .tname6 { font-size: 13px; font-weight: 800; color: var(--text); letter-spacing: .01em; }
+#d6 .tstatus6 { font-size: 9px; margin-top: 3px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+#d6 .tl6 { position: relative; height: 66px; display: flex; align-items: center; overflow: hidden; }
+#d6 .jb6 {
+  position: absolute; height: 46px; border-radius: 8px; border-left: 3px solid;
+  padding: 0 12px; display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700; cursor: pointer; transition: transform .12s, filter .12s;
+}
+#d6 .jb6:hover { transform: translateY(-2px); filter: brightness(1.12); }
+#d6 .jb-name6 { font-size: 12px; font-weight: 700; }
+#d6 .jb-cust6 { font-size: 10px; opacity: .65; font-weight: 600; }
+
+/* ── Pills ── */
+#d6 .pill6 {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 4px;
+  font-size: 9px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; border: 1px solid;
+}
+
+/* ── Job cards ── */
+#d6 .jcards6 { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-top: 22px; }
+#d6 .jcard6 {
+  background: var(--s1); border: 1px solid var(--border2); border-radius: 12px;
+  padding: 18px; border-top: 3px solid; cursor: pointer;
+  transition: transform .12s, box-shadow .12s;
+}
+#d6 .jcard6:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+#d6 .jc-type6 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px;
+}
+#d6 .jc-cust6 { font-size: 12px; color: var(--muted2); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+#d6 .jc-addr6 { font-size: 11px; color: var(--muted); margin-top: 3px; }
+#d6 .jc-foot6 {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+#d6 .jc-time6 { font-size: 11px; color: var(--muted2); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+#d6 .jc-amt6 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 22px; font-weight: 800; color: var(--blue);
+}
+
+/* ── Blue stripe divider ── */
+#d6 .stripe {
+  height: 3px;
+  background: linear-gradient(90deg, var(--navy) 0%, var(--blue) 50%, var(--red) 100%);
+  margin-bottom: 22px; border-radius: 2px;
+}
+</style>
+
+<div id="d6">
+  <!-- Brand stripe -->
+  <div class="stripe"></div>
+
+  <!-- Topbar -->
+  <div class="bar6">
+    <div style="display:flex;align-items:center;gap:11px;">
+      <div class="logomark6"><span>DPS</span></div>
+      <div>
+        <div class="wordmark6">Davis Plumbing</div>
+        <div class="sub6">Digital Operations Platform</div>
+      </div>
+    </div>
+    <nav class="nav6">
+      <button class="nt6">Dashboard</button>
+      <button class="nt6 active">Dispatch</button>
+      <button class="nt6">Jobs</button>
+      <button class="nt6">Customers</button>
+      <button class="nt6">Invoices</button>
+      <button class="nt6">Reports</button>
+    </nav>
+    <div class="topright6">
+      <div class="live6"><div class="livedot6"></div>4 Active</div>
+      <div style="font-size:12px;color:var(--muted2);font-weight:700;font-variant-numeric:tabular-nums;">10:47 AM · Fri Apr 18</div>
+      <div class="user6">
+        <div class="ua6">RD</div>
+        <div>
+          <div style="font-size:12px;font-weight:800;color:var(--text);">Ray Davis</div>
+          <div style="font-size:9px;color:var(--blue);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Owner</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div class="main6">
+    <!-- Sidebar -->
+    <div class="sidebar6">
+      <!-- Brand accent line at top of sidebar -->
+      <div style="height:2px;background:linear-gradient(90deg,var(--red),var(--blue));border-radius:2px;margin-bottom:14px;margin-top:2px;"></div>
+      <div class="sg6">Operations</div>
+      <div class="si6"><span>◼</span> Dashboard</div>
+      <div class="si6 active"><span>📅</span> Dispatch</div>
+      <div class="si6"><span>🔧</span> Jobs</div>
+      <div class="si6"><span>👥</span> Customers</div>
+      <div class="sg6">Finance</div>
+      <div class="si6"><span>🧾</span> Invoices</div>
+      <div class="si6"><span>📊</span> Reports</div>
+      <div class="si6"><span>💰</span> Payroll</div>
+      <div class="si6"><span>📦</span> Inventory</div>
+      <div style="margin-top:auto;border-top:1px solid var(--border);padding-top:10px;"></div>
+      <div class="si6"><span>⚙️</span> Settings</div>
+    </div>
+
+    <!-- Content -->
+    <div class="content6">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <div>
+          <div class="pg-title6">Dispatch Board</div>
+          <div class="pg-sub6">Friday, April 18, 2026 · 4 techs active</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn-ghost6">← Apr 17</button>
+          <div style="padding:9px 16px;background:var(--reddim);border:1px solid var(--red);border-radius:7px;font-size:12px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.05em;">Apr 18</div>
+          <button class="btn-ghost6">Apr 19 →</button>
+          <button class="btn-red">+ New Job</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats6">
+        <div class="sc6" style="border-left-color:var(--red);--glow:var(--red);">
+          <div class="sc-lbl6">Jobs Today</div>
+          <div class="sc-val6" style="color:var(--red);">12</div>
+          <div class="sc-sub6">↑ 2 from yesterday</div>
+        </div>
+        <div class="sc6" style="border-left-color:var(--green);--glow:var(--green);">
+          <div class="sc-lbl6">Active Now</div>
+          <div class="sc-val6" style="color:var(--green);">4</div>
+          <div class="sc-sub6">3 en route · 1 on site</div>
+        </div>
+        <div class="sc6" style="border-left-color:var(--blue);--glow:var(--blue);">
+          <div class="sc-lbl6">Revenue Today</div>
+          <div class="sc-val6" style="color:var(--blue);">$4,820</div>
+          <div class="sc-sub6">3 invoices pending</div>
+        </div>
+        <div class="sc6" style="border-left-color:var(--navy);--glow:var(--navy);">
+          <div class="sc-lbl6">Completion Rate</div>
+          <div class="sc-val6" style="color:#6b7fff;">67%</div>
+          <div class="sc-sub6">8 of 12 complete</div>
+        </div>
+      </div>
+
+      <!-- Dispatch board -->
+      <div class="board6">
+        <div class="bh6">
+          <div class="bh-title6">Live Dispatch</div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="display:flex;align-items:center;gap:5px;font-size:10px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.07em;">
+              <div class="livedot6"></div>Live
+            </div>
+            <div style="height:14px;width:1px;background:var(--border2);"></div>
+            <div style="font-size:10px;color:var(--muted2);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Drag to reschedule</div>
+          </div>
+        </div>
+
+        <!-- Column headers -->
+        <div style="display:grid;grid-template-columns:215px 1fr;background:var(--s2);border-bottom:1px solid var(--border2);">
+          <div style="padding:9px 16px;border-right:1px solid var(--border2);font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:800;">Technician</div>
+          <div style="display:grid;grid-template-columns:repeat(8,1fr);padding:9px 0;">
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">8A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">9A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">10A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">11A</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">12P</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">1P</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">2P</div>
+            <div style="text-align:center;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;">3P</div>
+          </div>
+        </div>
+
+        <!-- Marcus — En Route -->
+        <div class="brow6">
+          <div class="tech6">
+            <div class="ta6" style="background:linear-gradient(135deg,var(--red),#8b000a);">
+              MJ<div class="ring6" style="background:var(--green);"></div>
+            </div>
+            <div>
+              <div class="tname6">Marcus Johnson</div>
+              <div class="tstatus6" style="color:var(--green);">● En Route</div>
+            </div>
+          </div>
+          <div class="tl6">
+            <div class="jb6" style="left:2%;width:24%;background:#E2061312;border-color:var(--red);color:#ff6b75;">
+              <div><div class="jb-name6">🚿 Water Heater</div><div class="jb-cust6">Smith · 8–10am</div></div>
+            </div>
+            <div class="jb6" style="left:28%;width:16%;background:#22d47a12;border-color:var(--green);color:var(--green);">
+              <div><div class="jb-name6">🔧 Leak Fix</div><div class="jb-cust6">Brown · 10–11am</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tyler — On Site -->
+        <div class="brow6">
+          <div class="tech6">
+            <div class="ta6" style="background:linear-gradient(135deg,var(--blue),#0f4c82);">
+              TR<div class="ring6" style="background:var(--blue);"></div>
+            </div>
+            <div>
+              <div class="tname6">Tyler Reed</div>
+              <div class="tstatus6" style="color:var(--blue);">● On Site</div>
+            </div>
+          </div>
+          <div class="tl6">
+            <div class="jb6" style="left:0%;width:30%;background:#1D70B712;border-color:var(--blue);color:#5db4f5;">
+              <div><div class="jb-name6">🪠 Drain Cleaning</div><div class="jb-cust6">Garcia · 8am–12pm</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devon — Available -->
+        <div class="brow6">
+          <div class="tech6">
+            <div class="ta6" style="background:linear-gradient(135deg,#273472,#1a2255);">
+              DW<div class="ring6" style="background:var(--muted);"></div>
+            </div>
+            <div>
+              <div class="tname6">Devon Williams</div>
+              <div class="tstatus6" style="color:var(--muted2);">● Available</div>
+            </div>
+          </div>
+          <div class="tl6">
+            <div class="jb6" style="left:40%;width:22%;background:#1D70B712;border-color:var(--blue);color:#5db4f5;">
+              <div><div class="jb-name6">💧 Pipe Repair</div><div class="jb-cust6">Davis · 1–3pm</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kevin — Scheduled -->
+        <div class="brow6" style="border-bottom:none;">
+          <div class="tech6">
+            <div class="ta6" style="background:linear-gradient(135deg,#5a6fd4,var(--navy));">
+              KP<div class="ring6" style="background:#7b8fff;"></div>
+            </div>
+            <div>
+              <div class="tname6">Kevin Park</div>
+              <div class="tstatus6" style="color:#7b8fff;">● Scheduled</div>
+            </div>
+          </div>
+          <div class="tl6">
+            <div class="jb6" style="left:50%;width:20%;background:#27347218;border-color:#5a6fd4;color:#8b9fff;">
+              <div><div class="jb-name6">🔩 Inspection</div><div class="jb-cust6">Lee · 1–3pm</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Job cards -->
+      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--muted2);margin:24px 0 12px;">Active Jobs</div>
+      <div class="jcards6">
+
+        <!-- Card 1 — En Route (red top) -->
+        <div class="jcard6" style="border-top-color:var(--red);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div class="jc-type6">Water Heater Install</div>
+            <span class="pill6" style="background:var(--reddim);color:var(--red);border-color:#E2061344;">
+              <div style="width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulse6 1.2s infinite;"></div>En Route
+            </span>
+          </div>
+          <div class="jc-cust6">James Smith</div>
+          <div class="jc-addr6">4521 Oak Lane, Houston TX · Marcus Johnson</div>
+          <div class="jc-foot6">
+            <span class="jc-time6">8:00 – 10:00 AM</span>
+            <span class="jc-amt6">$1,240</span>
+          </div>
+        </div>
+
+        <!-- Card 2 — On Site (blue top) -->
+        <div class="jcard6" style="border-top-color:var(--blue);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div class="jc-type6">Drain Cleaning</div>
+            <span class="pill6" style="background:var(--bluedim);color:var(--blue);border-color:#1D70B744;">
+              <div style="width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulse6 1.2s infinite;"></div>On Site
+            </span>
+          </div>
+          <div class="jc-cust6">Maria Garcia</div>
+          <div class="jc-addr6">8920 Elm Street, Houston TX · Tyler Reed</div>
+          <div class="jc-foot6">
+            <span class="jc-time6">8:00 AM – 12:00 PM</span>
+            <span class="jc-amt6">$285</span>
+          </div>
+        </div>
+
+        <!-- Card 3 — Scheduled (navy top) -->
+        <div class="jcard6" style="border-top-color:#5a6fd4;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+            <div class="jc-type6">Pipe Repair</div>
+            <span class="pill6" style="background:#27347218;color:#8b9fff;border-color:#27347244;">
+              <div style="width:5px;height:5px;border-radius:50%;background:currentColor;"></div>Scheduled
+            </span>
+          </div>
+          <div class="jc-cust6">Robert Davis</div>
+          <div class="jc-addr6">3317 Pine Avenue, Houston TX · Devon Williams</div>
+          <div class="jc-foot6">
+            <span class="jc-time6">1:00 – 3:00 PM</span>
+            <span class="jc-amt6">$560</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function show(n) {
+  document.querySelectorAll('.design').forEach(d => d.classList.remove('active'));
+  document.querySelectorAll('.sel-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('d' + n).classList.add('active');
+  document.querySelector('.sel-btn[data-d="' + n + '"]').classList.add('active');
+}
+</script>
+</body>
+</html>

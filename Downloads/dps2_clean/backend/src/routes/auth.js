@@ -146,4 +146,21 @@ router.post("/set-pin", authenticate, async (req, res) => {
   }
 });
 
+// POST /api/auth/logout  — clock out then invalidate session (JWT is stateless,
+// so "invalidation" just means the client discards the token; we use this endpoint
+// to ensure the timesheet punch is closed before the token is dropped).
+router.post("/logout", authenticate, async (req, res) => {
+  try {
+    await query(
+      `UPDATE time_punches
+       SET punch_out=NOW(),
+           notes=COALESCE(NULLIF(notes,''), 'Auto clock-out: signed out'),
+           updated_at=NOW()
+       WHERE user_id=$1 AND punch_out IS NULL`,
+      [req.user.id]
+    );
+  } catch(e) { /* non-fatal — clock-out best-effort */ }
+  res.json({ ok: true });
+});
+
 module.exports = router;

@@ -14,6 +14,7 @@ import LoginScreen            from './src/screens/LoginScreen';
 import JobsScreen             from './src/screens/JobsScreen';
 import JobDetailScreen        from './src/screens/JobDetailScreen';
 import PaymentScreen          from './src/screens/PaymentScreen';
+import ScorecardScreen        from './src/screens/ScorecardScreen';
 import ProfileScreen          from './src/screens/ProfileScreen';
 import PricebookScreen        from './src/screens/PricebookScreen';
 import InvoicesScreen         from './src/screens/InvoicesScreen';
@@ -23,6 +24,7 @@ import InventoryBrowseScreen    from './src/screens/InventoryBrowseScreen';
 import EstimatesHomeScreen       from './src/screens/EstimatesHomeScreen';
 import EstimatesScreen        from './src/screens/EstimatesScreen';
 import EstimateDetailScreen   from './src/screens/EstimateDetailScreen';
+import CustomerHistoryScreen  from './src/screens/CustomerHistoryScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -48,33 +50,28 @@ function JobsStack() {
     <Stack.Navigator screenOptions={H}>
       <Stack.Screen name="MyJobs" component={JobsScreen}
         options={({ navigation }) => ({ title:'My Jobs', headerRight:()=><SettingsBtn navigation={navigation}/> })}/>
-      <Stack.Screen name="JobDetail" component={JobDetailScreen} options={{ title:'Job Detail' }}/>
-      <Stack.Screen name="ScanParts" component={ScanPartsScreen} options={{ title:'Scan Parts' }}/>
-      <Stack.Screen name="Settings"  component={ProfileScreen}   options={{ title:'Settings' }}/>
-    </Stack.Navigator>
-  );
-}
-
-function EstimatesStack() {
-  return (
-    <Stack.Navigator screenOptions={H}>
-      <Stack.Screen name="EstimatesHome" component={EstimatesHomeScreen}
-        options={({ navigation }) => ({ title:'Estimates', headerRight:()=><SettingsBtn navigation={navigation}/> })}/>
-      <Stack.Screen name="EstimatesList"   component={EstimatesScreen}      options={{ title:'Estimates' }}/>
-      <Stack.Screen name="EstimateDetail"  component={EstimateDetailScreen} options={{ title:'Estimate' }}/>
-      <Stack.Screen name="PricebookMain"   component={PricebookScreen}      options={{ title:'Pricebook' }}/>
-      <Stack.Screen name="Settings"        component={ProfileScreen}        options={{ title:'Settings' }}/>
-    </Stack.Navigator>
-  );
-}
-
-function InvoicesStack() {
-  return (
-    <Stack.Navigator screenOptions={H}>
-      <Stack.Screen name="InvoicesList" component={InvoicesScreen}
-        options={({ navigation }) => ({ title:'Invoices', headerRight:()=><SettingsBtn navigation={navigation}/> })}/>
-      <Stack.Screen name="InvoiceDetail" component={InvoiceDetailScreen} options={{ title:'Invoice' }}/>
-      <Stack.Screen name="Settings"      component={ProfileScreen}       options={{ title:'Settings' }}/>
+      <Stack.Screen name="JobDetail" component={JobDetailScreen}
+        options={({ route }) => ({ title: route.params?.customerName || 'Job Detail' })}/>
+      <Stack.Screen name="ScanParts"      component={ScanPartsScreen}      options={{ title:'Scan Parts' }}/>
+      <Stack.Screen name="EstimatesList"  component={EstimatesScreen}
+        options={({ route }) => {
+          const jn = route.params?.jobNumber;
+          const label = jn ? (String(jn).startsWith('Job-') ? jn : `Job #${jn}`) : null;
+          return { title: label ? `${label} · Estimates` : 'Estimates' };
+        }}/>
+      <Stack.Screen name="EstimateDetail" component={EstimateDetailScreen} options={{ title:'Estimate' }}/>
+      <Stack.Screen name="InvoicesList"   component={InvoicesScreen}
+        options={({ route }) => {
+          const jn = route.params?.jobNumber;
+          const label = jn ? (String(jn).startsWith('Job-') ? jn : `Job #${jn}`) : null;
+          return { title: label ? `${label} · Invoices` : 'Invoices' };
+        }}/>
+      <Stack.Screen name="InvoiceDetail"  component={InvoiceDetailScreen}  options={{ title:'Invoice' }}/>
+      <Stack.Screen name="CustomerHistory" component={CustomerHistoryScreen}
+        options={({ route }) => ({ title: route.params?.customerName ? `${route.params.customerName} · History` : 'Customer History' })}/>
+      <Stack.Screen name="PricebookMain"  component={PricebookScreen}      options={{ title:'Pricebook' }}/>
+      <Stack.Screen name="PaymentMain"    component={PaymentScreen}        options={{ title:'Collect Payment' }}/>
+      <Stack.Screen name="Settings"       component={ProfileScreen}        options={{ title:'Settings' }}/>
     </Stack.Navigator>
   );
 }
@@ -99,6 +96,16 @@ function PaymentStack() {
   );
 }
 
+function ScorecardStack() {
+  return (
+    <Stack.Navigator screenOptions={H}>
+      <Stack.Screen name="ScorecardMain" component={ScorecardScreen}
+        options={({ navigation }) => ({ title:'My Scorecard', headerRight:()=><SettingsBtn navigation={navigation}/> })}/>
+      <Stack.Screen name="Settings" component={ProfileScreen} options={{ title:'Settings' }}/>
+    </Stack.Navigator>
+  );
+}
+
 function TabIcon({ emoji, label, focused }) {
   return (
     <View style={{ alignItems:'center', gap:2 }}>
@@ -114,14 +121,10 @@ function MainTabs() {
       tabBarStyle:{ backgroundColor:'#080b10', borderTopColor:C.border, height:82, paddingBottom:18 } }}>
       <Tab.Screen name="Jobs"      component={JobsStack}
         options={{ tabBarIcon:({focused})=><TabIcon emoji="📋" label="JOBS"      focused={focused}/> }}/>
-      <Tab.Screen name="Estimates" component={EstimatesStack}
-        options={{ tabBarIcon:({focused})=><TabIcon emoji="📄" label="ESTIMATES" focused={focused}/> }}/>
-      <Tab.Screen name="Invoices"  component={InvoicesStack}
-        options={{ tabBarIcon:({focused})=><TabIcon emoji="🧾" label="INVOICES"  focused={focused}/> }}/>
       <Tab.Screen name="Inventory" component={InventoryStack}
         options={{ tabBarIcon:({focused})=><TabIcon emoji="📦" label="INVENTORY" focused={focused}/> }}/>
-      <Tab.Screen name="Payment"   component={PaymentStack}
-        options={{ tabBarIcon:({focused})=><TabIcon emoji="💳" label="PAYMENT"   focused={focused}/> }}/>
+      <Tab.Screen name="Scorecard" component={ScorecardStack}
+        options={{ tabBarIcon:({focused})=><TabIcon emoji="📊" label="SCORECARD" focused={focused}/> }}/>
     </Tab.Navigator>
   );
 }

@@ -50,6 +50,11 @@ router.put("/categories/:id", authenticate, async (req, res) => {
       "UPDATE inventory_categories SET name=$1, sort_order=$2 WHERE id=$3 RETURNING *",
       [name, sort_order || 0, req.params.id]
     );
+    // Keep the denormalized text column on items in sync
+    await query(
+      "UPDATE inventory_items SET category=$1 WHERE category_id=$2",
+      [name, req.params.id]
+    );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -94,13 +99,22 @@ router.get("/items", authenticate, async (req, res) => {
 
 router.post("/items", authenticate, async (req, res) => {
   try {
-    const { sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode, warehouse_min_qty, warehouse_max_qty, truck_min_qty, truck_max_qty } = req.body;
+    const { sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode, warehouse_min_qty, warehouse_max_qty, truck_min_qty, truck_max_qty, on_hand_qty } = req.body;
     const { rows } = await query(`
       INSERT INTO inventory_items (sku, name, description, category, category_id, service_type, item_type, cost, price, min_qty, max_qty, vendor, vendor_sku, barcode, warehouse_min_qty, warehouse_max_qty, truck_min_qty, truck_max_qty)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *
     `, [sku, name, description||'', category||'', category_id||null, service_type||'', item_type||'consumable', cost||0, price||0, min_qty||0, max_qty||null, vendor||'', vendor_sku||'', barcode||sku,
         parseInt(warehouse_min_qty)||0, warehouse_max_qty?parseInt(warehouse_max_qty):null,
         parseInt(truck_min_qty)||0, truck_max_qty?parseInt(truck_max_qty):null]);
+    // Seed on-hand qty into the main warehouse location
+    const qty = parseInt(on_hand_qty) || 0;
+    if (qty > 0) {
+      await query(`
+        INSERT INTO inventory_stock (item_id, location_id, qty)
+        SELECT $1, id, $2 FROM inventory_locations WHERE type='warehouse' ORDER BY name LIMIT 1
+        ON CONFLICT (item_id, location_id) DO UPDATE SET qty = inventory_stock.qty + EXCLUDED.qty
+      `, [rows[0].id, qty]);
+    }
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -120,9 +134,24 @@ router.put("/items/:id", authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Soft-delete (archive)
 router.delete("/items/:id", authenticate, async (req, res) => {
   try {
     await query("UPDATE inventory_items SET active=false WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Hard-delete — permanently removes item and all dependent records
+router.delete("/items/:id/permanent", authenticate, async (req, res) => {
+  try {
+    const id = req.params.id;
+    await query("DELETE FROM inventory_movements        WHERE item_id=$1", [id]);
+    await query("DELETE FROM inventory_stock            WHERE item_id=$1", [id]);
+    await query("DELETE FROM inventory_count_items     WHERE item_id=$1", [id]);
+    await query("DELETE FROM truck_stock_template_items WHERE item_id=$1", [id]);
+    await query("DELETE FROM purchase_order_items       WHERE item_id=$1", [id]);
+    await query("DELETE FROM inventory_items            WHERE id=$1",      [id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -253,6 +282,37 @@ router.post("/move", authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── MOVEMENTS (job parts log) ──────────────────────────────────
+
+router.get("/movements", authenticate, async (req, res) => {
+  try {
+    const { job_id } = req.query;
+    const params = [];
+    let where = "WHERE m.type = 'usage'";
+    if (job_id) { params.push(job_id); where += ` AND m.job_id = $${params.length}`; }
+    const { rows } = await query(`
+      SELECT
+        m.id, m.item_id, m.qty, m.type, m.notes, m.job_id, m.created_at,
+        i.name  AS item_name,
+        i.sku,
+        COALESCE(i.cost, 0) AS unit_cost,
+        ABS(m.qty) * COALESCE(i.cost, 0) AS line_total,
+        fl.name AS from_location_name,
+        fl.type AS from_location_type,
+        tl.name AS to_location_name,
+        u.first_name || ' ' || u.last_name AS tech_name
+      FROM inventory_movements m
+      JOIN inventory_items  i  ON i.id  = m.item_id
+      LEFT JOIN inventory_locations fl ON fl.id = m.from_location
+      LEFT JOIN inventory_locations tl ON tl.id = m.to_location
+      LEFT JOIN users u ON u.id = m.created_by
+      ${where}
+      ORDER BY m.created_at DESC
+    `, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── TRUCK STOCK TEMPLATES ──────────────────────────────────────
 
 router.get("/templates", authenticate, async (req, res) => {
@@ -357,11 +417,11 @@ router.get("/purchase-orders", authenticate, async (req, res) => {
 
 router.post("/purchase-orders", authenticate, async (req, res) => {
   try {
-    const { vendor, notes, items = [], auto_generated = false, job_id } = req.body;
+    const { vendor, notes, items = [], auto_generated = false, job_id, po_type = 'supply' } = req.body;
     const { rows } = await query(`
-      INSERT INTO purchase_orders (vendor, notes, auto_generated, job_id, created_by)
-      VALUES ($1,$2,$3,$4,$5) RETURNING *
-    `, [vendor||'', notes||'', auto_generated, job_id||null, req.user.id]);
+      INSERT INTO purchase_orders (vendor, notes, auto_generated, job_id, created_by, po_type)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
+    `, [vendor||'', notes||'', auto_generated, job_id||null, req.user.id, po_type]);
     const po = rows[0];
     for (const item of items) {
       await query(`

@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm"; -- fuzzy search
 
 -- ── ENUMS ──────────────────────────────────────────────────────
 CREATE TYPE user_role AS ENUM ('admin','dispatcher','office','technician','accountant');
-CREATE TYPE job_status AS ENUM ('unassigned','scheduled','en_route','on_site','completed','cancelled','warranty');
+CREATE TYPE job_status AS ENUM ('unassigned','scheduled','en_route','on_site','completed','cancelled','warranty','ready_to_call');
 CREATE TYPE invoice_type AS ENUM ('estimate','invoice');
 CREATE TYPE invoice_status AS ENUM ('draft','sent','approved','paid','void');
 CREATE TYPE movement_type AS ENUM ('transfer','adjustment','usage','receive','return');
@@ -422,7 +422,7 @@ CREATE TABLE roles (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name        TEXT NOT NULL,
   permissions JSONB DEFAULT '[]',
-  category_id UUID,
+  category_id TEXT,
   is_system   BOOLEAN DEFAULT false,
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW()

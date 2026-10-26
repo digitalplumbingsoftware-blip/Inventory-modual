@@ -29,6 +29,15 @@ const reportsRoutes      = require("./routes/reports");
 const reeceRoutes        = require("./routes/reece");
 const mooreRoutes        = require("./routes/moore");
 const flatrateRoutes     = require("./routes/flatrate");
+const estimatesRoutes    = require("./routes/estimates");
+const aiRoutes           = require("./routes/ai");
+const scorecardRoutes    = require("./routes/scorecard");
+const importExportRoutes = require("./routes/import-export");
+const accountingRoutes   = require("./routes/accounting");
+const glAccountsRoutes   = require("./routes/glAccounts");
+const settingsRoutes     = require("./routes/settings");
+const marketingRoutes    = require("./routes/marketing");
+const timesheetsRoutes   = require("./routes/timesheets");
 
 const app = express();
 const server = http.createServer(app);
@@ -72,7 +81,16 @@ app.use("/api/reports",      reportsRoutes);
 app.use("/api/integrations/reece", reeceRoutes);
 app.use("/api/integrations/moore", mooreRoutes);
 app.use("/api/flatrate",           flatrateRoutes);
+app.use("/api/estimates",         estimatesRoutes);
+app.use("/api/ai",                aiRoutes);
+app.use("/api/scorecard",         scorecardRoutes);
 app.use("/api/qb",                 qbRoutes);
+app.use("/api/import-export",      importExportRoutes);
+app.use("/api/accounting",         accountingRoutes);
+app.use("/api/gl-accounts",        glAccountsRoutes);
+app.use("/api",                    settingsRoutes);
+app.use("/api/marketing",          marketingRoutes);
+app.use("/api/timesheets",         timesheetsRoutes);
 
 // Health check
 app.get("/health", (_req, res) => res.json({ status: "ok", ts: new Date() }));

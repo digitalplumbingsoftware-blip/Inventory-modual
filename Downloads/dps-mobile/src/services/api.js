@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 
 export const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
 
-const api = axios.create({ baseURL: BASE_URL });
+const api = axios.create({ baseURL: BASE_URL, timeout: 8000 });
 
 // ── Request: attach JWT ───────────────────────────────────────────────────────
 api.interceptors.request.use(async (config) => {
@@ -97,6 +97,28 @@ export const updateJobStatus = async (id, status) => {
   return res.data;
 };
 
+export const updateJob = async (id, data) => {
+  const res = await api.patch(`/api/jobs/${id}`, data);
+  return res.data;
+};
+
+// Send a dispatch alert — notifies the dispatcher in real-time
+export const sendDispatchAlert = async (job_id, message) => {
+  const res = await api.post('/api/gps/alert', { job_id, message });
+  return res.data;
+};
+
+// Clear a dispatch alert
+export const clearDispatchAlert = async (job_id) => {
+  const res = await api.delete('/api/gps/alert', { data: { job_id } });
+  return res.data;
+};
+
+export const getScorecard = async (period = 'trailing_30', jobType = 'total') => {
+  const res = await api.get('/api/scorecard', { params: { period, job_type: jobType } });
+  return res.data;
+};
+
 export const addJobNote = async (id, note) => {
   const res = await api.patch(`/api/jobs/${id}`, { notes: note });
   return res.data;
@@ -129,6 +151,12 @@ export const getCustomer = async (id) => {
   return res.data;
 };
 
+// ── Company / Maps ────────────────────────────────────────────────────────────
+export const getMapsKey = async () => {
+  const res = await api.get('/api/company/maps-key');
+  return res.data?.key || '';
+};
+
 // ── Payments ──────────────────────────────────────────────────────────────────
 export const createPaymentIntent = async (jobId, amountCents) => {
   const res = await api.post('/api/square/payment-intent', { jobId, amount: amountCents });
@@ -156,14 +184,20 @@ export const getInventoryLocations = async () => {
   return res.data;
 };
 
+export const getLocationStock = async (locationId) => {
+  const res = await api.get(`/api/inventory/locations/${locationId}/stock`);
+  return res.data;
+};
+
 export const getJobMaterialCost = async (jobId) => {
   const res = await api.get(`/api/jobs/${jobId}/material-cost`);
   return res.data;
 };
 
 // ── Pricebook ─────────────────────────────────────────────────────────────────
-export const getPBEngine = async () => {
-  const res = await api.get('/api/pricebook/engine');
+// All three accept { service, service_type } so mobile can browse every sub-book.
+export const getPBEngine = async (params = {}) => {
+  const res = await api.get('/api/pricebook/engine', { params });
   return res.data;
 };
 
@@ -172,9 +206,14 @@ export const getPBTasks = async (params = {}) => {
   return res.data;
 };
 
-export const getPBCategories = async () => {
-  const res = await api.get('/api/pricebook/categories');
+export const getPBCategories = async (params = {}) => {
+  const res = await api.get('/api/pricebook/categories', { params });
   return res.data;
+};
+
+export const getEnabledServices = async () => {
+  const res = await api.get('/api/company/enabled-services');
+  return res.data; // ['plumbing','hvac',...]
 };
 
 // ── Estimates ─────────────────────────────────────────────────────────────────
@@ -218,6 +257,24 @@ export const sendEstimate = async (id) => {
   return res.data;
 };
 
+export const combineEstimatesIntoInvoice = async (estimate_ids) => {
+  const res = await api.post('/api/invoices/combine', { estimate_ids });
+  return res.data; // { invoice, combined_from }
+};
+
+// Bridges the legacy `estimates` table (mobile-signed) onto an existing
+// invoice on the same job. Backend route lives under /estimates/... because
+// that's where the source-of-truth for the estimate is.
+export const appendEstimateToInvoice = async (invoiceId, estimate_id) => {
+  const res = await api.post(`/api/estimates/${estimate_id}/append-to-invoice`, { invoice_id: invoiceId });
+  return res.data;
+};
+
+export const getInvoices = async (params = {}) => {
+  const res = await api.get('/api/invoices', { params });
+  return res.data;
+};
+
 export const convertEstimate = async (id) => {
   const res = await api.post(`/api/estimates/${id}/convert`);
   return res.data;
@@ -236,6 +293,71 @@ export const addInvoiceItem = async (invoiceId, data) => {
 
 export const removeInvoiceItem = async (invoiceId, itemId) => {
   const res = await api.delete(`/api/invoices/${invoiceId}/items/${itemId}`);
+  return res.data;
+};
+
+export const recordInvoicePayment = async (invoiceId, amountPaid, paymentMethod, checkNumber) => {
+  const res = await api.post(`/api/invoices/${invoiceId}/payment`, {
+    amount_paid: amountPaid,
+    payment_method: paymentMethod || undefined,
+    check_number: checkNumber || undefined,
+  });
+  return res.data;
+};
+
+export const getPaymentMethods = async () => {
+  const res = await api.get('/api/company/payment-methods');
+  return res.data;
+};
+
+export const getPricingModel = async () => {
+  const res = await api.get('/api/operations/pricing-model');
+  return res.data; // { model: 'flat_rate' | 'time_material' }
+};
+
+export const updateInvoiceJobDescription = async (id, job_description) => {
+  const res = await api.patch(`/api/invoices/${id}`, { job_description });
+  return res.data;
+};
+
+export const updateInvoiceNotes = async (id, notes) => {
+  const res = await api.patch(`/api/invoices/${id}`, { notes });
+  return res.data;
+};
+
+export const updateEstimateNotes = async (id, notes) => {
+  const res = await api.put(`/api/estimates/${id}`, { notes });
+  return res.data;
+};
+
+export const aiRewrite = async (text, context = 'plumbing service') => {
+  const res = await api.post('/api/ai/rewrite', { text, context });
+  return res.data; // { text: '...' }
+};
+
+export const sendInvoiceEmail = async (id, to, subject, message) => {
+  const res = await api.post(`/api/invoices/${id}/send-email`, { to, subject, message });
+  return res.data;
+};
+
+// ── Timesheets / Clock ────────────────────────────────────────────────────────
+export const clockIn = async (notes) => {
+  const res = await api.post('/api/timesheets/clock-in', notes ? { notes } : {});
+  return res.data;
+};
+
+export const clockOut = async (notes) => {
+  const res = await api.post('/api/timesheets/clock-out', notes ? { notes } : {});
+  return res.data;
+};
+
+export const getPunchStatus = async () => {
+  const res = await api.get('/api/timesheets/status');
+  return res.data;
+};
+
+export const logoutBackend = async () => {
+  const res = await api.post('/api/auth/logout');
   return res.data;
 };
 

@@ -1,27 +1,34 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  RefreshControl, ActivityIndicator,
+  RefreshControl, ActivityIndicator, Alert,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { C } from '../theme';
-import api from '../services/api';
+import { getEstimates, createEstimate, combineEstimatesIntoInvoice } from '../services/api';
 
 const STATUS_COLOR = {
-  draft:    C.muted,
-  sent:     C.blue,
-  approved: C.green,
-  void:     C.dim,
+  draft:     C.muted,
+  sent:      C.blue,
+  signed:    C.green,
+  converted: C.amber,
+  declined:  C.red,
+  expired:   C.dim,
 };
 
 const FILTERS = [
-  { key: 'all',      label: 'All',      statuses: null },
-  { key: 'draft',    label: 'Draft',    statuses: 'draft' },
-  { key: 'sent',     label: 'Sent',     statuses: 'sent' },
-  { key: 'approved', label: 'Approved', statuses: 'approved' },
+  { key: 'all',      label: 'All',     status: null       },
+  { key: 'draft',    label: 'Draft',   status: 'draft'    },
+  { key: 'sent',     label: 'Sent',    status: 'sent'     },
+  { key: 'signed',   label: 'Signed',  status: 'signed'   },
+  { key: 'converted',label: 'Done',    status: 'converted'},
 ];
 
-export default function EstimatesScreen({ navigation }) {
+export default function EstimatesScreen({ navigation, route }) {
+  const jobId      = route.params?.jobId;
+  const jobNumber  = route.params?.jobNumber;
+  const customerId = route.params?.customerId;
+  const customerName = route.params?.customerName;
   const [estimates, setEstimates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -30,21 +37,22 @@ export default function EstimatesScreen({ navigation }) {
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
-      const params = { type: 'estimate' };
-      const f = FILTERS.find(f => f.key === filter);
-      if (f?.statuses) params.status = f.statuses;
-      const res = await api.get('/api/invoices', { params });
-      setEstimates(res.data || []);
+      const f = FILTERS.find(x => x.key === filter);
+      const params = f?.status ? { status: f.status } : {};
+      if (jobId) params.job_id = jobId;
+      else if (customerId) params.customer_id = customerId;
+      const data = await getEstimates(params);
+      setEstimates(Array.isArray(data) ? data : (data.estimates || []));
     } catch(e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
-  }, [filter]);
+  }, [filter, jobId, customerId]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const u = navigation.addListener('focus', () => load()); return u; }, [navigation, load]);
 
   const renderItem = ({ item: est }) => {
     const color = STATUS_COLOR[est.status] || C.muted;
-    const hasOptions = est.options && est.options.length > 0;
+    const itemCount = est.item_count || (est.items || []).length;
     return (
       <TouchableOpacity
         style={styles.card}
@@ -59,16 +67,8 @@ export default function EstimatesScreen({ navigation }) {
               <Text style={[styles.pillText, { color }]}>{est.status?.toUpperCase()}</Text>
             </View>
           </View>
-          <Text style={styles.meta}>#{est.invoice_number} · {dayjs(est.created_at).format('MMM D, YYYY')}</Text>
-          {hasOptions && (
-            <View style={styles.optionsRow}>
-              {est.options.sort((a,b)=>a.sort_order-b.sort_order).map(o => (
-                <View key={o.id} style={[styles.optionTag, o.selected && styles.optionTagSelected]}>
-                  <Text style={[styles.optionTagText, o.selected && styles.optionTagTextSelected]}>{o.label}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+          <Text style={styles.meta}>{est.display_number ? `${est.display_number} · ` : ''}{dayjs(est.created_at).format('MMM D, YYYY')}{itemCount ? ` · ${itemCount} item${itemCount !== 1 ? 's' : ''}` : ''}</Text>
+          {est.job_address ? <Text style={styles.addr}>{est.job_address}</Text> : null}
           <Text style={styles.total}>${parseFloat(est.total||0).toFixed(2)}</Text>
         </View>
         <Text style={styles.chevron}>›</Text>
@@ -76,8 +76,72 @@ export default function EstimatesScreen({ navigation }) {
     );
   };
 
+  const handleCreateEstimate = async () => {
+    try {
+      const est = await createEstimate({ job_id: jobId || null, customer_id: customerId || null, status: 'draft' });
+      navigation.navigate('EstimateDetail', { estimateId: est.id });
+    } catch(e) { console.error(e); }
+  };
+
+  // Combine-eligible: 2+ approved/signed estimates on this job, all approved today,
+  // none already converted. Same-day check uses signed_at (falls back to updated_at).
+  const combinable = useMemo(() => {
+    if (!jobId) return [];
+    const today = dayjs().format('YYYY-MM-DD');
+    const eligible = estimates.filter(e => {
+      const okStatus = ['approved','signed'].includes(e.status);
+      const notConverted = !e.converted_invoice_id;
+      const stamp = e.signed_at || e.updated_at;
+      const okDay = stamp ? dayjs(stamp).format('YYYY-MM-DD') === today : false;
+      return okStatus && notConverted && okDay;
+    });
+    return eligible;
+  }, [estimates, jobId]);
+
+  const handleCombine = () => {
+    if (combinable.length < 2) return;
+    const total = combinable.reduce((s, e) => s + parseFloat(e.total || 0), 0);
+    Alert.alert(
+      `Combine ${combinable.length} estimates?`,
+      `All approved today for ${String(jobNumber).startsWith('Job-') ? jobNumber : 'Job #'+jobNumber}. This creates ONE invoice for $${total.toFixed(2)}. The estimates will be marked converted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Combine',
+          onPress: async () => {
+            try {
+              const { invoice } = await combineEstimatesIntoInvoice(combinable.map(e => e.id));
+              Alert.alert('✅ Combined', `Created invoice #${invoice.id} totaling $${parseFloat(invoice.total).toFixed(2)}.`,
+                [{ text: 'Open Invoice', onPress: () => navigation.replace('InvoiceDetail', { invoiceId: invoice.id }) }]);
+              load();
+            } catch (e) {
+              Alert.alert('Error', e?.response?.data?.error || e.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
+      {jobId && (
+        <TouchableOpacity onPress={handleCreateEstimate}
+          style={{margin:12, marginBottom:4, padding:14, backgroundColor:C.amber+'22', borderWidth:1.5, borderColor:C.amber, borderRadius:12, alignItems:'center'}}>
+          <Text style={{color:C.amber, fontWeight:'700', fontSize:14}}>+ New Estimate for {String(jobNumber).startsWith('Job-') ? jobNumber : 'Job #'+jobNumber}</Text>
+        </TouchableOpacity>
+      )}
+      {jobId && combinable.length >= 2 && (
+        <TouchableOpacity onPress={handleCombine}
+          style={{marginHorizontal:12, marginTop:8, padding:14, backgroundColor:C.green+'22', borderWidth:1.5, borderColor:C.green, borderRadius:12, alignItems:'center'}}>
+          <Text style={{color:C.green, fontWeight:'800', fontSize:14}}>
+            🧾  Combine {combinable.length} approved estimates into one invoice
+          </Text>
+          <Text style={{color:C.muted, fontSize:11, marginTop:2}}>
+            Total ${combinable.reduce((s, e) => s + parseFloat(e.total || 0), 0).toFixed(2)} · Approved today
+          </Text>
+        </TouchableOpacity>
+      )}
       <View style={styles.tabs}>
         {FILTERS.map(f => (
           <TouchableOpacity key={f.key} onPress={() => setFilter(f.key)}
@@ -121,11 +185,7 @@ const styles = StyleSheet.create({
   pill: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2 },
   pillText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   meta: { fontSize: 12, color: C.muted },
-  optionsRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  optionTag: { borderRadius: 6, borderWidth: 1, borderColor: C.border, paddingHorizontal: 8, paddingVertical: 3 },
-  optionTagSelected: { backgroundColor: C.green+'22', borderColor: C.green },
-  optionTagText: { fontSize: 11, color: C.muted, fontWeight: '600' },
-  optionTagTextSelected: { color: C.green },
+  addr: { fontSize: 11, color: C.muted, fontStyle: 'italic' },
   total: { fontSize: 16, fontWeight: '700', color: C.text },
   chevron: { fontSize: 22, color: C.muted, alignSelf: 'center', paddingRight: 12 },
   emptyText: { fontSize: 14, color: C.muted },

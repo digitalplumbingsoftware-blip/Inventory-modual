@@ -84,4 +84,58 @@ router.get("/history/:techId", authenticate, async (req, res) => {
   }
 });
 
+// POST /api/gps/alert  — technician sends a dispatch alert from mobile
+// Body: { job_id, message? }  — message is optional, defaults to generic alert
+router.post("/alert", authenticate, async (req, res) => {
+  try {
+    const { job_id, message } = req.body;
+    if (!job_id) return res.status(400).json({ error: "job_id required" });
+
+    const alertText = message?.trim() ||
+      `${req.user.name || 'Technician'} is requesting dispatcher assistance`;
+
+    // Set dispatch_alert on the job
+    const { rows } = await query(
+      `UPDATE jobs SET dispatch_alert = $1 WHERE id = $2 RETURNING id, dispatch_alert`,
+      [alertText, job_id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Job not found" });
+
+    // Broadcast to all connected dashboard clients
+    broadcast({
+      type:           "dispatch_alert",
+      job_id:         job_id,
+      dispatch_alert: alertText,
+      technician_id:  req.user.id,
+      technician_name: req.user.name,
+      ts:             new Date(),
+    });
+
+    res.json({ ok: true, dispatch_alert: alertText });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/gps/alert  — clear a dispatch alert (desktop dismiss)
+router.delete("/alert", authenticate, async (req, res) => {
+  try {
+    const { job_id } = req.body;
+    if (!job_id) return res.status(400).json({ error: "job_id required" });
+
+    await query(`UPDATE jobs SET dispatch_alert = NULL WHERE id = $1`, [job_id]);
+
+    broadcast({
+      type:           "dispatch_alert",
+      job_id:         job_id,
+      dispatch_alert: null,
+      ts:             new Date(),
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

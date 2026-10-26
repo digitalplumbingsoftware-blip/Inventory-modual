@@ -1,0 +1,20 @@
+-- Migration 007: brand colors + services on company_settings
+ALTER TABLE company_settings
+  ADD COLUMN IF NOT EXISTS brand_primary        TEXT DEFAULT '#e8a84a',
+  ADD COLUMN IF NOT EXISTS brand_secondary      TEXT DEFAULT '#1a2a4a',
+  ADD COLUMN IF NOT EXISTS brand_accent         TEXT DEFAULT '#5daf7c',
+  ADD COLUMN IF NOT EXISTS service_plumbing     BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS service_hvac         BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS service_electrical   BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS service_restoration  BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS service_renovations  BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS svc_types_plumbing    JSONB   DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS svc_types_hvac        JSONB   DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS svc_types_electrical  JSONB   DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS svc_types_restoration JSONB   DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS svc_types_renovations JSONB   DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS svc_license_plumbing    TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS svc_license_hvac        TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS svc_license_electrical  TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS svc_license_restoration TEXT DEFAULT '',
+  ADD COLUMN IF NOT EXISTS svc_license_renovations TEXT DEFAULT '';

@@ -17,18 +17,22 @@ const STATUS_COLOR = {
 };
 
 const FILTERS = [
-  { key: 'current',   label: 'Current',   statuses: 'current' },
-  { key: 'unpaid',    label: 'Unpaid',    statuses: 'unpaid,overdue' },
-  { key: 'paid',      label: 'Paid',      statuses: 'paid' },
-  { key: 'overdue',   label: 'Overdue',   statuses: 'overdue' },
-  { key: 'completed', label: 'Completed', statuses: 'completed' },
+  { key: 'all',      label: 'All',      statuses: null },
+  { key: 'draft',    label: 'Draft',    statuses: 'draft' },
+  { key: 'sent',     label: 'Sent',     statuses: 'sent' },
+  { key: 'approved', label: 'Approved', statuses: 'approved' },
+  { key: 'paid',     label: 'Paid',     statuses: 'paid' },
+  { key: 'void',     label: 'Void',     statuses: 'void' },
 ];
 
 export default function InvoicesScreen({ navigation, route }) {
+  const jobId       = route.params?.jobId;
+  const jobNumber   = route.params?.jobNumber;
+  const customerId  = route.params?.customerId;
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState('current');
+  const [filter, setFilter] = useState('all');
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -36,11 +40,13 @@ export default function InvoicesScreen({ navigation, route }) {
       const f = FILTERS.find(f => f.key === filter);
       const params = { type: 'invoice' };
       if (f?.statuses) params.status = f.statuses;
+      if (jobId) params.job_id = jobId;
+      else if (customerId) params.customer_id = customerId;
       const res = await api.get('/api/invoices', { params });
       setInvoices(res.data || []);
     } catch(e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
-  }, [filter]);
+  }, [filter, jobId, customerId]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const u = navigation.addListener('focus', () => load()); return u; }, [navigation, load]);
@@ -65,7 +71,7 @@ export default function InvoicesScreen({ navigation, route }) {
               <Text style={[styles.pillText, { color }]}>{inv.status?.toUpperCase()}</Text>
             </View>
           </View>
-          <Text style={styles.meta}>#{inv.invoice_number} · {dayjs(inv.created_at).format('MMM D, YYYY')}</Text>
+          <Text style={styles.meta}>{inv.display_number || `#${inv.invoice_number}`} · {dayjs(inv.created_at).format('MMM D, YYYY')}</Text>
           <View style={styles.amountRow}>
             <Text style={styles.total}>${total.toFixed(2)}</Text>
             {amountPaid > 0 && amountPaid < total && (

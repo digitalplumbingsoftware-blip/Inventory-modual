@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Component, Fragment } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Component, Fragment } from "react";
 import { api, connectGpsWebSocket } from "./api.js";
 import { useAuth } from "./main.jsx";
 
@@ -11,13 +11,14 @@ const GF = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@4
 const G = `
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#07091a;--surface:#0d1123;--surface2:#12183a;--surface3:#1a2248;
-  --border:#1e2d5a;--border2:#273472;
-  --amber:#E20613;--amberdim:#E2061322;
-  --blue:#1D70B7;--green:#1D70B7;--greendim:#1D70B718;
-  --red:#E20613;--reddim:#E2061322;--green2:#22c55e;--green2dim:#22c55e18;
-  --purple:#6366f1;--cyan:#38bdf8;
-  --text:#e8eaf4;--muted:#6b7aaa;--dim:#1a2248;
+  --bg:#f4f6fb;--surface:#ffffff;--surface2:#f0f3fa;--surface3:#e8edf7;
+  --border:#e0e6f2;--border2:#c8d2ec;
+  --amber:#E20613;--amberdim:#fde8e8;
+  --blue:#1D70B7;--green:#1D70B7;--greendim:#dbeafe;
+  --red:#E20613;--reddim:#fde8e8;--green2:#16a34a;--green2dim:#dcfce7;
+  --purple:#6366f1;--cyan:#0891b2;
+  --text:#0d1123;--muted:#6b7a9c;--dim:#a8b4d0;
+  --topbar:#0a0d22;--topbar-border:rgba(255,255,255,.1);
   --font-head:'Syne',sans-serif;--font-mono:'DM Mono',monospace;--font-body:'DM Sans',sans-serif;
 }
 body{font-family:var(--font-body);background:var(--bg);color:var(--text);overflow:hidden}
@@ -25,30 +26,33 @@ button{font-family:var(--font-body);cursor:pointer;border:none;outline:none;tran
 button:active:not(:disabled){transform:scale(0.96)}
 input,select,textarea{font-family:var(--font-body);outline:none;transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus,textarea:focus{border-color:var(--blue)!important;box-shadow:0 0 0 3px #1D70B722!important}
-::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse2{0%,100%{opacity:1}50%{opacity:.35}}
-@keyframes glow{0%,100%{box-shadow:0 0 8px #1D70B733}50%{box-shadow:0 0 22px #1D70B755}}
+@keyframes glow{0%,100%{box-shadow:0 0 8px #E2061333}50%{box-shadow:0 0 22px #E2061344}}
 @keyframes slideRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 @keyframes shimmer{0%{background-position:-600px 0}100%{background-position:600px 0}}
 @keyframes toastIn{from{transform:translateX(60px);opacity:0}to{transform:translateX(0);opacity:1}}
 @keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(60px)}}
 @keyframes shrink{from{width:100%}to{width:0%}}
-.skel{background:linear-gradient(90deg,var(--surface) 25%,var(--surface3) 50%,var(--surface) 75%);background-size:600px 100%;animation:shimmer 1.6s infinite;border-radius:4px}
+@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+.skel{background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);background-size:600px 100%;animation:shimmer 1.6s infinite;border-radius:4px}
 .tr-hover{transition:transform .12s,box-shadow .12s,background .12s;cursor:pointer}
-.tr-hover:hover{background:var(--surface2)!important;transform:translateY(-1px);box-shadow:0 4px 12px #00000033;position:relative;z-index:1}
+.tr-hover:hover{background:var(--surface2)!important;transform:translateY(-1px);box-shadow:0 2px 8px #0d112310;position:relative;z-index:1}
+.tick-marker:hover .tick-tooltip{opacity:1!important}
 `;
 
 // ─── Tiny helpers ─────────────────────────────────────────────
 const statusMeta = {
-  on_site:   {bg:"#E2061322",color:"#E20613",label:"ON SITE"},
-  en_route:  {bg:"#1D70B718",color:"#1D70B7",label:"EN ROUTE"},
-  completed: {bg:"#22c55e18",color:"#22c55e",label:"DONE"},
-  scheduled: {bg:"#27347222",color:"#7b8ec8",label:"SCHED"},
-  available: {bg:"#6366f118",color:"#6366f1",label:"AVAIL"},
-  unassigned:{bg:"#E2061318",color:"#E20613",label:"UNASSIGNED"},
+  on_site:       {bg:"#E2061322",color:"#E20613",label:"ON SITE"},
+  en_route:      {bg:"#1D70B718",color:"#1D70B7",label:"EN ROUTE"},
+  completed:     {bg:"#22c55e18",color:"#22c55e",label:"DONE"},
+  scheduled:     {bg:"#27347222",color:"#7b8ec8",label:"SCHED"},
+  available:     {bg:"#6366f118",color:"#6366f1",label:"AVAIL"},
+  unassigned:    {bg:"#E2061318",color:"#E20613",label:"UNASSIGNED"},
+  ready_to_call: {bg:"#6366f118",color:"#6366f1",label:"READY TO CALL"},
 };
 
 function Pill({status}) {
@@ -58,6 +62,131 @@ function Pill({status}) {
 
 function Spinner() {
   return <div style={{width:20,height:20,border:"2px solid var(--border2)",borderTopColor:"var(--blue)",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+}
+
+// ── Reusable Google Places address autocomplete input ──────────────────────
+// Debounces input, shows a dropdown of suggestions, and on select calls
+// onSelect(parsed) with { street, city, state, zip, lat, lng, formatted_address }.
+// Falls back to a plain input when no Maps key is configured.
+//
+// Props:
+//   value      — current address string (typically the street field)
+//   onChange   — fired on every keystroke (string)
+//   onSelect   — fired when the user picks a prediction (parsed object)
+//   placeholder, style, autoFocus — passed through to the underlying input
+//   inputRef   — optional ref forwarded to the input element
+function AddressAutocomplete({ value, onChange, onSelect, placeholder, style, autoFocus, inputRef, disabled }) {
+  const [predictions, setPredictions]   = useState([]);
+  const [show, setShow]                 = useState(false);
+  const [dropRect, setDropRect]         = useState(null);
+  const [hoverIdx, setHoverIdx]         = useState(-1);
+  const localRef       = useRef(null);
+  const ref            = inputRef || localRef;
+  const debounceRef    = useRef(null);
+  const ignoreNextRef  = useRef(false);
+
+  const handleInput = (val) => {
+    onChange(val);
+    if (ignoreNextRef.current) { ignoreNextRef.current = false; return; }
+    clearTimeout(debounceRef.current);
+    if (!val || val.trim().length < 3) {
+      setPredictions([]); setShow(false); return;
+    }
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setDropRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await api.placesAutocomplete(val);
+        const p = res?.predictions || [];
+        setPredictions(p);
+        setShow(p.length > 0);
+        setHoverIdx(-1);
+      } catch (e) {
+        setPredictions([]); setShow(false);
+      }
+    }, 250);
+  };
+
+  const pick = async (p) => {
+    setShow(false);
+    setPredictions([]);
+    ignoreNextRef.current = true;
+    onChange(p.structured_formatting?.main_text || p.description);
+    try {
+      const place = await api.placeDetails(p.place_id);
+      const c = place.address_components || [];
+      const get   = t => c.find(x => x.types.includes(t))?.long_name  || '';
+      const getSh = t => c.find(x => x.types.includes(t))?.short_name || '';
+      const street = `${get('street_number')} ${get('route')}`.trim();
+      onSelect?.({
+        street: street || (p.structured_formatting?.main_text || p.description),
+        city:   get('locality') || get('sublocality_level_1') || get('administrative_area_level_3'),
+        state:  getSh('administrative_area_level_1'),
+        zip:    get('postal_code'),
+        lat:    place.geometry?.location?.lat,
+        lng:    place.geometry?.location?.lng,
+        formatted_address: p.description,
+      });
+    } catch(e) {
+      // Fall back to just the suggestion text
+      onSelect?.({ street: p.structured_formatting?.main_text || p.description });
+    }
+  };
+
+  const onKeyDown = (e) => {
+    if (!show || predictions.length === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHoverIdx(i => Math.min(i + 1, predictions.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHoverIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter' && hoverIdx >= 0) { e.preventDefault(); pick(predictions[hoverIdx]); }
+    else if (e.key === 'Escape') { setShow(false); }
+  };
+
+  return (
+    <>
+      <input
+        ref={ref}
+        value={value || ''}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        placeholder={placeholder || 'Start typing address…'}
+        onChange={e => handleInput(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={() => setTimeout(() => setShow(false), 200)}
+        onFocus={() => predictions.length > 0 && setShow(true)}
+        autoComplete="off"
+        style={style}
+      />
+      {show && predictions.length > 0 && dropRect && (
+        <div style={{
+          position:'fixed',
+          top: dropRect.top, left: dropRect.left, width: dropRect.width,
+          maxHeight: 280, overflowY:'auto',
+          background:'var(--surface)', border:'1px solid var(--border2)',
+          borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,.35)',
+          zIndex: 9999,
+        }}>
+          {predictions.map((p, i) => (
+            <div key={p.place_id}
+              onMouseDown={e => { e.preventDefault(); pick(p); }}
+              onMouseEnter={() => setHoverIdx(i)}
+              style={{
+                padding:'9px 12px', fontSize:13, cursor:'pointer',
+                background: hoverIdx === i ? 'var(--surface2)' : 'transparent',
+                borderBottom: i < predictions.length - 1 ? '1px solid var(--border)' : 'none',
+              }}>
+              <div style={{fontWeight:600, color:'var(--text)'}}>{p.structured_formatting?.main_text || p.description}</div>
+              <div style={{fontSize:11, color:'var(--muted)', marginTop:1}}>{p.structured_formatting?.secondary_text || ''}</div>
+            </div>
+          ))}
+          <div style={{padding:'5px 10px', fontSize:9, color:'var(--muted)', textAlign:'right', fontFamily:'var(--font-mono)', borderTop:'1px solid var(--border)'}}>
+            powered by Google
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function useApi(fn, deps=[]) {
@@ -187,6 +316,143 @@ function Icon({n,size=16,color="currentColor",stroke=1.6}) {
   );
 }
 
+// ─── Google Maps Fleet Map ─────────────────────────────────────
+let _mapsKeyCache = null;
+async function getMapsApiKey() {
+  if (_mapsKeyCache !== null) return _mapsKeyCache;
+  try {
+    const r = await api.get('/company/maps-key');
+    _mapsKeyCache = r.data?.key || '';
+  } catch { _mapsKeyCache = ''; }
+  return _mapsKeyCache;
+}
+
+function loadGoogleMapsScript(apiKey) {
+  return new Promise((resolve, reject) => {
+    if (window.google?.maps) { resolve(); return; }
+    const existing = document.getElementById('gmap-script');
+    if (existing) { existing.addEventListener('load', resolve); return; }
+    const script = document.createElement('script');
+    script.id = 'gmap-script';
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+function GoogleFleetMap({ positions }) {
+  const mapRef = useRef(null);
+  const mapObj = useRef(null);
+  const markers = useRef({});
+  const [ready, setReady] = useState(false);
+  const [noKey, setNoKey] = useState(false);
+
+  // Initialize map once
+  useEffect(() => {
+    let alive = true;
+    getMapsApiKey().then(key => {
+      if (!alive) return;
+      if (!key) { setNoKey(true); return; }
+      loadGoogleMapsScript(key).then(() => {
+        if (!alive || !mapRef.current) return;
+        // Center on Texas by default; will pan to tech positions once available
+        mapObj.current = new window.google.maps.Map(mapRef.current, {
+          zoom: 11,
+          center: { lat: 29.7604, lng: -95.3698 }, // Houston default
+          mapTypeId: 'roadmap',
+          styles: [
+            { elementType:'geometry', stylers:[{color:'#1d2c3b'}] },
+            { featureType:'road', elementType:'geometry', stylers:[{color:'#283f52'}] },
+            { featureType:'road', elementType:'labels.text.fill', stylers:[{color:'#8a9aaa'}] },
+            { featureType:'water', elementType:'geometry', stylers:[{color:'#0c1921'}] },
+            { featureType:'poi', stylers:[{visibility:'off'}] },
+            { featureType:'transit', stylers:[{visibility:'off'}] },
+            { elementType:'labels.text.fill', stylers:[{color:'#8a9aaa'}] },
+          ],
+        });
+        setReady(true);
+      }).catch(() => setNoKey(true));
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // Update markers whenever positions change
+  useEffect(() => {
+    if (!ready || !mapObj.current || !window.google) return;
+    const seen = new Set();
+
+    positions.forEach(p => {
+      if (!p.lat || !p.lng) return;
+      const key = p.technician_id;
+      seen.add(key);
+      const pos = { lat: parseFloat(p.lat), lng: parseFloat(p.lng) };
+      const color = (p.color || '#5daf7c').replace('#','');
+
+      if (markers.current[key]) {
+        markers.current[key].setPosition(pos);
+      } else {
+        const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
+          <circle cx="20" cy="20" r="16" fill="#${color}" fill-opacity="0.9" stroke="#fff" stroke-width="2.5"/>
+          <text x="20" y="25" text-anchor="middle" font-size="11" font-weight="700" font-family="monospace" fill="#fff">${(p.initials||p.name?.slice(0,2)||'?')}</text>
+          <polygon points="14,33 26,33 20,46" fill="#${color}"/>
+        </svg>`;
+        const icon = { url: 'data:image/svg+xml,' + encodeURIComponent(svgIcon), anchor: new window.google.maps.Point(20,46) };
+        const marker = new window.google.maps.Marker({ position: pos, map: mapObj.current, icon, title: p.name || 'Tech' });
+        markers.current[key] = marker;
+      }
+    });
+
+    // Remove markers for techs no longer reporting
+    Object.keys(markers.current).forEach(k => {
+      if (!seen.has(k)) { markers.current[k].setMap(null); delete markers.current[k]; }
+    });
+
+    // Auto-fit bounds if we have multiple positions
+    if (positions.length > 0) {
+      const bounds = new window.google.maps.LatLngBounds();
+      positions.forEach(p => { if(p.lat && p.lng) bounds.extend({ lat: parseFloat(p.lat), lng: parseFloat(p.lng) }); });
+      if (positions.length === 1) {
+        mapObj.current.setCenter({ lat: parseFloat(positions[0].lat), lng: parseFloat(positions[0].lng) });
+        mapObj.current.setZoom(13);
+      } else {
+        mapObj.current.fitBounds(bounds, 40);
+      }
+    }
+  }, [positions, ready]);
+
+  if (noKey) {
+    return (
+      <div style={{height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8, background:'#0d1a20', borderRadius:8}}>
+        <div style={{fontSize:24}}>🗺️</div>
+        <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)', textAlign:'center'}}>
+          Google Maps API key not configured.<br/>
+          <span style={{color:'var(--amber)'}}>Settings → Integrations → Google Maps</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{position:'relative', height:'100%', borderRadius:8, overflow:'hidden'}}>
+      <div ref={mapRef} style={{width:'100%', height:'100%'}}/>
+      {!ready && (
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#0d1a20'}}>
+          <div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>Loading map…</div>
+        </div>
+      )}
+      {positions.length === 0 && ready && (
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+          <div style={{background:'rgba(8,11,16,.8)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>
+            No technicians currently on duty
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Live GPS Canvas Map ──────────────────────────────────────
 function GPSCanvas({positions, compact=false}) {
   const ref = useRef(null);
@@ -256,21 +522,53 @@ function StatCard({label,value,sub,subUp,loading,accent="var(--blue)"}) {
 }
 
 // ─── Enabled Services Hook ────────────────────────────────────
-// Module-level cache so it is fetched once per session
+// Module-level cache + subscriber list so every mounted useCompanyServices()
+// hook re-renders when the enabled-services list changes (e.g. after a toggle).
 let _servicesCache = null;
 let _servicesPromise = null;
-const SERVICE_LABELS = {plumbing:'Plumbing',hvac:'HVAC',electrical:'Electrical',restoration:'Restoration',renovations:'Renovations'};
-const SERVICE_ICONS  = {plumbing:'🔧',hvac:'❄️',electrical:'⚡',restoration:'🏗️',renovations:'🔨'};
+const _serviceSubs = new Set();
+function _publishServices(next) {
+  _servicesCache = next;
+  _serviceSubs.forEach(fn => { try { fn(next); } catch {} });
+}
+async function refreshCompanyServices() {
+  try {
+    const d = await api.getEnabledServices();
+    _publishServices(Array.isArray(d) ? d : ['plumbing']);
+  } catch { _publishServices(['plumbing']); }
+}
+// Optimistic local toggle — updates the cache immediately, then reconciles
+// with the server response. Every subscribed hook re-renders both times.
+async function toggleCompanyService(service, enabled) {
+  const prior = _servicesCache || [];
+  const next = enabled ? [...new Set([...prior, service])] : prior.filter(s => s !== service);
+  _publishServices(next);
+  try {
+    const r = await api.toggleService(service, enabled);
+    // Always resync from server to stay honest
+    await refreshCompanyServices();
+    return r;
+  } catch (err) {
+    _publishServices(prior); // rollback on failure
+    throw err;
+  }
+}
+
+const SERVICE_LABELS = {plumbing:'Plumbing',hvac:'HVAC',electrical:'Electrical',restoration:'Restoration',renovations:'Renovations',pest_control:'Pest Control',pools:'Pools'};
+const SERVICE_ICONS  = {plumbing:'🔧',hvac:'❄️',electrical:'⚡',restoration:'🏗️',renovations:'🔨',pest_control:'🪳',pools:'🏊'};
 function useCompanyServices() {
   const [services, setServices] = useState(_servicesCache || []);
   useEffect(() => {
-    if (_servicesCache) { setServices(_servicesCache); return; }
-    if (!_servicesPromise) {
+    _serviceSubs.add(setServices);
+    if (_servicesCache) { setServices(_servicesCache); }
+    else if (!_servicesPromise) {
       _servicesPromise = api.getEnabledServices()
-        .then(d => { _servicesCache = d; return d; })
-        .catch(() => { _servicesCache = ['plumbing']; return _servicesCache; });
+        .then(d => { _publishServices(Array.isArray(d) ? d : ['plumbing']); return _servicesCache; })
+        .catch(() => { _publishServices(['plumbing']); return _servicesCache; });
+    } else {
+      _servicesPromise.then(d => setServices(d));
     }
-    _servicesPromise.then(d => setServices(d));
+    return () => { _serviceSubs.delete(setServices); };
   }, []);
   return services; // array of lowercase strings e.g. ['plumbing','hvac']
 }
@@ -282,7 +580,11 @@ function DashboardPage() {
   const {data:techs} = useApi(() => api.getTechnicians());
   const {data:lowStock} = useApi(() => api.getLowStock());
   const [livePositions, setLivePositions] = useState([]);
+  const [todayJobsLive, setTodayJobsLive] = useState(null);
   const [now, setNow] = useState(new Date());
+  const [dashLayout, setDashLayout] = useState(() => localStorage.getItem('dps_dashLayout') || 'command');
+
+  const switchLayout = (l) => { setDashLayout(l); localStorage.setItem('dps_dashLayout', l); };
 
   useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
 
@@ -295,12 +597,18 @@ function DashboardPage() {
           return [...filtered, {technician_id:msg.technician_id, lat:msg.lat, lng:msg.lng, color:msg.color||"#5daf7c", initials:msg.initials, name:msg.name}];
         });
       }
+      if(msg.type === "job_status") {
+        setTodayJobsLive(prev => {
+          const base = prev || jobs || [];
+          return base.map(j => j.id === msg.job_id ? { ...j, status: msg.status } : j);
+        });
+      }
     });
     return () => ws?.close();
   }, []);
 
   const fmt$ = n => `$${Math.round(parseFloat(n||0)).toLocaleString()}`;
-  const todayJobs = jobs || [];
+  const todayJobs = todayJobsLive || jobs || [];
   const byStatus = s => todayJobs.filter(j=>j.status===s);
   const unassigned = byStatus('unassigned');
   const onSite = byStatus('on_site');
@@ -316,213 +624,483 @@ function DashboardPage() {
     return {...t, pos, myJobs, activeJob, jobsDone:myJobs.filter(j=>j.status==='completed').length};
   });
 
-  const KPICard = ({label, value, sub, accent, icon}) => (
-    <div style={{background:"var(--surface)",border:`1px solid ${accent}33`,borderRadius:14,padding:"16px 18px",position:"relative",overflow:"hidden",transition:"transform .15s,box-shadow .15s",cursor:"default"}}
-      onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 24px ${accent}22`;}}
-      onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-      <div style={{position:"absolute",left:0,top:0,bottom:0,width:3,background:accent,borderRadius:"14px 0 0 14px"}}/>
-      <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",marginBottom:10}}>{label}</div>
-      {loading ? <Spinner/> : (
-        <>
-          <div style={{fontFamily:"var(--font-head)",fontSize:30,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>
-          {sub && <div style={{fontSize:11,color:"var(--muted)",marginTop:6,fontFamily:"var(--font-mono)"}}>{sub}</div>}
-        </>
-      )}
+  // ── Shared helpers ────────────────────────────────────────────
+  const compPct = Math.round(completed.length / Math.max(todayJobs.length, 1) * 100);
+  const chartVals = (stats?.revenue_chart||[]).map(r => parseFloat(r.revenue));
+  const chartMax  = Math.max(...chartVals, 1);
+  const techRevenue = stats?.revenue_by_tech || [];
+  const maxTechRev = Math.max(...techRevenue.map(t => parseFloat(t.revenue)), 1);
+
+  // Tiny sparkline for KPI cards (SVG, 60×24)
+  const Sparkline = () => {
+    if (!chartVals.length) return null;
+    const w=60, h=24, pts=chartVals;
+    const xs = pts.map((_,i)=>(i/(pts.length-1||1))*w);
+    const ys = pts.map(v=>h - Math.max(2,(v/chartMax)*(h-2)));
+    const d  = xs.map((x,i)=>`${i===0?'M':'L'}${x},${ys[i]}`).join(' ');
+    return <svg width={w} height={h} style={{overflow:'visible'}}><path d={d} fill="none" stroke="var(--green)" strokeWidth="1.5" opacity="0.7"/></svg>;
+  };
+
+  // 7-day bar chart
+  const BarChart = ({height=90}) => (
+    chartVals.length > 0 ? (
+      <div style={{display:"flex",alignItems:"flex-end",gap:5,height}}>
+        {(stats?.revenue_chart||[]).map((d,i)=>{
+          const h = Math.max(4,(chartVals[i]/chartMax)*(height-20));
+          const isToday = i===chartVals.length-1;
+          return (
+            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              {isToday && <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{fmt$(d.revenue)}</div>}
+              <div style={{width:"100%",height:h,borderRadius:"3px 3px 0 0",background:isToday?"var(--accent)":"var(--accent)44",transition:"height .6s"}}/>
+              <div style={{fontSize:8,fontFamily:"var(--font-mono)",color:isToday?"var(--text)":"var(--muted)"}}>{d.label}</div>
+            </div>
+          );
+        })}
+      </div>
+    ) : <div style={{height,display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>
+  );
+
+  // Tech revenue leaderboard rows
+  const TechLeaderboard = ({limit}) => {
+    const list = limit ? techRevenue.slice(0,limit) : techRevenue;
+    if (!list.length) return <div style={{fontSize:12,color:"var(--muted)",padding:"12px 0",textAlign:"center"}}>No revenue data yet today.</div>;
+    return list.map((t,i) => {
+      const rev = parseFloat(t.revenue);
+      const pct = (rev / maxTechRev) * 100;
+      const c = t.color || '#5daf7c';
+      return (
+        <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:i<list.length-1?"1px solid var(--border)":"none"}}>
+          <div style={{width:34,height:34,borderRadius:"50%",background:`${c}22`,border:`2px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontWeight:700,fontSize:12,color:c,flexShrink:0}}>
+            {t.initials||t.name?.[0]||"?"}
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+              <span style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</span>
+              <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:800,color:rev>0?"var(--green)":"var(--muted)",flexShrink:0,marginLeft:12}}>{fmt$(rev)}</span>
+            </div>
+            <div style={{height:5,background:"var(--surface2)",borderRadius:3,overflow:"hidden",marginBottom:3}}>
+              <div style={{height:"100%",width:`${pct}%`,background:c,borderRadius:3,transition:"width .8s"}}/>
+            </div>
+            <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{t.job_count} job{t.job_count!=1?"s":""} today</div>
+          </div>
+        </div>
+      );
+    });
+  };
+
+  // Dispatch rows
+  const DispatchRows = ({cols}) => {
+    // cols: 'dense' | 'full'
+    const dense = cols === 'dense';
+    return (
+      <>
+        {todayJobs.length===0 && <div style={{padding:"24px 16px",color:"var(--muted)",fontSize:12,textAlign:"center"}}>No jobs scheduled today.</div>}
+        {todayJobs.map((j,i)=>{
+          const sm = statusMeta[j.status]||statusMeta.available;
+          const time = j.scheduled_start ? new Date(j.scheduled_start).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "—";
+          return (
+            <div key={j.id} style={{
+              display:"grid",
+              gridTemplateColumns: dense ? "72px 1fr 130px 100px 84px" : "90px 1fr 150px 140px 90px 100px",
+              padding: dense ? "8px 16px" : "10px 16px",
+              borderBottom: i<todayJobs.length-1 ? "1px solid var(--border)" : "none",
+              alignItems:"center",
+              transition:"background .12s",
+            }}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
+            onMouseLeave={e=>e.currentTarget.style.background=""}>
+              <div style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--muted)"}}>{time}</div>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.customer_name||"—"}</div>
+                <div style={{fontSize:10,color:"var(--muted)",marginTop:1}}>{j.job_type||"—"}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                {j.technician_color&&<div style={{width:7,height:7,borderRadius:"50%",background:j.technician_color,flexShrink:0}}/>}
+                <span style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:j.technician_name?"var(--text)":"var(--muted)"}}>{j.technician_name||"Unassigned"}</span>
+              </div>
+              <div style={{fontSize:10,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.address||"—"}</div>
+              {!dense&&<div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{j.arrival_window||"—"}</div>}
+              <Pill status={j.status}/>
+            </div>
+          );
+        })}
+      </>
+    );
+  };
+
+  // Low stock panel
+  const StockPanel = () => {
+    const items = lowStock||[];
+    return (
+      <>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",flex:1}}>INVENTORY ALERTS</span>
+          {items.length>0 && <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 6px",color:"#f56565"}}>{items.length} LOW</span>}
+        </div>
+        {items.slice(0,5).map((item,i)=>{
+          const isZero = parseInt(item.qty)===0;
+          return (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:i<Math.min(items.length,5)-1?"1px solid var(--border)":"none"}}>
+              <div style={{width:4,height:32,borderRadius:2,background:isZero?"#f56565":"var(--amber)",flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)",marginTop:1}}>{item.location_name}</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontFamily:"var(--font-mono)",fontSize:18,fontWeight:800,color:isZero?"#f56565":"var(--amber)",lineHeight:1}}>{item.qty}</div>
+                <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>min {item.min_qty}</div>
+              </div>
+            </div>
+          );
+        })}
+        {!items.length && (
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"12px 0"}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"var(--green)"}}/>
+            <span style={{fontSize:12,color:"var(--green)",fontWeight:500}}>All stock levels healthy</span>
+          </div>
+        )}
+      </>
+    );
+  };
+
+  // Layout switcher
+  const LayoutSwitcher = () => (
+    <div style={{display:"flex",gap:2,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:3}}>
+      {[['command','Command'],['brief','Brief'],['board','Live Board']].map(([id,lbl])=>(
+        <button key={id} onClick={()=>switchLayout(id)} style={{
+          padding:"5px 14px", borderRadius:6, border:"none", fontSize:11, fontWeight:600, cursor:"pointer",
+          background: dashLayout===id ? "var(--accent)" : "transparent",
+          color: dashLayout===id ? "#fff" : "var(--muted)",
+          transition:"all .15s",
+        }}>{lbl}</button>
+      ))}
     </div>
   );
 
-  return (
-    <div style={{animation:"fadeUp .4s ease",display:"flex",flexDirection:"column",gap:14,height:"100%",minHeight:0,overflowY:"auto"}} className="scrollbar-thin">
-
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <div>
-          <div style={{fontFamily:"var(--font-head)",fontSize:22,fontWeight:800,lineHeight:1}}>Operations Center</div>
-          <div style={{fontSize:11,color:"var(--muted)",fontFamily:"var(--font-mono)",marginTop:4}}>
-            {now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
-            {" · "}{now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
-          </div>
-        </div>
-        <div style={{flex:1}}/>
-        {unassigned.length>0&&(
-          <div style={{display:"flex",alignItems:"center",gap:6,background:"#f5656518",border:"1px solid #f5656544",borderRadius:8,padding:"5px 12px"}}>
-            <div style={{width:6,height:6,borderRadius:"50%",background:"#f56565",animation:"pulse2 1s infinite"}}/>
-            <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#f56565",fontWeight:600}}>{unassigned.length} UNASSIGNED</span>
-          </div>
-        )}
-        <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--greendim)",border:"1px solid var(--green)33",borderRadius:8,padding:"5px 10px"}}>
-          <div style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite"}}/>
-          <span style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--green)"}}>LIVE</span>
-        </div>
-        <button onClick={reload} style={{display:"flex",gap:5,alignItems:"center",padding:"6px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--muted)",fontSize:12}}>
-          <Icon n="refresh" size={12} color="var(--muted)"/> Refresh
-        </button>
+  // Shared page header
+  const DashHeader = ({title, subtitle}) => (
+    <div style={{display:"flex",alignItems:"flex-start",gap:12,flexShrink:0,marginBottom:20}}>
+      <div>
+        <div style={{fontFamily:"var(--font-head)",fontSize:22,fontWeight:800,lineHeight:1}}>{title}</div>
+        <div style={{fontSize:12,color:"var(--muted)",fontFamily:"var(--font-mono)",marginTop:4}}>{subtitle}</div>
       </div>
+      <div style={{flex:1}}/>
+      <LayoutSwitcher/>
+      {unassigned.length>0&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,background:"#f5656512",border:"1px solid #f5656540",borderRadius:8,padding:"6px 12px"}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:"#f56565",animation:"pulse2 1s infinite"}}/>
+          <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#f56565",fontWeight:700}}>{unassigned.length} unassigned</span>
+        </div>
+      )}
+      <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--greendim)",border:"1px solid var(--green)33",borderRadius:8,padding:"5px 10px"}}>
+        <div style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite"}}/>
+        <span style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--green)"}}>LIVE</span>
+      </div>
+      <button onClick={reload} style={{display:"flex",gap:5,alignItems:"center",padding:"6px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--muted)",fontSize:12,cursor:"pointer"}}>
+        <Icon n="refresh" size={12}/> Refresh
+      </button>
+    </div>
+  );
 
-      {/* KPI Row */}
+  // Shared card wrapper
+  const Card = ({children, style={}, header, headerRight}) => (
+    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",...style}}>
+      {header && (
+        <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border)",background:"var(--surface2)",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",flex:1,textTransform:"uppercase"}}>{header}</span>
+          {headerRight}
+        </div>
+      )}
+      <div style={{padding: header ? "0" : "16px 18px"}}>{children}</div>
+    </div>
+  );
+
+  const tableHeaderStyle = (cols) => ({
+    padding:"5px 16px 4px",
+    background:"var(--surface2)",
+    borderBottom:"1px solid var(--border)",
+    display:"grid",
+    gridTemplateColumns:cols,
+  });
+  const thStyle = {fontSize:8,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".07em"};
+
+  // ── LAYOUT A: COMMAND ──────────────────────────────────────────
+  if (dashLayout === 'command') return (
+    <div style={{animation:"fadeUp .35s ease",display:"flex",flexDirection:"column",gap:16,height:"100%",minHeight:0,overflowY:"auto",padding:"0 0 24px"}} className="scrollbar-thin">
+      <DashHeader
+        title="Command Center"
+        subtitle={`${now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`}
+      />
+
+      {/* KPI row */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,flexShrink:0}}>
-        <KPICard label="REVENUE TODAY" value={fmt$(stats?.revenue_today)} sub={`${completed.length} jobs closed`} accent="var(--green)"/>
-        <KPICard label="JOBS COMPLETE" value={`${completed.length}/${todayJobs.length}`} sub={`${Math.round(completed.length/Math.max(todayJobs.length,1)*100)}% completion`} accent="var(--blue)"/>
-        <KPICard label="ON SITE" value={onSite.length} sub={`${enRoute.length} en route`} accent="var(--amber)"/>
-        <KPICard label="AVG TICKET" value={fmt$(stats?.avg_ticket)} sub="Last 30 days" accent="var(--purple)"/>
-        <KPICard label="UNASSIGNED" value={unassigned.length} sub={`${stats?.low_stock_count||0} low stock`} accent={unassigned.length>0?"#f56565":"var(--green)"}/>
+        {[
+          {label:"Revenue Today",   value:fmt$(stats?.revenue_today), accent:"var(--green)",   sub:`${completed.length} jobs closed`},
+          {label:"Jobs Complete",   value:`${completed.length} / ${todayJobs.length}`, accent:"var(--blue)",    sub:`${compPct}% done`},
+          {label:"On Site",         value:onSite.length,              accent:"var(--amber)",   sub:"technicians active"},
+          {label:"Avg Ticket",      value:fmt$(stats?.avg_ticket),    accent:"var(--purple)",  sub:"last 30 days"},
+          {label:"Follow-ups",      value:stats?.open_followups??0,   accent:stats?.open_followups>0?"#f56565":"var(--muted)", sub:"open"},
+        ].map(({label,value,accent,sub})=>(
+          <div key={label} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",borderTop:`3px solid ${accent}`,transition:"transform .15s,box-shadow .15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 6px 20px ${accent}18`;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+            <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:6}}>{label.toUpperCase()}</div>
+            {loading ? <Spinner/> : <>
+              <div style={{fontFamily:"var(--font-head)",fontSize:26,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>
+              <div style={{fontSize:10,color:"var(--muted)",marginTop:4,fontFamily:"var(--font-mono)"}}>{sub}</div>
+            </>}
+          </div>
+        ))}
       </div>
 
-      {/* Main grid: Technician Board + Sidebar */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:14,flexShrink:0}}>
+      {/* Main body — dispatch LEFT, sidebar RIGHT */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:14,flex:1,minHeight:0,alignItems:"start"}}>
 
-        {/* Technician Status Board */}
-        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
-            <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em"}}>TECHNICIAN STATUS BOARD</div>
-            <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 6px"}}>{(techs||[]).length} FIELD</span>
+        {/* Dispatch table */}
+        <Card header="Today's Dispatch" headerRight={
+          <div style={{display:"flex",gap:6}}>
+            <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px",color:"var(--muted)"}}>{todayJobs.length} JOBS</span>
+            {unassigned.length>0&&<span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 7px",color:"#f56565"}}>{unassigned.length} UNASSIGNED</span>}
           </div>
-          {(techsWithPos.length===0)&&<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:12}}>No technicians found — add them in Settings.</div>}
-          <div style={{display:"flex",flexDirection:"column"}}>
-            {techsWithPos.map((t,i)=>{
+        }>
+          <div style={tableHeaderStyle("72px 1fr 130px 100px 84px")}>
+            {["Time","Customer","Technician","Address","Status"].map(h=><div key={h} style={thStyle}>{h.toUpperCase()}</div>)}
+          </div>
+          {jobsLoading ? <div style={{padding:24,display:"flex",justifyContent:"center"}}><Spinner/></div> : <DispatchRows cols="dense"/>}
+        </Card>
+
+        {/* Right sidebar */}
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+          {/* Tech revenue leaderboard */}
+          <Card header="Technician Revenue" headerRight={
+            <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px"}}>{fmt$(stats?.revenue_today)} TOTAL</span>
+          }>
+            <div style={{padding:"4px 16px 8px"}}>
+              {loading ? <Spinner/> : <TechLeaderboard limit={5}/>}
+            </div>
+          </Card>
+
+          {/* Revenue chart */}
+          <Card header="Revenue — Last 7 Days" headerRight={
+            <span style={{fontSize:11,fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--green)"}}>{fmt$(stats?.revenue_today)} today</span>
+          }>
+            <div style={{padding:"14px 16px 12px"}}>
+              <BarChart height={80}/>
+            </div>
+          </Card>
+
+          {/* Stock */}
+          <Card>
+            <StockPanel/>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── LAYOUT B: BRIEF ────────────────────────────────────────────
+  if (dashLayout === 'brief') return (
+    <div style={{animation:"fadeUp .35s ease",display:"flex",flexDirection:"column",gap:16,height:"100%",minHeight:0,overflowY:"auto",padding:"0 0 24px"}} className="scrollbar-thin">
+      <DashHeader
+        title="Operations Center"
+        subtitle={`${now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`}
+      />
+
+      {/* Hero KPI cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,flexShrink:0}}>
+        {[
+          {label:"Revenue Today",   value:fmt$(stats?.revenue_today), accent:"var(--green)",
+            extra:<><div style={{marginTop:8}}><Sparkline/></div><div style={{fontSize:10,color:"var(--green)",marginTop:4}}>{completed.length} jobs closed</div></>},
+          {label:"Jobs Complete",   value:`${completed.length} / ${todayJobs.length}`, accent:"var(--blue)",
+            extra:<><div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontFamily:"var(--font-mono)"}}>{compPct}% completion rate</div><div style={{marginTop:8,height:5,background:"var(--surface2)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${compPct}%`,background:"var(--blue)",borderRadius:3,transition:"width .6s"}}/></div></>},
+          {label:"Field Activity",  value:<span>{onSite.length}<span style={{fontSize:16,color:"var(--muted)",margin:"0 4px"}}>·</span>{enRoute.length}</span>, accent:"var(--amber)",
+            extra:<><div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontFamily:"var(--font-mono)"}}>on site · en route</div><div style={{display:"flex",gap:10,marginTop:8}}><span style={{fontSize:10,color:"var(--green)"}}>● {onSite.length} on site</span><span style={{fontSize:10,color:"var(--amber)"}}>● {enRoute.length} en route</span></div></>},
+          {label:"Avg Ticket",      value:fmt$(stats?.avg_ticket), accent:"var(--purple)",
+            extra:<><div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontFamily:"var(--font-mono)"}}>Last 30 days</div><div style={{fontSize:10,color:"var(--green)",marginTop:8}}>↑ trending up</div></>},
+        ].map(({label,value,accent,extra})=>(
+          <div key={label} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"18px 20px",borderTop:`3px solid ${accent}`,transition:"transform .15s,box-shadow .15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 28px ${accent}18`;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+            <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",marginBottom:8}}>{label.toUpperCase()}</div>
+            {loading ? <Spinner/> : <>
+              <div style={{fontFamily:"var(--font-head)",fontSize:32,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>
+              {extra}
+            </>}
+          </div>
+        ))}
+      </div>
+
+      {/* Tech revenue — full width card */}
+      <Card header="Technician Revenue" headerRight={
+        <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{fmt$(stats?.revenue_today)} combined today</span>
+      }>
+        <div style={{padding:"4px 18px 12px"}}>
+          {loading ? <Spinner/> : <TechLeaderboard/>}
+        </div>
+      </Card>
+
+      {/* Dispatch table */}
+      <Card header="Dispatch Queue" headerRight={
+        <div style={{display:"flex",gap:6}}>
+          <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px",color:"var(--muted)"}}>{todayJobs.length} JOBS</span>
+          {unassigned.length>0&&<span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 7px",color:"#f56565"}}>{unassigned.length} UNASSIGNED</span>}
+        </div>
+      }>
+        <div style={tableHeaderStyle("90px 1fr 150px 140px 90px 100px")}>
+          {["Time","Customer / Type","Technician","Address","Window","Status"].map(h=><div key={h} style={thStyle}>{h.toUpperCase()}</div>)}
+        </div>
+        {jobsLoading ? <div style={{padding:24,display:"flex",justifyContent:"center"}}><Spinner/></div> : <DispatchRows cols="full"/>}
+      </Card>
+
+      {/* Bottom: bar chart + stock */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:12,flexShrink:0}}>
+        <Card header="Revenue — Last 7 Days" headerRight={
+          <span style={{fontSize:11,fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--green)"}}>{fmt$(stats?.revenue_today)} today</span>
+        }>
+          <div style={{padding:"14px 18px 16px"}}>
+            <BarChart height={100}/>
+          </div>
+        </Card>
+        <Card>
+          <StockPanel/>
+        </Card>
+      </div>
+    </div>
+  );
+
+  // ── LAYOUT C: LIVE BOARD ───────────────────────────────────────
+  return (
+    <div style={{animation:"fadeUp .35s ease",display:"flex",flexDirection:"column",gap:16,height:"100%",minHeight:0,overflowY:"auto",padding:"0 0 24px"}} className="scrollbar-thin">
+      <DashHeader
+        title="Live Operations Board"
+        subtitle={`${now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`}
+      />
+
+      {/* KPI strip — 5 cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,flexShrink:0}}>
+        {[
+          {label:"Revenue",     value:fmt$(stats?.revenue_today), accent:"var(--green)"},
+          {label:"Complete",    value:`${completed.length} / ${todayJobs.length}`, accent:"var(--blue)"},
+          {label:"On Site",     value:onSite.length,              accent:"var(--amber)"},
+          {label:"Avg Ticket",  value:fmt$(stats?.avg_ticket),    accent:"var(--purple)"},
+          {label:"Unassigned",  value:unassigned.length,          accent:unassigned.length>0?"#f56565":"var(--muted)"},
+        ].map(({label,value,accent})=>(
+          <div key={label} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",borderTop:`3px solid ${accent}`}}>
+            <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:6}}>{label.toUpperCase()}</div>
+            {loading ? <Spinner/> : <div style={{fontFamily:"var(--font-head)",fontSize:28,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Two column: tech scoreboard + tech revenue */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:14,flexShrink:0}}>
+
+        {/* Tech scoreboard tiles */}
+        <Card header="Field Technicians" headerRight={
+          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px"}}>{techsWithPos.length} ACTIVE</span>
+        }>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:1,background:"var(--border)"}}>
+            {techsWithPos.map(t=>{
               const status = t.activeJob?.status || (t.jobsDone>0?'completed':'available');
               const sm = statusMeta[status]||statusMeta.available;
+              const c = t.color||"#5daf7c";
               return (
-                <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 16px",borderBottom:i<techsWithPos.length-1?"1px solid var(--border)":"none",transition:"background .15s"}}>
-                  {/* Avatar */}
-                  <div style={{width:38,height:38,borderRadius:"50%",background:`${t.color||"#5daf7c"}22`,border:`2px solid ${t.color||"#5daf7c"}55`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontWeight:700,fontSize:13,color:t.color||"#5daf7c",flexShrink:0}}>
-                    {t.initials||t.first_name?.[0]||"?"}
-                  </div>
-                  {/* Name + job */}
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:600,lineHeight:1.2}}>{t.first_name} {t.last_name}</div>
-                    <div style={{fontSize:11,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                      {t.activeJob ? `${t.activeJob.job_type||'Job'} · ${t.activeJob.customer_name||''}` : (t.jobsDone>0 ? `${t.jobsDone} job${t.jobsDone!==1?'s':''} complete` : 'Available')}
+                <div key={t.id} style={{background:"var(--surface)",padding:"14px 16px",borderTop:`3px solid ${sm.color}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+                    <div style={{width:40,height:40,borderRadius:"50%",background:`${c}22`,border:`2px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontWeight:800,fontSize:13,color:c,flexShrink:0}}>
+                      {t.initials||t.first_name?.[0]||"?"}
                     </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.first_name} {t.last_name}</div>
+                      <span style={{fontSize:9,fontFamily:"var(--font-mono)",fontWeight:700,color:sm.color,letterSpacing:".04em"}}>{sm.label}</span>
+                    </div>
+                    {t.pos&&<div style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite",flexShrink:0}}/>}
                   </div>
-                  {/* Jobs done */}
-                  <div style={{textAlign:"center",minWidth:36}}>
-                    <div style={{fontFamily:"var(--font-mono)",fontSize:18,fontWeight:800,color:"var(--green)"}}>{t.jobsDone}</div>
-                    <div style={{fontSize:8,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>DONE</div>
+                  {t.activeJob&&<div style={{fontSize:11,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:6}}>{t.activeJob.job_type||'Job'} — {t.activeJob.customer_name||''}</div>}
+                  {!t.activeJob&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>No active job</div>}
+                  <div style={{display:"flex",gap:14}}>
+                    <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{t.jobsDone} done</span>
+                    <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--muted)"}}>{t.myJobs.length-t.jobsDone} left</span>
                   </div>
-                  {/* Remaining */}
-                  <div style={{textAlign:"center",minWidth:36}}>
-                    <div style={{fontFamily:"var(--font-mono)",fontSize:18,fontWeight:800,color:"var(--muted)"}}>{t.myJobs.length-t.jobsDone}</div>
-                    <div style={{fontSize:8,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>LEFT</div>
-                  </div>
-                  {/* Status pill */}
-                  <span style={{fontSize:9,fontFamily:"var(--font-mono)",fontWeight:700,padding:"3px 8px",borderRadius:4,background:sm.bg,color:sm.color,border:`1px solid ${sm.color}33`,flexShrink:0}}>{sm.label}</span>
-                  {/* GPS live dot */}
-                  {t.pos&&<div style={{width:7,height:7,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite",flexShrink:0}}/>}
                 </div>
               );
             })}
+            {techsWithPos.length===0&&<div style={{gridColumn:"1/-1",padding:"24px",color:"var(--muted)",fontSize:12,textAlign:"center"}}>No technicians — add in Settings.</div>}
           </div>
-        </div>
+        </Card>
 
-        {/* Right sidebar: Revenue chart + Alerts */}
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-
-          {/* Revenue chart */}
-          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px"}}>
-            <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:12}}>REVENUE — 7 DAYS</div>
-            {stats?.revenue_chart ? (
-              <div style={{display:"flex",alignItems:"flex-end",gap:5,height:80}}>
-                {stats.revenue_chart.map((d,i)=>{
-                  const vals=stats.revenue_chart.map(r=>parseFloat(r.revenue));
-                  const max=Math.max(...vals,1);
-                  const h=Math.max(4,(parseFloat(d.revenue)/max)*64);
-                  const isToday=i===vals.length-1;
-                  return (
-                    <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                      {isToday&&<div style={{fontSize:7,fontFamily:"var(--font-mono)",color:"var(--green)"}}>${Math.round(parseFloat(d.revenue)/1000)}k</div>}
-                      <div style={{width:"100%",height:h,borderRadius:"3px 3px 0 0",background:isToday?"var(--green)":i<vals.length-1?"var(--green)55":"var(--border)",transition:"height .6s"}}/>
-                      <div style={{fontSize:8,fontFamily:"var(--font-mono)",color:isToday?"var(--text)":"var(--dim)"}}>{d.label}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : <div style={{height:80,display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>}
-          </div>
-
-          {/* Low stock */}
-          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px",flex:1}}>
-            <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:(lowStock||[]).length>0?"#f56565":"var(--muted)",letterSpacing:".08em",marginBottom:10}}>
-              {(lowStock||[]).length>0?"⚠ LOW STOCK":"STOCK STATUS"}
+        {/* Tech revenue sidebar */}
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Card header="Revenue by Technician" headerRight={
+            <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{fmt$(stats?.revenue_today)}</span>
+          }>
+            <div style={{padding:"4px 16px 12px"}}>
+              {loading ? <Spinner/> : <TechLeaderboard/>}
             </div>
-            {(lowStock||[]).slice(0,5).map((item,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:11,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
-                  <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{item.location_name}</div>
-                </div>
-                <div style={{fontFamily:"var(--font-mono)",fontSize:16,fontWeight:800,color:parseInt(item.qty)===0?"#f56565":"var(--amber)"}}>{item.qty}<span style={{fontSize:9,color:"var(--muted)"}}>/{item.min_qty}</span></div>
-              </div>
-            ))}
-            {!(lowStock||[]).length&&<div style={{fontSize:12,color:"var(--green)",fontFamily:"var(--font-mono)"}}>✓ All healthy</div>}
-          </div>
+          </Card>
+          <Card>
+            <StockPanel/>
+          </Card>
         </div>
       </div>
 
-      {/* Today's Dispatch Table */}
-      <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",flexShrink:0}}>
-        <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
-          <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",flex:1}}>TODAY'S DISPATCH</div>
-          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 6px"}}>{todayJobs.length} JOBS</span>
+      {/* Full-width dispatch */}
+      <Card header="Dispatch Queue" headerRight={
+        <div style={{display:"flex",gap:6}}>
+          <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px",color:"var(--muted)"}}>{todayJobs.length} JOBS</span>
+          {unassigned.length>0&&<span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 7px",color:"#f56565"}}>{unassigned.length} UNASSIGNED</span>}
         </div>
-        {jobsLoading?<div style={{padding:20,display:"flex",justifyContent:"center"}}><Spinner/></div>:(
-          <div>
-            {/* Column headers */}
-            <div style={{display:"grid",gridTemplateColumns:"100px 1fr 140px 120px 90px 90px",gap:0,padding:"7px 16px",background:"var(--surface2)",borderBottom:"1px solid var(--border)"}}>
-              {["TIME","CUSTOMER / TYPE","TECHNICIAN","ADDRESS","WINDOW","STATUS"].map(h=>(
-                <div key={h} style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".06em"}}>{h}</div>
-              ))}
-            </div>
-            {todayJobs.length===0&&<div style={{padding:"20px 16px",color:"var(--muted)",fontSize:12,textAlign:"center"}}>No jobs scheduled today.</div>}
-            {todayJobs.map((j,i)=>(
-              <div key={j.id} style={{display:"grid",gridTemplateColumns:"100px 1fr 140px 120px 90px 90px",gap:0,padding:"10px 16px",borderBottom:i<todayJobs.length-1?"1px solid var(--border)":"none",alignItems:"center",transition:"background .15s"}}>
-                <div style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--muted)"}}>
-                  {j.scheduled_start ? new Date(j.scheduled_start).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "—"}
-                </div>
-                <div style={{minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.customer_name||"—"}</div>
-                  <div style={{fontSize:10,color:"var(--muted)"}}>{j.job_type}</div>
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
-                  {j.technician_color&&<div style={{width:8,height:8,borderRadius:"50%",background:j.technician_color,flexShrink:0}}/>}
-                  <span style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:j.technician_name?"var(--text)":"var(--muted)"}}>{j.technician_name||"Unassigned"}</span>
-                </div>
-                <div style={{fontSize:10,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.address||"—"}</div>
-                <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{j.arrival_window||"—"}</div>
-                <Pill status={j.status}/>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* GPS Fleet Map */}
-      <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:14,flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em"}}>LIVE FLEET MAP</div>
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite"}}/>
-            <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)"}}>LIVE</span>
-          </div>
-          <div style={{flex:1}}/>
-          <span style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{livePositions.length} tracking</span>
+      }>
+        <div style={tableHeaderStyle("72px 1fr 130px 100px 84px")}>
+          {["Time","Customer","Technician","Address","Status"].map(h=><div key={h} style={thStyle}>{h.toUpperCase()}</div>)}
         </div>
-        <div style={{height:200,borderRadius:8,overflow:"hidden",background:"#0d1a12"}}>
-          <GPSCanvas positions={livePositions} compact={false}/>
-        </div>
-      </div>
-
+        {jobsLoading ? <div style={{padding:24,display:"flex",justifyContent:"center"}}><Spinner/></div> : <DispatchRows cols="dense"/>}
+      </Card>
     </div>
   );
 }
 
 // ─── JOBS PAGE ────────────────────────────────────────────────
-function JobsPage() {
+function JobsPage({ onOpenDoc }) {
   const [filter, setFilter] = useState("all");
-  const today = new Date().toISOString().split("T")[0];
-  const {data:jobs, loading, reload} = useApi(() => api.getJobs({date:today}));
+  // Range preset: '7d' | '30d' | '90d' | '12m' | 'custom'. Custom uses customFrom/customTo.
+  const [range, setRange] = useState('30d');
+  const todayStr = () => new Date().toISOString().split("T")[0];
+  const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split("T")[0]; };
+  const [customFrom, setCustomFrom] = useState(daysAgoStr(30));
+  const [customTo,   setCustomTo]   = useState(todayStr());
+
+  const rangeParams = useMemo(() => {
+    if (range === '7d')  return { from: daysAgoStr(7),  to: todayStr() };
+    if (range === '30d') return { from: daysAgoStr(30), to: todayStr() };
+    if (range === '90d') return { from: daysAgoStr(90), to: todayStr() };
+    if (range === '12m') return { from: daysAgoStr(365),to: todayStr() };
+    if (range === 'custom') return { from: customFrom, to: customTo };
+    return { from: daysAgoStr(30), to: todayStr() };
+  }, [range, customFrom, customTo]);
+
+  const {data:jobs, loading, reload} = useApi(() => api.getJobs(rangeParams), [rangeParams.from, rangeParams.to]);
 
   const filtered = filter==="all" ? (jobs||[]) : (jobs||[]).filter(j=>j.status===filter);
+
+  // Drill-in state — clicking a row opens a modal with that job's estimates + invoices.
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [jobTab, setJobTab] = useState('estimates');
+  const [jobEstimates, setJobEstimates] = useState(null);
+  const [jobInvoices, setJobInvoices]   = useState(null);
+  useEffect(() => {
+    if (!selectedJob) return;
+    setJobEstimates(null); setJobInvoices(null); setJobTab('estimates');
+    api.getEstimates({ job_id: selectedJob.id })
+      .then(r => setJobEstimates(Array.isArray(r) ? r : (r?.estimates || [])))
+      .catch(() => setJobEstimates([]));
+    api.getInvoices({ job_id: selectedJob.id, type: 'invoice' })
+      .then(r => setJobInvoices(Array.isArray(r) ? r : []))
+      .catch(() => setJobInvoices([]));
+  }, [selectedJob?.id]);
+  const closeJobModal = () => setSelectedJob(null);
+  const fmt$ = (n) => '$' + parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
   return (
     <div style={{animation:"fadeUp .4s ease"}}>
@@ -535,6 +1113,32 @@ function JobsPage() {
           <Icon n="plus" size={14} color="#e8a84a"/> New Job
         </button>
       </div>
+      {/* Range presets */}
+      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+        {[['7d','7 days'],['30d','30 days'],['90d','90 days'],['12m','12 months'],['custom','Custom range']].map(([id,lb])=>{
+          const on = range===id;
+          return (
+            <button key={id} onClick={()=>setRange(id)}
+              style={{padding:"7px 16px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:on?800:500,
+                background:on?"var(--red)":"var(--surface)",
+                border:`1px solid ${on?"var(--red)":"var(--border)"}`,
+                color:on?"#fff":"var(--muted)"}}>
+              {lb}
+            </button>
+          );
+        })}
+        {range==='custom' && (
+          <div style={{display:"flex",gap:6,alignItems:"center",marginLeft:8,padding:'6px 10px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8}}>
+            <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
+              style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',color:'var(--text)',fontSize:12}}/>
+            <span style={{color:'var(--muted)',fontSize:12}}>→</span>
+            <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
+              style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 8px',color:'var(--text)',fontSize:12}}/>
+          </div>
+        )}
+      </div>
+
+      {/* Status filter */}
       <div style={{display:"flex",gap:6,marginBottom:14}}>
         {["all","scheduled","en_route","on_site","completed"].map(s=>(
           <button key={s} onClick={()=>setFilter(s)} style={{padding:"5px 14px",background:filter===s?"var(--amberdim)":"var(--surface)",border:`1px solid ${filter===s?"var(--amber)":"var(--border)"}`,borderRadius:20,color:filter===s?"var(--amber)":"var(--muted)",fontSize:11,fontFamily:"var(--font-mono)"}}>
@@ -556,10 +1160,12 @@ function JobsPage() {
             </thead>
             <tbody>
               {filtered.map((job,i) => (
-                <tr key={job.id} style={{borderBottom:"1px solid var(--border)",animation:`fadeUp .3s ease both`,animationDelay:`${i*.04}s`}}
+                <tr key={job.id}
+                  onClick={()=>setSelectedJob(job)}
+                  style={{borderBottom:"1px solid var(--border)",animation:`fadeUp .3s ease both`,animationDelay:`${i*.04}s`,cursor:"pointer"}}
                   onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
                   onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,color:"var(--amber)",fontWeight:600}}>#{job.job_number}</td>
+                  <td style={{padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,color:"var(--amber)",fontWeight:600}}>{job.display_number || '#'+job.job_number}</td>
                   <td style={{padding:"10px 14px"}}>
                     <div style={{fontSize:13,fontWeight:500}}>{job.customer_name}</div>
                     <div style={{fontSize:10,color:"var(--muted)"}}>{job.address}</div>
@@ -587,6 +1193,80 @@ function JobsPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Job drill-in modal — shows estimates + invoices for the clicked job */}
+      {selectedJob && (
+        <div onClick={closeJobModal}
+          style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20,animation:'fadeIn .15s ease'}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:14,width:'100%',maxWidth:900,maxHeight:'85vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,.5)'}}>
+
+            {/* Header */}
+            <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)',background:'var(--surface)',display:'flex',alignItems:'center',gap:14}}>
+              <div style={{fontFamily:'var(--font-mono)',fontSize:12,color:'var(--amber)',fontWeight:700}}>{selectedJob.display_number || '#'+selectedJob.job_number}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:16,fontWeight:800,color:'var(--text)'}}>{selectedJob.customer_name}</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>
+                  {selectedJob.job_type || 'Service Call'} · <Pill status={selectedJob.status}/> {selectedJob.address ? '· ' + selectedJob.address : ''}
+                </div>
+              </div>
+              <button onClick={closeJobModal} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:20,width:32,height:32,color:'var(--muted)',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+            </div>
+
+            {/* Tabs */}
+            <div style={{display:'flex',gap:6,padding:'12px 16px 0',borderBottom:'1px solid var(--border)',background:'var(--surface)'}}>
+              {[['estimates','📄 Estimates', (jobEstimates||[]).length],
+                ['invoices','🧾 Invoices',  (jobInvoices||[]).length]].map(([id,lb,ct])=>{
+                const on = jobTab===id;
+                return (
+                  <button key={id} onClick={()=>setJobTab(id)}
+                    style={{padding:'8px 16px',borderRadius:'7px 7px 0 0',border:'none',borderBottom:'2px solid '+(on?'var(--amber)':'transparent'),background:'transparent',color:on?'var(--amber)':'var(--muted)',fontSize:13,fontWeight:on?700:500,cursor:'pointer'}}>
+                    {lb} {ct>0?<span style={{fontSize:10,marginLeft:4,background:'var(--surface2)',padding:'1px 6px',borderRadius:10,color:on?'var(--amber)':'var(--muted)'}}>{ct}</span>:null}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Body */}
+            <div style={{flex:1,overflow:'auto',padding:'14px 18px'}}>
+              {jobTab==='estimates' && (
+                jobEstimates===null ? <div style={{display:'flex',justifyContent:'center',padding:30}}><Spinner/></div>
+                : jobEstimates.length===0 ? <div style={{padding:30,textAlign:'center',color:'var(--muted)',fontSize:13}}>No estimates on this job yet.</div>
+                : jobEstimates.map(e => (
+                    <div key={e.id}
+                      onClick={()=>{ closeJobModal(); onOpenDoc && onOpenDoc('estimates', e.id); }}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8,marginBottom:8,background:'var(--surface)',cursor:'pointer',transition:'background .15s'}}
+                      onMouseEnter={ev=>ev.currentTarget.style.background='var(--surface2)'}
+                      onMouseLeave={ev=>ev.currentTarget.style.background='var(--surface)'}>
+                      <div style={{fontFamily:'var(--font-mono)',fontSize:11,color:'#a78bfa',minWidth:120,fontWeight:700}}>{e.display_number || '#'+String(e.id).slice(0,8)}</div>
+                      <div style={{flex:1,fontSize:13}}>{e.customer_name || '—'}</div>
+                      <div style={{fontFamily:'var(--font-mono)',fontSize:13,fontWeight:700,color:'var(--green)'}}>{fmt$(e.total)}</div>
+                      <Pill status={e.status}/>
+                      <span style={{color:'var(--muted)',fontSize:18}}>›</span>
+                    </div>
+                  ))
+              )}
+              {jobTab==='invoices' && (
+                jobInvoices===null ? <div style={{display:'flex',justifyContent:'center',padding:30}}><Spinner/></div>
+                : jobInvoices.length===0 ? <div style={{padding:30,textAlign:'center',color:'var(--muted)',fontSize:13}}>No invoices on this job yet.</div>
+                : jobInvoices.map(inv => (
+                    <div key={inv.id}
+                      onClick={()=>{ closeJobModal(); onOpenDoc && onOpenDoc('invoices', inv.id); }}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8,marginBottom:8,background:'var(--surface)',cursor:'pointer',transition:'background .15s'}}
+                      onMouseEnter={ev=>ev.currentTarget.style.background='var(--surface2)'}
+                      onMouseLeave={ev=>ev.currentTarget.style.background='var(--surface)'}>
+                      <div style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--green)',minWidth:120,fontWeight:700}}>{inv.display_number || '#'+String(inv.id).slice(0,8)}</div>
+                      <div style={{flex:1,fontSize:13}}>{inv.customer_name || '—'}</div>
+                      <div style={{fontFamily:'var(--font-mono)',fontSize:13,fontWeight:700,color:'var(--green)'}}>{fmt$(inv.total)}</div>
+                      <Pill status={inv.status}/>
+                      <span style={{color:'var(--muted)',fontSize:18}}>›</span>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -621,24 +1301,60 @@ function BarcodeLabel({value, itemName, sku}) {
 }
 
 function BarcodePrintSheet({items}) {
-  const containerRef = useRef(null);
-  const print = () => {
-    const win = window.open('','_blank');
-    win.document.write(`<html><head><title>Barcode Labels</title>
-    <style>body{margin:0;font-family:sans-serif}
-    .sheet{display:flex;flex-wrap:wrap;gap:8px;padding:12px}
-    .label{border:1px solid #ddd;border-radius:4px;padding:8px;text-align:center;width:200px}
-    .label svg{display:block;width:100%}
-    .name{font-size:10px;font-weight:600;margin-top:4px;color:#333}
-    @media print{.sheet{gap:4px;padding:4px}.label{break-inside:avoid}}
-    </style></head><body>`);
-    win.document.write('<div class="sheet">');
+  const print = async () => {
+    await ensureJsBarcode();
+    const makeSVG = (rawVal) => {
+      const val = (rawVal||'').toString().trim().replace(/^\./,''); // strip leading dot
+      if (!val) return `<div style="font-size:9px;color:#c00;padding:4px">No barcode value</div>`;
+      try {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        window.JsBarcode(svg, val, { format:'CODE128', width:2, height:56, displayValue:true, fontSize:10, margin:4, background:'#fff', lineColor:'#000' });
+        return svg.outerHTML;
+      } catch(e) { return `<div style="font-size:9px;color:#c00;padding:4px">Invalid: ${val}</div>`; }
+    };
+
+    // Group by category
+    const groups = [];
+    const groupMap = {};
     items.forEach(item => {
-      win.document.write(`<div class="label"><img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(item.barcode||item.sku)}&code=Code128&dpi=96&unit=Min&imagetype=png" style="width:180px"/><div class="name">${item.name}</div><div style="font-size:9px;color:#666">${item.sku}</div></div>`);
+      const cat = (item.category || 'Uncategorized').trim();
+      if (!groupMap[cat]) { groupMap[cat] = []; groups.push({ cat, items: groupMap[cat] }); }
+      groupMap[cat].push(item);
     });
-    win.document.write('</div></body></html>');
+
+    // Render SVGs before opening window
+    const rendered = groups.map(({ cat, items: grpItems }) => ({
+      cat,
+      labels: grpItems.map(item => ({ svg: makeSVG(item.barcode||item.sku), name: item.name, sku: item.sku })),
+    }));
+
+    const win = window.open('', '_blank');
+    win.document.write(`<html><head><title>Barcode Labels</title>
+    <style>
+      body { margin: 8px; font-family: Arial, sans-serif; }
+      .category-section { margin-bottom: 20px; }
+      .category-header { width:100%; background:#1a2a4a; color:#fff; font-size:16px; font-weight:800;
+        letter-spacing:1.5px; padding:9px 16px; box-sizing:border-box; text-transform:uppercase;
+        margin-bottom:8px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .sheet { display:flex; flex-wrap:wrap; gap:8px; padding:4px 8px 12px; }
+      .label { border:1px solid #ddd; border-radius:4px; padding:8px; text-align:center; width:196px; break-inside:avoid; }
+      .label svg { display:block; width:100%; }
+      .name { font-size:10px; font-weight:700; margin-top:4px; color:#111; }
+      .sku  { font-size:9px; color:#666; margin-top:2px; font-family:monospace; }
+      @media print { .label { break-inside:avoid; } }
+    </style></head><body>`);
+
+    rendered.forEach(({ cat, labels }) => {
+      win.document.write(`<div class="category-section"><div class="category-header">📦 ${cat}</div><div class="sheet">`);
+      labels.forEach(({ svg, name, sku }) => {
+        win.document.write(`<div class="label">${svg}<div class="name">${name}</div><div class="sku">${sku}</div></div>`);
+      });
+      win.document.write(`</div></div>`);
+    });
+
+    win.document.write('</body></html>');
     win.document.close();
-    win.onload = () => { win.print(); };
+    win.onload = () => win.print();
   };
   return <button onClick={print} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 16px',color:'var(--text)',fontSize:12,cursor:'pointer'}}>🖨 Print Labels</button>;
 }
@@ -650,7 +1366,7 @@ function ItemModal({item, categories, onSave, onClose}) {
     sku:'', name:'', description:'', category:'', category_id:'', service_type:'',
     item_type:'consumable', cost:'', price:'', min_qty:'0', max_qty:'',
     warehouse_min_qty:'0', warehouse_max_qty:'', truck_min_qty:'0', truck_max_qty:'',
-    vendor:'', vendor_sku:'', barcode:'',
+    vendor:'', vendor_sku:'', barcode:'', on_hand_qty:'0',
     ...item,
     category_id: item?.category_id || '',
     service_type: item?.service_type || '',
@@ -658,6 +1374,7 @@ function ItemModal({item, categories, onSave, onClose}) {
     warehouse_max_qty: item?.warehouse_max_qty ?? item?.max_qty ?? '',
     truck_min_qty: item?.truck_min_qty ?? '0',
     truck_max_qty: item?.truck_max_qty ?? '',
+    on_hand_qty: item?.on_hand_qty ?? '0',
   });
   const [saving, setSaving] = useState(false);
   const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
@@ -732,6 +1449,16 @@ function ItemModal({item, categories, onSave, onClose}) {
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:0}}>
         </div>
+        {/* On-hand qty — only show for new items; existing items use Transfer to adjust stock */}
+        {!item?.id && (
+          <div style={{marginTop:16,padding:'12px 14px',background:'#1a2e3b',border:'1px solid #2a4a5e',borderRadius:10}}>
+            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'#38bdf8',letterSpacing:'.08em',marginBottom:8}}>📦 INITIAL STOCK (WAREHOUSE)</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,alignItems:'end'}}>
+              <div><label style={lbl}>ON HAND QTY</label><input type="number" min="0" value={form.on_hand_qty} onChange={set('on_hand_qty')} style={inp} placeholder="0"/></div>
+              <div style={{fontSize:11,color:'var(--muted)',paddingBottom:8}}>Sets the starting quantity in Main Warehouse</div>
+            </div>
+          </div>
+        )}
         <div style={{marginTop:14}}><label style={lbl}>DESCRIPTION</label><textarea value={form.description||''} onChange={set('description')} rows={2} style={{...inp,resize:'vertical'}}/></div>
         <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 20px',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
@@ -1137,10 +1864,15 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
   const [modal, setModal]           = useState(null);
   const [barcodeItem, setBarcodeItem] = useState(null);
   const [transferItem, setTransferItem] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // item to hard-delete
   const [search, setSearch]         = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
   const [statusFilter, setStatusFilter]     = useState('all');
+  const [manageCats, setManageCats] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [editCat, setEditCat]       = useState(null); // {id, name}
+  const [savingCat, setSavingCat]   = useState(false);
 
   const materialTypes = ['consumable','material'];
   const toolTypes     = ['tool','equipment'];
@@ -1169,7 +1901,8 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
   const filtered = (items||[]).filter(i => {
     if (mode==='materials' && !materialTypes.includes(i.item_type)) return false;
     if (mode==='tools'     && !toolTypes.includes(i.item_type))     return false;
-    if (categoryFilter !== 'all' && (i.category_id||'') !== categoryFilter) return false;
+    if (categoryFilter === '__none__' && i.category_id) return false;
+    if (categoryFilter !== 'all' && categoryFilter !== '__none__' && (i.category_id||'') !== categoryFilter) return false;
     if (locationFilter !== 'all') {
       const hasStock = (i.stock||[]).some(s => s.location_id === locationFilter && parseInt(s.qty||0) > 0);
       if (!hasStock) return false;
@@ -1179,9 +1912,45 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
     return true;
   });
 
-  const deleteItem = async (id) => {
-    if (!confirm('Archive this item?')) return;
-    await api.deleteItem(id); onReload();
+  const hardDeleteItem = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await api.hardDeleteItem(deleteConfirm.id);
+      setDeleteConfirm(null);
+      onReload();
+      toast.success('Item removed', `${deleteConfirm.name} permanently deleted`);
+    } catch(e) { toast.error('Delete failed', e.message); }
+  };
+
+  const addCategory = async () => {
+    if (!newCatName.trim()) return;
+    setSavingCat(true);
+    try {
+      await api.createInventoryCategory({ name: newCatName.trim() });
+      setNewCatName('');
+      onReload();
+    } catch(e) { toast.error('Error', e.message); }
+    finally { setSavingCat(false); }
+  };
+
+  const saveEditCat = async () => {
+    if (!editCat?.name.trim()) return;
+    setSavingCat(true);
+    try {
+      await api.updateInventoryCategory(editCat.id, { name: editCat.name.trim() });
+      setEditCat(null);
+      onReload();
+    } catch(e) { toast.error('Error', e.message); }
+    finally { setSavingCat(false); }
+  };
+
+  const deleteCat = async (id) => {
+    if (!confirm('Delete this category? Items will become uncategorized.')) return;
+    try {
+      await api.deleteInventoryCategory(id);
+      if (categoryFilter === id) setCategoryFilter('all');
+      onReload();
+    } catch(e) { toast.error('Error', e.message); }
   };
 
   // KPI stats
@@ -1244,7 +2013,46 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
 
         {/* Category */}
         <div style={{marginBottom:20}}>
-          <div style={sidebarSectionLabel}>Category</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,padding:'0 8px'}}>
+            <div style={sidebarSectionLabel}>Category</div>
+            <button onClick={()=>setManageCats(v=>!v)} title="Manage categories"
+              style={{background:'none',border:'none',color:'#9ca3af',fontSize:14,cursor:'pointer',padding:'0 2px',lineHeight:1}}>⚙</button>
+          </div>
+
+          {/* Manage Categories panel */}
+          {manageCats && (
+            <div style={{background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:700,color:'#6b7280',marginBottom:8,textTransform:'uppercase',letterSpacing:'1px'}}>Manage Categories</div>
+              {(categories||[]).map(c=>(
+                <div key={c.id} style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                  {editCat?.id===c.id ? (
+                    <>
+                      <input value={editCat.name} onChange={e=>setEditCat(v=>({...v,name:e.target.value}))}
+                        onKeyDown={e=>{ if(e.key==='Enter') saveEditCat(); if(e.key==='Escape') setEditCat(null); }}
+                        style={{flex:1,fontSize:12,padding:'3px 6px',border:'1px solid #3b82f6',borderRadius:5,outline:'none'}} autoFocus/>
+                      <button onClick={saveEditCat} disabled={savingCat} style={{background:'#3b82f6',border:'none',borderRadius:5,color:'#fff',fontSize:11,padding:'3px 7px',cursor:'pointer'}}>✓</button>
+                      <button onClick={()=>setEditCat(null)} style={{background:'none',border:'none',color:'#9ca3af',fontSize:13,cursor:'pointer'}}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{flex:1,fontSize:12,color:'#374151',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</span>
+                      <button onClick={()=>setEditCat({id:c.id,name:c.name})} style={{background:'none',border:'none',color:'#9ca3af',fontSize:12,cursor:'pointer',padding:'0 2px'}}>✎</button>
+                      <button onClick={()=>deleteCat(c.id)} style={{background:'none',border:'none',color:'#f87171',fontSize:12,cursor:'pointer',padding:'0 2px'}}>✕</button>
+                    </>
+                  )}
+                </div>
+              ))}
+              {/* Add new */}
+              <div style={{display:'flex',gap:5,marginTop:8}}>
+                <input value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="New category…"
+                  onKeyDown={e=>e.key==='Enter'&&addCategory()}
+                  style={{flex:1,fontSize:12,padding:'4px 7px',border:'1px solid #d1d5db',borderRadius:5,outline:'none'}}/>
+                <button onClick={addCategory} disabled={savingCat||!newCatName.trim()}
+                  style={{background:'#5daf7c',border:'none',borderRadius:5,color:'#fff',fontSize:12,padding:'4px 9px',cursor:'pointer',opacity:newCatName.trim()?1:0.5}}>+</button>
+              </div>
+            </div>
+          )}
+
           <div style={sidebarItem(categoryFilter==='all')} onClick={()=>setCategoryFilter('all')}>
             All Items <span style={badge('blue')}>{allItems.length}</span>
           </div>
@@ -1256,6 +2064,9 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
               </div>
             );
           })}
+          <div style={sidebarItem(categoryFilter==='__none__')} onClick={()=>setCategoryFilter('__none__')}>
+            Uncategorized <span style={badge()}>{allItems.filter(i=>!i.category_id).length}</span>
+          </div>
         </div>
 
         {/* Location */}
@@ -1445,6 +2256,8 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
                   <button onClick={()=>setTransferItem(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #bfdbfe', background:'#eff6ff', color:'#3b82f6'}}>Adjust Stock</button>
                   <button onClick={()=>setModal(item)} style={{flex:1, padding:'6px', textAlign:'center', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:'1px solid #e5e7eb', background:'#fff', color:'#374151'}}>Edit</button>
                   <button onClick={()=>setBarcodeItem(item)} style={{padding:'6px 10px', borderRadius:6, fontSize:11, cursor:'pointer', border:'1px solid #e5e7eb', background:'#fff', color:'#374151'}}>▦</button>
+                  <button onClick={()=>setDeleteConfirm(item)} title="Delete item permanently"
+                    style={{padding:'6px 10px', borderRadius:6, fontSize:11, cursor:'pointer', border:'1px solid #fecaca', background:'#fff5f5', color:'#ef4444'}}>🗑</button>
                 </div>
               </div>
             );
@@ -1472,6 +2285,35 @@ function InvItemsTab({items, locations, categories, onReload, mode='all'}) {
         </div>
       )}
       {transferItem&&<TransferModal item={transferItem} locations={locations||[]} onSave={()=>{setTransferItem(null);onReload();}} onClose={()=>setTransferItem(null)}/>}
+
+      {/* ── Hard Delete Confirmation Modal ── */}
+      {deleteConfirm && (
+        <div style={{position:'fixed',inset:0,background:'#00000099',zIndex:1100,display:'flex',alignItems:'center',justifyContent:'center'}}
+          onClick={e=>e.target===e.currentTarget&&setDeleteConfirm(null)}>
+          <div style={{background:'#fff',borderRadius:16,width:420,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
+            <div style={{fontSize:20,marginBottom:8}}>🗑 Delete Item Permanently</div>
+            <div style={{fontWeight:700,fontSize:15,color:'#111827',marginBottom:6}}>{deleteConfirm.name}</div>
+            <div style={{fontSize:12,color:'#6b7280',fontFamily:'monospace',marginBottom:16}}>SKU: {deleteConfirm.sku}</div>
+            <div style={{background:'#fff5f5',border:'1px solid #fecaca',borderRadius:8,padding:'10px 14px',marginBottom:20}}>
+              <div style={{fontSize:13,color:'#dc2626',fontWeight:600,marginBottom:4}}>⚠ This cannot be undone</div>
+              <div style={{fontSize:12,color:'#7f1d1d',lineHeight:1.6}}>
+                This will permanently remove the item and all its stock records from every location.
+                Use <strong>Archive</strong> instead if you want to hide the item without losing data.
+              </div>
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setDeleteConfirm(null)}
+                style={{padding:'9px 20px',borderRadius:8,border:'1px solid #e5e7eb',background:'#f9fafb',color:'#374151',fontSize:13,cursor:'pointer',fontWeight:500}}>
+                Cancel
+              </button>
+              <button onClick={()=>{ const item=deleteConfirm; setDeleteConfirm(null); api.hardDeleteItem(item.id).then(()=>{ onReload(); toast.success('Deleted',`${item.name} permanently removed`); }).catch(e=>toast.error('Delete failed',e.message)); }}
+                style={{padding:'9px 20px',borderRadius:8,border:'none',background:'#ef4444',color:'#fff',fontSize:13,cursor:'pointer',fontWeight:700}}>
+                Yes, Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1694,7 +2536,7 @@ function InvPurchaseOrdersTab({items}) {
           {(pos||[]).map(po=>(
             <div key={po.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:16}}>
               <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:po.items?.length?10:0}}>
-                <div style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>PO-{String(po.po_number).padStart(4,'0')}</div>
+                <div style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>{po.po_type==='subcontractor'?'SC':'PO'}-{String(po.po_number).padStart(6,'0')}</div>
                 <div style={{fontWeight:600,fontSize:14,flex:1}}>{po.vendor||'Unknown Vendor'}</div>
                 {po.auto_generated&&<span style={{fontSize:9,background:'#a78bfa18',color:'#a78bfa',padding:'2px 7px',borderRadius:4,fontFamily:'var(--font-mono)'}}>AUTO</span>}
                 <span style={{fontSize:10,background:statusColor(po.status)+'18',color:statusColor(po.status),padding:'3px 8px',borderRadius:4,fontFamily:'var(--font-mono)',fontWeight:600}}>{po.status.toUpperCase()}</span>
@@ -2017,6 +2859,19 @@ function InvBarcodeTab({mode, setTab, items, locations, onReload}) {
 }
 
 // ─── BARCODES PAGE ────────────────────────────────────────────
+const JSBARCODE_CDN = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+function ensureJsBarcode() {
+  return new Promise(resolve => {
+    if (window.JsBarcode) { resolve(); return; }
+    const existing = document.querySelector(`script[src="${JSBARCODE_CDN}"]`);
+    if (existing) { existing.addEventListener('load', resolve); return; }
+    const s = document.createElement('script');
+    s.src = JSBARCODE_CDN;
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+}
+
 function InvBarcodesPage({items, locations, categories, onReload}) {
   const enabledServices = useCompanyServices();
   const [section, setSection] = useState('items'); // 'items' | 'custom' | 'categories'
@@ -2060,24 +2915,73 @@ function InvBarcodesPage({items, locations, categories, onReload}) {
   // Label pixel sizes
   const labelW = {small:120,medium:180,large:240}[labelSize];
 
-  const printBulk = (itemsToPrint) => {
-    const win = window.open('','_blank');
-    const code = barcodeType==='QR'?'QRCODE':'Code128'; // for tec-it URL
-    const tecCode = barcodeType==='CODE128'?'Code128':barcodeType==='QR'?'QRCode':'Code39';
-    win.document.write(`<html><head><title>Barcode Labels</title>
-    <style>body{margin:0;font-family:sans-serif}
-    .sheet{display:flex;flex-wrap:wrap;gap:6px;padding:10px}
-    .label{border:1px solid #ccc;border-radius:4px;padding:6px;text-align:center;width:${labelW+20}px;break-inside:avoid}
-    .label img{display:block;width:${labelW}px;margin:0 auto}
-    .name{font-size:${labelSize==='small'?8:10}px;font-weight:700;margin-top:3px;color:#222;word-break:break-word}
-    .sku{font-size:${labelSize==='small'?7:9}px;color:#666;font-family:monospace}
-    @media print{.sheet{gap:3px;padding:4px}.label{break-inside:avoid}}</style>
-    </head><body><div class="sheet">`);
+  const printBulk = async (itemsToPrint) => {
+    await ensureJsBarcode();
+    // Generate all barcodes client-side using JsBarcode — no external API calls
+    const jsFmt = barcodeType==='QR' ? 'qrcode' : barcodeType==='CODE39' ? 'CODE39' : 'CODE128';
+
+    const makeSVG = (rawVal) => {
+      const val = (rawVal||'').toString().trim().replace(/^\./,''); // strip leading dot
+      if (!val) return `<div style="font-size:9px;color:#c00;padding:4px">No barcode value</div>`;
+      try {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        window.JsBarcode(svg, val, {
+          format: jsFmt, width: 2, height: labelSize==='small'?40:labelSize==='large'?80:56,
+          displayValue: true, fontSize: labelSize==='small'?8:10,
+          margin: 4, background: '#fff', lineColor: '#000',
+        });
+        return svg.outerHTML;
+      } catch(e) { return `<div style="font-size:9px;color:#c00;padding:4px">Invalid barcode:<br/>${val}</div>`; }
+    };
+
+    // Group items by category
+    const groups = [];
+    const groupMap = {};
     itemsToPrint.forEach(item => {
-      const val = item.barcode||item.sku;
-      win.document.write(`<div class="label"><img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(val)}&code=${tecCode}&dpi=96&unit=Min&imagetype=png" style="width:${labelW}px"/><div class="name">${item.name}</div><div class="sku">${item.sku}</div></div>`);
+      const cat = (item.category || 'Uncategorized').trim();
+      if (!groupMap[cat]) { groupMap[cat] = []; groups.push({ cat, items: groupMap[cat] }); }
+      groupMap[cat].push(item);
     });
-    win.document.write('</div></body></html>');
+
+    // Build all SVGs before opening the window (JsBarcode needs the DOM)
+    const rendered = groups.map(({ cat, items: grpItems }) => ({
+      cat,
+      labels: grpItems.map(item => ({
+        svg: makeSVG(item.barcode || item.sku),
+        name: item.name,
+        sku: item.sku,
+      })),
+    }));
+
+    const win = window.open('', '_blank');
+    win.document.write(`<html><head><title>Barcode Labels</title>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; }
+      .category-section { margin-bottom: 20px; }
+      .category-header {
+        width: 100%; background: #1a2a4a; color: #fff;
+        font-size: 16px; font-weight: 800; letter-spacing: 1.5px;
+        padding: 9px 16px; box-sizing: border-box;
+        text-transform: uppercase; margin-bottom: 8px;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      .sheet { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; }
+      .label { border: 1px solid #ccc; border-radius: 4px; padding: 6px; text-align: center; width: ${labelW+20}px; break-inside: avoid; }
+      .label svg { display: block; width: ${labelW}px; margin: 0 auto; }
+      .name { font-size: ${labelSize==='small'?8:10}px; font-weight: 700; margin-top: 3px; color: #222; word-break: break-word; }
+      .sku  { font-size: ${labelSize==='small'?7:9}px; color: #666; font-family: monospace; }
+      @media print { .sheet { gap: 3px; padding: 2px 6px; } .label { break-inside: avoid; } }
+    </style></head><body>`);
+
+    rendered.forEach(({ cat, labels }) => {
+      win.document.write(`<div class="category-section"><div class="category-header">📦 ${cat}</div><div class="sheet">`);
+      labels.forEach(({ svg, name, sku }) => {
+        win.document.write(`<div class="label">${svg}<div class="name">${name}</div><div class="sku">${sku}</div></div>`);
+      });
+      win.document.write(`</div></div>`);
+    });
+
+    win.document.write('</body></html>');
     win.document.close();
     win.onload = () => win.print();
   };
@@ -2715,20 +3619,32 @@ function PhoneManagerSettings() {
 // ─── CSR QUESTIONNAIRE SETTINGS ───────────────────────────────
 function CSRQuestionnaireSettings() {
   const {data:settings, reload} = useApi(()=>api.getPhoneSettings());
-  const [questions, setQuestions] = useState(null);
-  const [saving,    setSaving]    = useState(false);
+  const enabledServices = useCompanyServices();
+  const [editingService, setEditingService] = useState(null);
+  const [saving, setSaving] = useState(false);
 
+  // Snap to first enabled service once services load
   useEffect(()=>{
-    if(settings && questions===null) setQuestions(settings.questionnaire||[]);
-  },[settings]);
+    if (!editingService && enabledServices?.length) setEditingService(enabledServices[0]);
+  }, [enabledServices, editingService]);
 
-  if(questions===null) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+  if(!settings || !editingService) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+
+  // Questions per service; fall back to the legacy single `questionnaire` array
+  // on the first migration so existing setups don't lose their tree.
+  const byService = settings.questionnaires_by_service || {};
+  const questions = byService[editingService]
+    || (editingService === (enabledServices?.[0] || 'plumbing') ? (settings.questionnaire || []) : []);
 
   const save = async (qs) => {
     setSaving(true);
-    try { await api.savePhoneSettings({...(settings||{}), questionnaire: qs}); reload(); }
-    finally { setSaving(false); }
+    try {
+      const nextByService = { ...(settings.questionnaires_by_service || {}), [editingService]: qs };
+      await api.savePhoneSettings({ ...settings, questionnaires_by_service: nextByService });
+      reload();
+    } finally { setSaving(false); }
   };
+  const setQuestions = (qs) => save(qs); // no local state — always persists
 
   const addRoot = () => {
     const q = { id: uid(), question: 'How Can We Help You?', type: 'branch', options: [] };
@@ -2749,11 +3665,26 @@ function CSRQuestionnaireSettings() {
   return (
     <div style={{maxWidth:700}}>
       <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800,marginBottom:6}}>CSR Questionnaire</div>
-      <div style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>
-        Build a <strong>branching question tree</strong>. Selecting an answer reveals the next set of sub-questions automatically. CSR answers flow directly into the job ticket.
+      <div style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>
+        Build a <strong>branching question tree per service</strong>. The CSR picks a service on the Calls page and only sees that tree.
       </div>
+
+      {/* Service selector — one questionnaire per enabled service */}
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+        <label style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em'}}>SERVICE</label>
+        <select
+          value={editingService}
+          onChange={e=>setEditingService(e.target.value)}
+          style={{padding:'8px 12px',borderRadius:8,border:'1.5px solid var(--amber)',background:'var(--amberdim)',color:'var(--amber)',fontSize:13,fontWeight:700,cursor:'pointer',minWidth:220}}
+        >
+          {(enabledServices||[]).map(s => (
+            <option key={s} value={s}>{SERVICE_ICONS[s]||'▪'} {SERVICE_LABELS[s]||s}</option>
+          ))}
+        </select>
+      </div>
+
       <div style={{fontSize:11,color:'var(--muted)',marginBottom:20,padding:'8px 12px',background:'#e8a84a10',border:'1px solid #e8a84a30',borderRadius:8}}>
-        💡 <strong>Click</strong> any question text to rename it. Click <code style={{fontFamily:'var(--font-mono)',fontSize:10}}>+Q</code> next to an option to add follow-up questions for that answer. Use the type dropdown to change a question to text/yesno if no branching is needed.
+        💡 Editing <strong>{SERVICE_LABELS[editingService]||editingService}</strong>. <strong>Click</strong> any question text to rename it. Click <code style={{fontFamily:'var(--font-mono)',fontSize:10}}>+Q</code> next to an option to add follow-up questions.
       </div>
 
       <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:16}}>
@@ -2784,6 +3715,227 @@ function formatPhone(raw) {
   return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7,11)}`;
 }
 
+// ─── JOB EDIT MODAL (from Calls page) ─────────────────────────────────────────
+function JobEditModal({ jobId, onClose, jobTypes = [], arrivalWindows = [] }) {
+  const [job, setJob]         = useState(null);
+  const [techs, setTechs]     = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [saved, setSaved]     = useState(false);
+
+  // Editable fields
+  const [jobType, setJobType]       = useState('');
+  const [description, setDescription] = useState('');
+  const [notes, setNotes]           = useState('');
+  const [techId, setTechId]         = useState('');
+  const [arrivalWin, setArrivalWin] = useState('');
+  const [jobDate, setJobDate]       = useState('');
+  const [startTime, setStartTime]   = useState('');
+  const [endTime, setEndTime]       = useState('');
+
+  useEffect(() => {
+    Promise.all([api.getJob(jobId), api.getTechnicians()])
+      .then(([j, t]) => {
+        setJob(j);
+        setTechs(t || []);
+        setJobType(j.job_type || '');
+        setDescription(j.description || '');
+        setNotes(j.notes || '');
+        setTechId(j.technician_id || '');
+        setArrivalWin(j.arrival_window || '');
+        const s = j.scheduled_start ? new Date(j.scheduled_start) : null;
+        const e = j.scheduled_end   ? new Date(j.scheduled_end)   : null;
+        setJobDate(s ? s.toISOString().split('T')[0] : '');
+        setStartTime(s ? s.toTimeString().slice(0, 5) : '');
+        setEndTime(e ? e.toTimeString().slice(0, 5) : '');
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  const handleSave = async () => {
+    if (!job || saving) return;
+    setSaving(true);
+    try {
+      const updates = {
+        job_type:    jobType,
+        description,
+        notes,
+        technician_id: techId || null,
+        arrival_window: arrivalWin || null,
+      };
+      if (jobDate) {
+        updates.scheduled_start = new Date(`${jobDate}T${startTime || '00:00'}:00`).toISOString();
+        if (endTime) updates.scheduled_end = new Date(`${jobDate}T${endTime}:00`).toISOString();
+      }
+      // If assigning a tech and job was unassigned, promote to scheduled
+      if (techId && job.status === 'unassigned') updates.status = 'scheduled';
+      await api.updateJob(job.id, updates);
+      setSaved(true);
+      setTimeout(() => { setSaved(false); onClose(); }, 1200);
+    } catch(e) { toast.error('Save Failed', e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleCancel = async () => {
+    if (!job || cancelling) return;
+    if (!window.confirm(`Cancel Job #${job.job_number}? This cannot be undone.`)) return;
+    setCancelling(true);
+    try {
+      await api.updateJob(job.id, { status: 'cancelled' });
+      toast.success('Job Cancelled', `Job #${job.job_number} has been cancelled.`);
+      onClose();
+    } catch(e) { toast.error('Error', e.message); }
+    finally { setCancelling(false); }
+  };
+
+  const inp = { width:'100%', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 10px', color:'var(--text)', fontSize:13, boxSizing:'border-box' };
+  const lbl = { fontSize:9, fontFamily:'var(--font-mono)', color:'var(--muted)', display:'block', marginBottom:4, letterSpacing:'.05em' };
+  const statusColors = { unassigned:'#f56565', scheduled:'#a78bfa', en_route:'#4a9eff', on_site:'#e8a84a', completed:'#5daf7c', cancelled:'#9ca3af' };
+  const sc = job ? statusColors[job.status] || 'var(--muted)' : 'var(--muted)';
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{background:'var(--surface)',borderRadius:16,width:'100%',maxWidth:580,maxHeight:'90vh',overflowY:'auto',boxShadow:'0 24px 60px rgba(0,0,0,.25)',animation:'fadeUp .25s ease'}} className="scrollbar-thin">
+
+        {/* Header */}
+        <div style={{padding:'18px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12,position:'sticky',top:0,background:'var(--surface)',zIndex:10}}>
+          <div style={{flex:1}}>
+            {loading
+              ? <div style={{fontSize:15,fontWeight:700,color:'var(--muted)'}}>Loading…</div>
+              : <>
+                  <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800}}>{job?.display_number || `Job #${job?.job_number || '—'}`}</div>
+                  <div style={{fontSize:12,color:'var(--muted)',marginTop:2,display:'flex',alignItems:'center',gap:8}}>
+                    <span>{job?.customer_name}</span>
+                    <span style={{padding:'1px 7px',borderRadius:4,fontSize:10,fontWeight:700,background:sc+'22',color:sc}}>
+                      {job?.status?.replace('_',' ').toUpperCase()}
+                    </span>
+                  </div>
+                </>
+            }
+          </div>
+          <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0}}>
+            <Icon n="x" size={14} color="var(--muted)"/>
+          </button>
+        </div>
+
+        {loading ? (
+          <div style={{padding:40,textAlign:'center'}}><Spinner/></div>
+        ) : (
+          <div style={{padding:20,display:'flex',flexDirection:'column',gap:16}}>
+
+            {/* Cancelled banner */}
+            {job?.status === 'cancelled' && (
+              <div style={{background:'#f5656511',border:'1px solid #f5656544',borderRadius:10,padding:12,fontSize:12,color:'#f56565',fontWeight:600,textAlign:'center'}}>
+                ⚠ This job has been cancelled
+              </div>
+            )}
+
+            {/* Job Type */}
+            <div>
+              <label style={lbl}>JOB TYPE</label>
+              <select value={jobType} onChange={e=>setJobType(e.target.value)} style={inp}>
+                <option value="">— Select —</option>
+                {jobTypes.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            {/* Schedule row */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+              <div>
+                <label style={lbl}>DATE</label>
+                <input type="date" value={jobDate} onChange={e=>setJobDate(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={lbl}>START TIME</label>
+                <input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={lbl}>END TIME</label>
+                <input type="time" value={endTime} onChange={e=>setEndTime(e.target.value)} style={inp}/>
+              </div>
+            </div>
+
+            {/* Arrival Window */}
+            {arrivalWindows.length > 0 && (
+              <div>
+                <label style={lbl}>ARRIVAL WINDOW</label>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                  <button onClick={()=>setArrivalWin('')}
+                    style={{padding:'5px 11px',borderRadius:7,fontSize:11,cursor:'pointer',border:`1px solid ${!arrivalWin?'var(--amber)':'var(--border)'}`,background:!arrivalWin?'var(--amberdim)':'var(--surface2)',color:!arrivalWin?'var(--amber)':'var(--muted)'}}>
+                    None
+                  </button>
+                  {arrivalWindows.map(w=>(
+                    <button key={w} onClick={()=>setArrivalWin(w===arrivalWin?'':w)}
+                      style={{padding:'5px 11px',borderRadius:7,fontSize:11,cursor:'pointer',border:`1px solid ${w===arrivalWin?'var(--amber)':'var(--border)'}`,background:w===arrivalWin?'var(--amberdim)':'var(--surface2)',color:w===arrivalWin?'var(--amber)':'var(--muted)'}}>
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Technician */}
+            <div>
+              <label style={lbl}>ASSIGNED TECHNICIAN</label>
+              <select value={techId} onChange={e=>setTechId(e.target.value)} style={inp}>
+                <option value="">— Unassigned —</option>
+                {techs.map(t=><option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
+              </select>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label style={lbl}>DESCRIPTION / ISSUE</label>
+              <textarea value={description} onChange={e=>setDescription(e.target.value)} rows={4}
+                style={{...inp, resize:'vertical', lineHeight:1.5}}/>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label style={lbl}>INTERNAL NOTES</label>
+              <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={2}
+                style={{...inp, resize:'vertical'}}/>
+            </div>
+
+            {/* Address */}
+            {job?.address && (
+              <div style={{padding:10,background:'var(--surface2)',borderRadius:8,fontSize:12,color:'var(--muted)'}}>
+                📍 {job.address}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* Footer buttons */}
+        {!loading && (
+          <div style={{padding:'14px 20px',borderTop:'1px solid var(--border)',display:'flex',gap:10,position:'sticky',bottom:0,background:'var(--surface)'}}>
+            {job?.status !== 'cancelled' && job?.status !== 'completed' && (
+              <button onClick={handleCancel} disabled={cancelling}
+                style={{padding:'9px 16px',background:'#f5656511',border:'1px solid #f5656544',borderRadius:9,color:'#f56565',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                {cancelling ? 'Cancelling…' : '✕ Cancel Job'}
+              </button>
+            )}
+            <div style={{flex:1}}/>
+            <button onClick={onClose} style={{padding:'9px 16px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9,color:'var(--muted)',fontSize:13,cursor:'pointer'}}>
+              Close
+            </button>
+            {job?.status !== 'cancelled' && (
+              <button onClick={handleSave} disabled={saving||saved}
+                style={{padding:'9px 20px',background:saved?'#5daf7c22':saving?'var(--surface2)':'var(--green)',border:`1px solid ${saved?'#5daf7c':saving?'var(--border)':'var(--green)'}`,borderRadius:9,color:saved?'#5daf7c':saving?'var(--muted)':'#fff',fontSize:13,fontWeight:700,cursor:saving?'not-allowed':'pointer',transition:'all .2s'}}>
+                {saved ? '✓ Saved!' : saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CallsPage({user}) {
   const {data:phoneSettings} = useApi(()=>api.getPhoneSettings());
   const {data:arrivalWindows} = useApi(()=>api.getArrivalWindows());
@@ -2802,12 +3954,27 @@ function CallsPage({user}) {
   const [jobNotes, setJobNotes]           = useState('');
   const [jobType, setJobType]             = useState('');
   const [arrivalWin, setArrivalWin]       = useState('');
-  const [jobDate, setJobDate]             = useState('');
+  const [jobDate, setJobDate]             = useState(()=>new Date().toISOString().split('T')[0]);
+  // Default invoice due date: 30 days from today. Editable per ticket.
+  const [dueDate, setDueDate]             = useState(()=>{ const d=new Date(); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0]; });
   const [jobCreating, setJobCreating]     = useState(false);
   const [jobDone, setJobDone]             = useState(null);
   const [recentCalls, setRecentCalls]     = useState(()=>{ try{return JSON.parse(localStorage.getItem('dps_recent_calls')||'[]');}catch{return [];} });
+  const [jobEditId, setJobEditId]         = useState(null); // job id for edit modal
+  const [callMode, setCallMode]           = useState('service'); // 'service' | 'followup'
+  const [followUpNotes, setFollowUpNotes] = useState('');
+  // Which service tree drives the CSR questionnaire on this call.
+  const enabledServicesCP = useCompanyServices();
+  const [callService, setCallService] = useState(null);
+  useEffect(()=>{
+    if (!callService && enabledServicesCP?.length) setCallService(enabledServicesCP[0]);
+  }, [enabledServicesCP, callService]);
 
-  const questions  = phoneSettings?.questionnaire||[];
+  // Questionnaire is scoped to the active service. Falls back to the legacy
+  // single-tree setting for the first-listed service so existing setups still work.
+  const questions = (phoneSettings?.questionnaires_by_service?.[callService])
+    || (callService === (enabledServicesCP?.[0] || 'plumbing') ? (phoneSettings?.questionnaire || []) : [])
+    || [];
   const cellNumber = phoneSettings?.cell_number||'';
 
   // ── WebSocket: listen for incoming calls + SMS ──────────────
@@ -2837,7 +4004,17 @@ function CallsPage({user}) {
       setLookupLoading(false);
       setIncomingBanner(null);
       if(!data.customer) {
-        setNewCust({first_name:'',last_name:'',phone:formatPhone(rawNumber),email:'',street:'',city:'',state:'TX',zip:''});
+        setNewCust({
+          customer_type:'residential', business_name:'',
+          first_name:'', last_name:'', phone:formatPhone(rawNumber), email:'',
+          // Residential uses street/city/state/zip; commercial uses billing_* + service_addresses[]
+          street:'', city:'', state:'TX', zip:'',
+          billing_street:'', billing_city:'', billing_state:'TX', billing_zip:'',
+          service_addresses:[{street:'',city:'',state:'TX',zip:''}],
+          // Landlord/Tenant extras — landlord bills, tenant lives at service address
+          tenant_first_name:'', tenant_last_name:'', tenant_phone:'', tenant_email:'',
+          marketing_src:'',
+        });
       }
     }).catch(()=>{ if(!cancel) setLookupLoading(false); });
     return()=>{cancel=true;};
@@ -2846,13 +4023,75 @@ function CallsPage({user}) {
   const resetCall = () => {
     setRawNumber(''); setLookup(null); setNewCust(null); setCustSaved(null);
     setSelections({}); setTextAnswers({}); setIssue(''); setJobNotes('');
-    setJobType(''); setArrivalWin(''); setJobDate(''); setJobDone(null);
-    setIncomingBanner(null);
+    setJobType(''); setArrivalWin(''); setFollowUpNotes('');
+    setJobDate(new Date().toISOString().split('T')[0]);
+    setJobDone(null); setIncomingBanner(null);
   };
 
   const saveNewCustomer = async () => {
     try {
-      const c = await api.createCustomer({first_name:newCust.first_name,last_name:newCust.last_name,phone:newCust.phone,email:newCust.email});
+      const isCommercial = newCust.customer_type === 'commercial';
+      const isLandlord   = newCust.customer_type === 'landlord_tenant';
+      const payload = {
+        first_name: newCust.first_name,
+        last_name:  newCust.last_name,
+        phone:      newCust.phone,
+        email:      newCust.email,
+        marketing_src: newCust.marketing_src || null,
+        customer_type: newCust.customer_type || 'residential',
+        business_name: isCommercial ? (newCust.business_name || null) : null,
+        // Tenant lives on the landlord's customer record; editable later.
+        tenant_first_name: isLandlord ? (newCust.tenant_first_name || null) : null,
+        tenant_last_name:  isLandlord ? (newCust.tenant_last_name  || null) : null,
+        tenant_phone:      isLandlord ? (newCust.tenant_phone      || null) : null,
+        tenant_email:      isLandlord ? (newCust.tenant_email      || null) : null,
+      };
+
+      if (isLandlord) {
+        // Landlord billing address + tenant service address.
+        const list = [];
+        if (newCust.billing_street) {
+          list.push({
+            label: 'Landlord Billing', is_billing: true, is_primary: false,
+            street: newCust.billing_street, city: newCust.billing_city,
+            state:  newCust.billing_state,  zip:  newCust.billing_zip,
+          });
+        }
+        const sa = (newCust.service_addresses || [])[0] || {};
+        if (sa.street) {
+          list.push({
+            label: 'Tenant Service', is_billing: false, is_primary: true,
+            street: sa.street, city: sa.city, state: sa.state, zip: sa.zip,
+            lat: sa.lat, lng: sa.lng,
+          });
+        }
+        if (list.length) payload.addresses = list;
+      } else if (isCommercial) {
+        // Build an addresses[] list: one billing + N service entries.
+        const list = [];
+        if (newCust.billing_street) {
+          list.push({
+            label: 'Billing', is_billing: true, is_primary: false,
+            street: newCust.billing_street, city: newCust.billing_city,
+            state:  newCust.billing_state,  zip:  newCust.billing_zip,
+          });
+        }
+        (newCust.service_addresses || []).forEach((s, i) => {
+          if (!s.street) return;
+          list.push({
+            label: s.label || `Service${(newCust.service_addresses.length>1)?' '+(i+1):''}`,
+            is_billing: false, is_primary: i === 0,
+            street: s.street, city: s.city, state: s.state, zip: s.zip, lat: s.lat, lng: s.lng,
+          });
+        });
+        if (list.length) payload.addresses = list;
+      } else if (newCust.street) {
+        payload.address = {
+          street: newCust.street, city: newCust.city, state: newCust.state, zip: newCust.zip,
+          lat: newCust.lat, lng: newCust.lng,
+        };
+      }
+      const c = await api.createCustomer(payload);
       setCustSaved(c); setNewCust(null);
     } catch(e){ toast.error('Error', e.message); }
   };
@@ -2863,13 +4102,23 @@ function CallsPage({user}) {
     if(!activeCustomer) return;
     setJobCreating(true);
     try {
-      // Build structured description: issue first, then questionnaire answers
-      const qAnswers = buildTreeDescription(questions, selections, textAnswers, '');
-      const parts = [];
-      if(issue.trim()) parts.push(`ISSUE: ${issue.trim()}`);
-      if(qAnswers.trim()) parts.push(qAnswers.trim());
-      if(jobNotes.trim()) parts.push(`NOTES: ${jobNotes.trim()}`);
-      const desc = parts.join('\n\n');
+      const isFollowUp = callMode === 'followup';
+      // Build structured description
+      let desc = '';
+      if(isFollowUp) {
+        const parts = [];
+        parts.push('CALL TYPE: Follow Up Call');
+        if(followUpNotes.trim()) parts.push(`PURPOSE: ${followUpNotes.trim()}`);
+        if(jobNotes.trim()) parts.push(`NOTES: ${jobNotes.trim()}`);
+        desc = parts.join('\n\n');
+      } else {
+        const qAnswers = buildTreeDescription(questions, selections, textAnswers, '');
+        const parts = [];
+        if(issue.trim()) parts.push(`ISSUE: ${issue.trim()}`);
+        if(qAnswers.trim()) parts.push(qAnswers.trim());
+        if(jobNotes.trim()) parts.push(`NOTES: ${jobNotes.trim()}`);
+        desc = parts.join('\n\n');
+      }
 
       // Primary address from customer
       const addrId = activeCustomer.addresses?.[0]?.id || null;
@@ -2877,17 +4126,21 @@ function CallsPage({user}) {
       const job = await api.createJob({
         customer_id:  activeCustomer.id,
         address_id:   addrId,
-        job_type:     jobType || 'Service Call',
+        job_type:     isFollowUp ? 'Follow Up Call' : (jobType || 'Service Call'),
+        // Route the ticket to the right department by tagging the chosen service.
+        service:      isFollowUp ? null : (callService || null),
         description:  desc,
-        arrival_window: arrivalWin || null,
+        arrival_window: isFollowUp ? null : (arrivalWin || null),
         scheduled_start: jobDate ? jobDate + 'T00:00:00' : null,
+        // Carries forward to the invoice when it's created. Default +30 days.
+        invoice_due_date: isFollowUp ? null : (dueDate || null),
         source:       'phone',
         status:       'unassigned',
       });
       const custName = activeCustomer.business_name && activeCustomer.customer_type==='commercial'
         ? activeCustomer.business_name
         : `${activeCustomer.first_name} ${activeCustomer.last_name}`;
-      const entry = {number:rawNumber,name:custName,customer_id:activeCustomer.id,job_number:job.job_number,ts:new Date().toISOString()};
+      const entry = {number:rawNumber,name:custName,customer_id:activeCustomer.id,job_id:job.id,job_number:job.job_number,ts:new Date().toISOString()};
       const updated = [entry,...recentCalls].slice(0,20);
       setRecentCalls(updated); localStorage.setItem('dps_recent_calls',JSON.stringify(updated));
       setJobDone(job);
@@ -2897,7 +4150,8 @@ function CallsPage({user}) {
 
 
   return (
-    <div style={{animation:'fadeUp .4s ease',display:'flex',flexDirection:'column',height:'100%'}}>
+    <div style={{animation:'fadeUp .4s ease',display:'flex',flexDirection:'column',height:'100%',position:'relative'}}>
+      {jobEditId&&<JobEditModal jobId={jobEditId} jobTypes={jobTypesList||[]} arrivalWindows={arrivalWindows||[]} onClose={()=>setJobEditId(null)}/>}
 
       {/* Incoming call banner (auto caller ID) */}
       {incomingBanner&&(
@@ -3103,7 +4357,11 @@ function CallsPage({user}) {
                       <div style={rowLbl}>JOB HISTORY</div>
                       <div style={{display:'flex',flexDirection:'column',gap:3}}>
                         {lookup.jobs.map(j=>(
-                          <div key={j.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 9px',background:'var(--surface2)',borderRadius:7,fontSize:11}}>
+                          <div key={j.id}
+                            onClick={()=>setJobEditId(j.id)}
+                            style={{display:'flex',alignItems:'center',gap:8,padding:'6px 9px',background:'var(--surface2)',borderRadius:7,fontSize:11,cursor:'pointer',transition:'background .15s'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='var(--surface3)'}
+                            onMouseLeave={e=>e.currentTarget.style.background='var(--surface2)'}>
                             <span style={{fontFamily:'var(--font-mono)',color:'var(--muted)',flexShrink:0}}>#{j.job_number}</span>
                             <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{j.job_type||j.description?.slice(0,40)||'Job'}</span>
                             {j.scheduled_start&&<span style={{fontSize:9,color:'var(--muted)',flexShrink:0}}>{new Date(j.scheduled_start).toLocaleDateString()}</span>}
@@ -3112,6 +4370,7 @@ function CallsPage({user}) {
                               color:j.status==='completed'?'#5daf7c':j.status==='cancelled'?'#f56565':j.status==='on_site'?'#e8a84a':'#4a9eff'}}>
                               {j.status}
                             </span>
+                            <span style={{fontSize:10,color:'var(--muted)',flexShrink:0}}>✏️</span>
                           </div>
                         ))}
                       </div>
@@ -3128,10 +4387,50 @@ function CallsPage({user}) {
             <div style={{background:'var(--surface)',border:'1px solid #e8a84a44',borderRadius:12,padding:16}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
                 <div style={{width:38,height:38,borderRadius:'50%',background:'#e8a84a22',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🆕</div>
-                <div><div style={{fontSize:15,fontWeight:800,color:'#e8a84a'}}>New Customer</div><div style={{fontSize:11,color:'var(--muted)'}}>Number not on file</div></div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:15,fontWeight:800,color:'#e8a84a'}}>New Customer</div>
+                  <div style={{fontSize:11,color:'var(--muted)'}}>Number not on file</div>
+                </div>
+                {/* Customer type — Residential / Commercial / Landlord-Tenant */}
+                <div style={{display:'flex',gap:4,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:999,padding:3,flexWrap:'wrap'}}>
+                  {[
+                    ['residential','🏠 Residential'],
+                    ['commercial','🏢 Commercial'],
+                    ['landlord_tenant','🔑 Landlord/Tenant'],
+                  ].map(([ct,lb]) => {
+                    const on = (newCust.customer_type || 'residential') === ct;
+                    return (
+                      <button key={ct} onClick={()=>setNewCust(c=>({...c,customer_type:ct}))}
+                        style={{padding:'5px 12px',borderRadius:999,border:'none',cursor:'pointer',fontSize:11,fontWeight:700,
+                          background:on?'#e8a84a':'transparent',color:on?'#000':'var(--muted)',letterSpacing:'.03em',whiteSpace:'nowrap'}}>
+                        {lb}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
+              {/* Business name — commercial only */}
+              {newCust.customer_type === 'commercial' && (
+                <div style={{marginBottom:8}}>
+                  <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>BUSINESS NAME *</label>
+                  <input value={newCust.business_name || ''} onChange={e=>setNewCust(c=>({...c,business_name:e.target.value}))}
+                    placeholder="e.g. Acme Property Management"
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 10px',color:'var(--text)',fontSize:13,boxSizing:'border-box',fontWeight:600}}/>
+                </div>
+              )}
+
+              {/* Contact / point-of-contact fields — same shape for all types */}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
-                {[['first_name','First Name *'],['last_name','Last Name *'],['phone','Phone'],['email','Email']].map(([k,l])=>(
+                {(() => {
+                  const ct = newCust.customer_type;
+                  const prefix = ct==='commercial' ? 'Contact' : ct==='landlord_tenant' ? 'Landlord' : null;
+                  const first = prefix ? `${prefix} First *` : 'First Name *';
+                  const last  = prefix ? `${prefix} Last *`  : 'Last Name *';
+                  const phoneL = ct==='landlord_tenant' ? 'Landlord Phone' : 'Phone';
+                  const emailL = ct==='landlord_tenant' ? 'Landlord Email' : 'Email';
+                  return [['first_name',first],['last_name',last],['phone',phoneL],['email',emailL]];
+                })().map(([k,l])=>(
                   <div key={k}>
                     <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>{l}</label>
                     <input value={newCust[k]} onChange={e=>setNewCust(c=>({...c,[k]:e.target.value}))}
@@ -3139,14 +4438,221 @@ function CallsPage({user}) {
                   </div>
                 ))}
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:10}}>
-                <input value={newCust.street} onChange={e=>setNewCust(c=>({...c,street:e.target.value}))} placeholder="Street address"
-                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
-                <input value={newCust.city} onChange={e=>setNewCust(c=>({...c,city:e.target.value}))} placeholder="City"
-                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+
+              {/* ── Residential: single address ── */}
+              {(!newCust.customer_type || newCust.customer_type === 'residential') && (<>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:8}}>
+                  <AddressAutocomplete
+                    value={newCust.street}
+                    onChange={v => setNewCust(c => ({...c, street:v}))}
+                    onSelect={addr => setNewCust(c => ({...c,
+                      street: addr.street || c.street,
+                      city:   addr.city   || c.city,
+                      state:  addr.state  || c.state,
+                      zip:    addr.zip    || c.zip,
+                      lat:    addr.lat,
+                      lng:    addr.lng,
+                    }))}
+                    placeholder="Start typing address…"
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}
+                  />
+                  <input value={newCust.city} onChange={e=>setNewCust(c=>({...c,city:e.target.value}))} placeholder="City"
+                    style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                </div>
+                {(newCust.state || newCust.zip) && (
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10}}>
+                    <input value={newCust.state || ''} onChange={e=>setNewCust(c=>({...c,state:e.target.value}))} placeholder="State"
+                      style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                    <input value={newCust.zip || ''} onChange={e=>setNewCust(c=>({...c,zip:e.target.value}))} placeholder="ZIP"
+                      style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                )}
+              </>)}
+
+              {/* ── Commercial: Billing + Service address sections ── */}
+              {newCust.customer_type === 'commercial' && (<>
+                {/* Billing */}
+                <div style={{marginTop:4,marginBottom:10,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9}}>
+                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.08em',fontWeight:700,marginBottom:8}}>💳 BILLING ADDRESS</div>
+                  <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:6}}>
+                    <AddressAutocomplete
+                      value={newCust.billing_street}
+                      onChange={v => setNewCust(c => ({...c, billing_street:v}))}
+                      onSelect={addr => setNewCust(c => ({...c,
+                        billing_street: addr.street || c.billing_street,
+                        billing_city:   addr.city   || c.billing_city,
+                        billing_state:  addr.state  || c.billing_state,
+                        billing_zip:    addr.zip    || c.billing_zip,
+                      }))}
+                      placeholder="Billing street…"
+                      style={{width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}
+                    />
+                    <input value={newCust.billing_city} onChange={e=>setNewCust(c=>({...c,billing_city:e.target.value}))} placeholder="City"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                    <input value={newCust.billing_state} onChange={e=>setNewCust(c=>({...c,billing_state:e.target.value}))} placeholder="State"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                    <input value={newCust.billing_zip} onChange={e=>setNewCust(c=>({...c,billing_zip:e.target.value}))} placeholder="ZIP"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                </div>
+
+                {/* Service addresses — array */}
+                <div style={{marginBottom:10,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9}}>
+                  <div style={{display:'flex',alignItems:'center',marginBottom:8}}>
+                    <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--green)',letterSpacing:'.08em',fontWeight:700,flex:1}}>📍 SERVICE ADDRESSES</div>
+                    <button
+                      onClick={()=>setNewCust(c=>({...c, service_addresses:[...(c.service_addresses||[]), {street:'',city:'',state:'TX',zip:''}]}))}
+                      style={{fontSize:11,padding:'4px 10px',background:'var(--greendim)',border:'1px solid var(--green)',borderRadius:6,color:'var(--green)',cursor:'pointer',fontWeight:700}}>
+                      + Add another
+                    </button>
+                  </div>
+                  {(newCust.service_addresses||[]).map((sa, i) => (
+                    <div key={i} style={{marginBottom:i<(newCust.service_addresses||[]).length-1?10:0,paddingBottom:i<(newCust.service_addresses||[]).length-1?10:0,borderBottom:i<(newCust.service_addresses||[]).length-1?'1px dashed var(--border)':'none'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                        <input value={sa.label || ''} onChange={e=>setNewCust(c=>{const next=[...c.service_addresses]; next[i]={...next[i], label:e.target.value}; return {...c, service_addresses:next};})}
+                          placeholder={`Location name (optional) — e.g. "Suite 200" or "Warehouse"`}
+                          style={{flex:1,background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,padding:'4px 8px',color:'var(--text)',fontSize:11}}/>
+                        {(newCust.service_addresses||[]).length > 1 && (
+                          <button onClick={()=>setNewCust(c=>({...c, service_addresses: c.service_addresses.filter((_,j)=>j!==i)}))}
+                            style={{background:'none',border:'none',color:'var(--red)',cursor:'pointer',fontSize:16,padding:'0 4px'}} title="Remove">✕</button>
+                        )}
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:6,marginBottom:6}}>
+                        <AddressAutocomplete
+                          value={sa.street}
+                          onChange={v=>setNewCust(c=>{const next=[...c.service_addresses]; next[i]={...next[i], street:v}; return {...c, service_addresses:next};})}
+                          onSelect={addr=>setNewCust(c=>{const next=[...c.service_addresses]; next[i]={...next[i],
+                            street: addr.street || next[i].street,
+                            city:   addr.city   || next[i].city,
+                            state:  addr.state  || next[i].state,
+                            zip:    addr.zip    || next[i].zip,
+                            lat:    addr.lat, lng: addr.lng,
+                          }; return {...c, service_addresses:next};})}
+                          placeholder={`Service address ${i+1}…`}
+                          style={{width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}
+                        />
+                        <input value={sa.city} onChange={e=>setNewCust(c=>{const next=[...c.service_addresses]; next[i]={...next[i], city:e.target.value}; return {...c, service_addresses:next};})}
+                          placeholder="City"
+                          style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:12}}/>
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+                        <input value={sa.state} onChange={e=>setNewCust(c=>{const next=[...c.service_addresses]; next[i]={...next[i], state:e.target.value}; return {...c, service_addresses:next};})}
+                          placeholder="State"
+                          style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:12}}/>
+                        <input value={sa.zip} onChange={e=>setNewCust(c=>{const next=[...c.service_addresses]; next[i]={...next[i], zip:e.target.value}; return {...c, service_addresses:next};})}
+                          placeholder="ZIP"
+                          style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,padding:'5px 8px',color:'var(--text)',fontSize:12}}/>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>)}
+
+              {/* ── Landlord / Tenant: landlord billing + tenant service + tenant contact ── */}
+              {newCust.customer_type === 'landlord_tenant' && (<>
+                {/* Landlord billing address */}
+                <div style={{marginTop:4,marginBottom:10,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9}}>
+                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.08em',fontWeight:700,marginBottom:8}}>💳 LANDLORD BILLING ADDRESS</div>
+                  <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:6}}>
+                    <AddressAutocomplete
+                      value={newCust.billing_street}
+                      onChange={v => setNewCust(c => ({...c, billing_street:v}))}
+                      onSelect={addr => setNewCust(c => ({...c,
+                        billing_street: addr.street || c.billing_street,
+                        billing_city:   addr.city   || c.billing_city,
+                        billing_state:  addr.state  || c.billing_state,
+                        billing_zip:    addr.zip    || c.billing_zip,
+                      }))}
+                      placeholder="Where the landlord gets billed…"
+                      style={{width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}
+                    />
+                    <input value={newCust.billing_city} onChange={e=>setNewCust(c=>({...c,billing_city:e.target.value}))} placeholder="City"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                    <input value={newCust.billing_state} onChange={e=>setNewCust(c=>({...c,billing_state:e.target.value}))} placeholder="State"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                    <input value={newCust.billing_zip} onChange={e=>setNewCust(c=>({...c,billing_zip:e.target.value}))} placeholder="ZIP"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                </div>
+
+                {/* Tenant block — editable later as tenants turn over */}
+                <div style={{marginBottom:10,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9}}>
+                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--green)',letterSpacing:'.08em',fontWeight:700,marginBottom:2}}>👤 TENANT</div>
+                  <div style={{fontSize:10,color:'var(--muted)',marginBottom:8,fontStyle:'italic'}}>Can be edited any time when the tenant changes.</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:6}}>
+                    <input value={newCust.tenant_first_name || ''} onChange={e=>setNewCust(c=>({...c,tenant_first_name:e.target.value}))}
+                      placeholder="Tenant first name"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                    <input value={newCust.tenant_last_name || ''} onChange={e=>setNewCust(c=>({...c,tenant_last_name:e.target.value}))}
+                      placeholder="Tenant last name"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+                    <input value={newCust.tenant_phone || ''} onChange={e=>setNewCust(c=>({...c,tenant_phone:e.target.value}))}
+                      placeholder="Tenant phone"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                    <input value={newCust.tenant_email || ''} onChange={e=>setNewCust(c=>({...c,tenant_email:e.target.value}))}
+                      placeholder="Tenant email"
+                      style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+
+                  {/* Tenant / service address */}
+                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--green)',letterSpacing:'.08em',fontWeight:700,marginBottom:6}}>📍 SERVICE ADDRESS (TENANT)</div>
+                  {(() => {
+                    const sa = (newCust.service_addresses||[])[0] || {};
+                    const upd = (patch) => setNewCust(c => {
+                      const next = [...(c.service_addresses||[{}])];
+                      next[0] = { ...(next[0]||{}), ...patch };
+                      return { ...c, service_addresses: next };
+                    });
+                    return (
+                      <>
+                        <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:6}}>
+                          <AddressAutocomplete
+                            value={sa.street}
+                            onChange={v=>upd({street:v})}
+                            onSelect={addr=>upd({
+                              street: addr.street || sa.street,
+                              city:   addr.city   || sa.city,
+                              state:  addr.state  || sa.state,
+                              zip:    addr.zip    || sa.zip,
+                              lat:    addr.lat, lng: addr.lng,
+                            })}
+                            placeholder="Where work happens (tenant's address)…"
+                            style={{width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}
+                          />
+                          <input value={sa.city||''} onChange={e=>upd({city:e.target.value})} placeholder="City"
+                            style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                          <input value={sa.state||''} onChange={e=>upd({state:e.target.value})} placeholder="State"
+                            style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                          <input value={sa.zip||''} onChange={e=>upd({zip:e.target.value})} placeholder="ZIP"
+                            style={{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </>)}
+
+              {/* Lead source — first-touch attribution while the CSR is still on the line */}
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>HOW DID THEY HEAR ABOUT US?</label>
+                <select value={newCust.marketing_src || ''} onChange={e=>setNewCust(c=>({...c,marketing_src:e.target.value}))}
+                  style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:newCust.marketing_src?'var(--text)':'var(--muted)',fontSize:12,cursor:'pointer',boxSizing:'border-box'}}>
+                  <option value="">— Select lead source —</option>
+                  {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
-              <button onClick={saveNewCustomer} disabled={!newCust.first_name||!newCust.last_name}
-                style={{background:'#e8a84a22',border:'1px solid #e8a84a',borderRadius:8,padding:'7px 18px',color:'#e8a84a',fontSize:13,fontWeight:600,cursor:'pointer',opacity:(!newCust.first_name||!newCust.last_name)?0.5:1}}>
+              <button
+                onClick={saveNewCustomer}
+                disabled={!newCust.first_name||!newCust.last_name||(newCust.customer_type==='commercial'&&!newCust.business_name)}
+                style={{background:'#e8a84a22',border:'1px solid #e8a84a',borderRadius:8,padding:'7px 18px',color:'#e8a84a',fontSize:13,fontWeight:600,cursor:'pointer',opacity:(!newCust.first_name||!newCust.last_name||(newCust.customer_type==='commercial'&&!newCust.business_name))?0.5:1}}>
                 Save & Continue →
               </button>
             </div>
@@ -3164,11 +4670,19 @@ function CallsPage({user}) {
             <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:14}}>
               <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',marginBottom:8,letterSpacing:'.06em'}}>RECENT CALLS</div>
               {recentCalls.slice(0,8).map((c,i)=>(
-                <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:i<recentCalls.length-1?'1px solid var(--border)':'none',fontSize:11}}>
-                  <span style={{fontFamily:'var(--font-mono)',color:'var(--muted)',minWidth:100}}>{formatPhone(c.number)}</span>
-                  <span style={{flex:1,fontWeight:500}}>{c.name}</span>
-                  {c.job_number&&<span style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--muted)'}}>#{c.job_number}</span>}
-                  <button onClick={()=>setRawNumber(c.number.replace(/\D/g,''))} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:5,padding:'1px 7px',color:'var(--muted)',fontSize:10,cursor:'pointer'}}>↺</button>
+                <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 4px',borderBottom:i<Math.min(recentCalls.length,8)-1?'1px solid var(--border)':'none',fontSize:11}}>
+                  <span style={{fontFamily:'var(--font-mono)',color:'var(--muted)',minWidth:100,flexShrink:0}}>{formatPhone(c.number)}</span>
+                  <span style={{flex:1,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</span>
+                  {c.job_number&&c.job_id?(
+                    <button onClick={()=>setJobEditId(c.job_id)}
+                      style={{background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:5,padding:'2px 8px',color:'var(--amber)',fontSize:10,fontWeight:600,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>
+                      #{c.job_number} ✏️
+                    </button>
+                  ):c.job_number?(
+                    <span style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--muted)',flexShrink:0}}>#{c.job_number}</span>
+                  ):null}
+                  <button onClick={()=>setRawNumber(c.number.replace(/\D/g,''))}
+                    style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:5,padding:'2px 8px',color:'var(--muted)',fontSize:10,cursor:'pointer',flexShrink:0}}>↺ Redial</button>
                 </div>
               ))}
             </div>
@@ -3202,93 +4716,173 @@ function CallsPage({user}) {
                 </div>
               )}
 
+              {/* ── Call Type Mode Toggle ── */}
+              <div style={{display:'flex',gap:0,background:'var(--surface2)',borderRadius:10,padding:4,margin:'12px 16px 0',flexShrink:0,border:'1px solid var(--border)'}}>
+                {[['service','🔧 Service Call'],['followup','📞 Follow Up Call']].map(([mode,label])=>(
+                  <button key={mode} onClick={()=>setCallMode(mode)}
+                    style={{flex:1,padding:'8px 10px',borderRadius:7,border:'none',cursor:'pointer',fontSize:12,fontWeight:callMode===mode?700:500,transition:'all .15s',
+                      background:callMode===mode?(mode==='followup'?'#6366f1':'var(--green)'):'transparent',
+                      color:callMode===mode?'#fff':'var(--muted)'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <div style={{padding:16,display:'flex',flexDirection:'column',gap:16,flex:1}}>
 
-                {/* Issue Description */}
-                <div>
-                  <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.07em',display:'block',marginBottom:6,fontWeight:600}}>
-                    ISSUE — WHAT IS THE CUSTOMER REPORTING?
-                  </label>
-                  <textarea value={issue} onChange={e=>setIssue(e.target.value)} rows={3}
-                    placeholder="Describe the problem in the customer's words…"
-                    style={{width:'100%',background:'var(--surface2)',border:'2px solid var(--amberdim)',borderRadius:9,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',lineHeight:1.5}}
-                    onFocus={e=>e.target.style.borderColor='var(--amber)'}
-                    onBlur={e=>e.target.style.borderColor='var(--amberdim)'}/>
-                </div>
-
-                {/* Questionnaire */}
-                <div>
-                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
-                    QUESTIONNAIRE
-                    {Object.keys(selections).length>0&&<span style={{fontSize:9,background:'#5daf7c22',color:'#5daf7c',borderRadius:3,padding:'1px 6px',border:'1px solid #5daf7c33'}}>{Object.keys(selections).length} answered</span>}
-                  </div>
-                  {questions.length===0
-                    ? <div style={{fontSize:12,color:'var(--muted)',padding:'8px 0'}}>No questionnaire — configure in <strong>Settings → CSR Questionnaire</strong>.</div>
-                    : <BranchRenderer questions={questions} selections={selections} textAnswers={textAnswers}
-                        onBranch={(qid,oid)=>setSelections(s=>({...s,[qid]:oid}))}
-                        onText={(qid,v)=>setTextAnswers(a=>({...a,[qid]:v}))}/>
-                  }
-                </div>
-
-                {/* Job Details */}
-                <div style={{borderTop:'1px solid var(--border)',paddingTop:14}}>
-                  <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:10}}>JOB DETAILS</div>
-
-                  {/* Job Type */}
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>JOB TYPE</label>
-                    <select value={jobType} onChange={e=>setJobType(e.target.value)}
-                      style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:jobType?'var(--text)':'var(--muted)',fontSize:13,boxSizing:'border-box'}}>
-                      <option value="">— Select job type —</option>
-                      {(jobTypesList||[]).map(t=><option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-
-                  {/* Scheduled Date */}
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>SCHEDULED DATE</label>
-                    <input type="date" value={jobDate} onChange={e=>setJobDate(e.target.value)}
-                      style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
-                  </div>
-
-                  {/* Arrival Window */}
-                  <div style={{marginBottom:10}}>
-                    <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:6,letterSpacing:'.05em'}}>ARRIVAL WINDOW</label>
-                    {(arrivalWindows||[]).length===0
-                      ? <div style={{fontSize:11,color:'var(--muted)'}}>No arrival windows configured — go to <strong>Settings → Operations → Arrival Windows</strong>.</div>
-                      : <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                          {(arrivalWindows||[]).map(w=>(
-                            <button key={w} onClick={()=>setArrivalWin(w===arrivalWin?'':w)}
-                              style={{padding:'6px 12px',borderRadius:7,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',
-                                border:`1px solid ${w===arrivalWin?'var(--green)':'var(--border2)'}`,
-                                background:w===arrivalWin?'var(--greendim)':'var(--surface2)',
-                                color:w===arrivalWin?'var(--green)':'var(--muted)'}}>
-                              {w}
-                            </button>
-                          ))}
+                {callMode === 'followup' ? (
+                  /* ── FOLLOW UP CALL form ── */
+                  <>
+                    <div style={{background:'#6366f111',border:'1px solid #6366f133',borderRadius:10,padding:14}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                        <span style={{fontSize:20}}>📞</span>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:700,color:'#6366f1'}}>Follow Up Call</div>
+                          <div style={{fontSize:11,color:'var(--muted)'}}>Phone call to follow up on an estimate. No invoices will be created.</div>
                         </div>
-                    }
-                  </div>
+                      </div>
+                    </div>
 
-                  {/* Additional Notes */}
-                  <div>
-                    <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>ADDITIONAL NOTES</label>
-                    <textarea value={jobNotes} onChange={e=>setJobNotes(e.target.value)} rows={2}
-                      placeholder="Any other notes for the dispatcher or technician…"
-                      style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:12,resize:'vertical',boxSizing:'border-box'}}/>
-                  </div>
-                </div>
+                    <div>
+                      <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'#6366f1',letterSpacing:'.07em',display:'block',marginBottom:6,fontWeight:600}}>
+                        PURPOSE OF CALL
+                      </label>
+                      <textarea value={followUpNotes} onChange={e=>setFollowUpNotes(e.target.value)} rows={3}
+                        placeholder="e.g. Following up on Estimate #142 for water heater replacement…"
+                        style={{width:'100%',background:'var(--surface2)',border:'2px solid #6366f133',borderRadius:9,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',lineHeight:1.5}}
+                        onFocus={e=>e.target.style.borderColor='#6366f1'}
+                        onBlur={e=>e.target.style.borderColor='#6366f133'}/>
+                    </div>
+
+                    <div style={{borderTop:'1px solid var(--border)',paddingTop:14}}>
+                      <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:10}}>SCHEDULE</div>
+                      <div style={{marginBottom:10}}>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>DATE TO FOLLOW UP</label>
+                        <input type="date" value={jobDate} onChange={e=>setJobDate(e.target.value)}
+                          style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>ADDITIONAL NOTES</label>
+                        <textarea value={jobNotes} onChange={e=>setJobNotes(e.target.value)} rows={2}
+                          placeholder="Any notes for the tech making the call…"
+                          style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:12,resize:'vertical',boxSizing:'border-box'}}/>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* ── SERVICE CALL form ── */
+                  <>
+                    {/* Issue Description */}
+                    <div>
+                      <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.07em',display:'block',marginBottom:6,fontWeight:600}}>
+                        ISSUE — WHAT IS THE CUSTOMER REPORTING?
+                      </label>
+                      <textarea value={issue} onChange={e=>setIssue(e.target.value)} rows={3}
+                        placeholder="Describe the problem in the customer's words…"
+                        style={{width:'100%',background:'var(--surface2)',border:'2px solid var(--amberdim)',borderRadius:9,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',lineHeight:1.5}}
+                        onFocus={e=>e.target.style.borderColor='var(--amber)'}
+                        onBlur={e=>e.target.style.borderColor='var(--amberdim)'}/>
+                    </div>
+
+                    {/* Service selector — drives which questionnaire tree loads */}
+                    <div>
+                      <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',display:'block',marginBottom:6}}>SERVICE</label>
+                      <select
+                        value={callService || ''}
+                        onChange={e=>{ setCallService(e.target.value); setSelections({}); setTextAnswers({}); }}
+                        style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'2px solid var(--amberdim)',background:'var(--surface2)',color:'var(--text)',fontSize:13,fontWeight:600,cursor:'pointer',boxSizing:'border-box'}}
+                        onFocus={e=>e.target.style.borderColor='var(--amber)'}
+                        onBlur={e=>e.target.style.borderColor='var(--amberdim)'}
+                      >
+                        {(enabledServicesCP||[]).map(s => (
+                          <option key={s} value={s}>{SERVICE_ICONS[s]||'▪'} {SERVICE_LABELS[s]||s}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Questionnaire — scoped to the selected service */}
+                    <div>
+                      <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+                        {(SERVICE_LABELS[callService]||'').toUpperCase()} QUESTIONNAIRE
+                        {Object.keys(selections).length>0&&<span style={{fontSize:9,background:'#5daf7c22',color:'#5daf7c',borderRadius:3,padding:'1px 6px',border:'1px solid #5daf7c33'}}>{Object.keys(selections).length} answered</span>}
+                      </div>
+                      {questions.length===0
+                        ? <div style={{fontSize:12,color:'var(--muted)',padding:'8px 0'}}>No questionnaire for {SERVICE_LABELS[callService]||callService} yet — configure it in <strong>Settings → CSR Questionnaire</strong>.</div>
+                        : <BranchRenderer questions={questions} selections={selections} textAnswers={textAnswers}
+                            onBranch={(qid,oid)=>setSelections(s=>({...s,[qid]:oid}))}
+                            onText={(qid,v)=>setTextAnswers(a=>({...a,[qid]:v}))}/>
+                      }
+                    </div>
+
+                    {/* Job Details */}
+                    <div style={{borderTop:'1px solid var(--border)',paddingTop:14}}>
+                      <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:10}}>JOB DETAILS</div>
+
+                      {/* Job Type */}
+                      <div style={{marginBottom:10}}>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>JOB TYPE</label>
+                        <select value={jobType} onChange={e=>setJobType(e.target.value)}
+                          style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:jobType?'var(--text)':'var(--muted)',fontSize:13,boxSizing:'border-box'}}>
+                          <option value="">— Select job type —</option>
+                          {(jobTypesList||[]).map(t=><option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+
+                      {/* Scheduled Date */}
+                      <div style={{marginBottom:10}}>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>SCHEDULED DATE</label>
+                        <input type="date" value={jobDate} onChange={e=>setJobDate(e.target.value)}
+                          style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+                      </div>
+
+                      {/* Invoice due date — defaults to +30 days, applies when the invoice is created */}
+                      <div style={{marginBottom:10}}>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>INVOICE DUE DATE (DEFAULT 30 DAYS)</label>
+                        <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)}
+                          style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+                      </div>
+
+                      {/* Arrival Window */}
+                      <div style={{marginBottom:10}}>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:6,letterSpacing:'.05em'}}>ARRIVAL WINDOW</label>
+                        {(arrivalWindows||[]).length===0
+                          ? <div style={{fontSize:11,color:'var(--muted)'}}>No arrival windows configured — go to <strong>Settings → Operations → Arrival Windows</strong>.</div>
+                          : <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                              {(arrivalWindows||[]).map(w=>(
+                                <button key={w} onClick={()=>setArrivalWin(w===arrivalWin?'':w)}
+                                  style={{padding:'6px 12px',borderRadius:7,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',
+                                    border:`1px solid ${w===arrivalWin?'var(--green)':'var(--border2)'}`,
+                                    background:w===arrivalWin?'var(--greendim)':'var(--surface2)',
+                                    color:w===arrivalWin?'var(--green)':'var(--muted)'}}>
+                                  {w}
+                                </button>
+                              ))}
+                            </div>
+                        }
+                      </div>
+
+                      {/* Additional Notes */}
+                      <div>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>ADDITIONAL NOTES</label>
+                        <textarea value={jobNotes} onChange={e=>setJobNotes(e.target.value)} rows={2}
+                          placeholder="Any other notes for the dispatcher or technician…"
+                          style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:12,resize:'vertical',boxSizing:'border-box'}}/>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Create Job button — inside panel footer */}
               <div style={{padding:'12px 16px',borderTop:'1px solid var(--border)',flexShrink:0}}>
                 <button onClick={createJob} disabled={!activeCustomer||jobCreating||!!jobDone}
-                  style={{width:'100%',background:activeCustomer&&!jobDone?'#5daf7c':'var(--surface2)',
-                    border:`1px solid ${activeCustomer&&!jobDone?'#5daf7c':'var(--border)'}`,
-                    borderRadius:10,padding:'12px',color:activeCustomer&&!jobDone?'#0a1628':'var(--muted)',
+                  style={{width:'100%',
+                    background:activeCustomer&&!jobDone?(callMode==='followup'?'#6366f1':'#5daf7c'):'var(--surface2)',
+                    border:`1px solid ${activeCustomer&&!jobDone?(callMode==='followup'?'#6366f1':'#5daf7c'):'var(--border)'}`,
+                    borderRadius:10,padding:'12px',color:activeCustomer&&!jobDone?'#fff':'var(--muted)',
                     fontSize:14,fontWeight:800,cursor:activeCustomer&&!jobDone?'pointer':'not-allowed',
                     transition:'all .2s',opacity:!activeCustomer?0.5:1}}>
-                  {jobCreating?'Creating…':jobDone?'✓ Job Created':'🗂 Create Job Ticket'}
+                  {jobCreating?'Creating…':jobDone?'✓ Created':callMode==='followup'?'📞 Create Follow Up Call':'🗂 Create Job Ticket'}
                 </button>
               </div>
             </div>
@@ -3505,13 +5099,10 @@ function CreateDocDrawer({type, onClose, onCreated}) {
   const [custPick, setCustPick] = useState(null);
   const [jobPick, setJobPick] = useState(null);
   const [jobs, setJobs] = useState([]);
-  // HTML pricebook wiring: tasks + engine, not legacy /pricebook/items
+  // HTML pricebook wiring
   const [pbEngine, setPbEngine] = useState(null);
-  const [pbTasks, setPbTasks] = useState([]);
-  const [pbCat, setPbCat] = useState('acc');
-  const [pbLoading, setPbLoading] = useState(false);
-  const [pbSearch, setPbSearch] = useState('');
   const [showPb, setShowPb] = useState(null); // { kind:'invoice', idx } | { kind:'option', oi, ii } | null
+  const [pbSearch, setPbSearch] = useState(''); // kept for pickPbItem close cleanup
   const [taxRate, setTaxRate] = useState(8.25);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -3530,14 +5121,6 @@ function CreateDocDrawer({type, onClose, onCreated}) {
     api.getCustomers().then(r=>setCustomers(r||[])).catch(()=>{});
     api.pbEngine().then(setPbEngine).catch(()=>{});
   },[]);
-  // Load tasks for the active pricebook category whenever picker is open
-  useEffect(()=>{
-    if (showPb === null) return;
-    setPbLoading(true);
-    api.pbTasks({ category: pbCat })
-      .then(d => setPbTasks(Array.isArray(d) ? d : []))
-      .finally(() => setPbLoading(false));
-  }, [pbCat, showPb]);
 
   useEffect(()=>{
     if(!custPick) { setJobs([]); setJobPick(null); return; }
@@ -3568,15 +5151,6 @@ function CreateDocDrawer({type, onClose, onCreated}) {
   const taxAmt = subtotal*taxFrac;
   const total = subtotal+taxAmt;
 
-  // Filter tasks by search across name/tag/description
-  const pbFiltered = (pbTasks||[]).filter(t => {
-    if (!pbSearch) return true;
-    const q = pbSearch.toLowerCase();
-    return (t.name||'').toLowerCase().includes(q)
-        || (t.tag||'').toLowerCase().includes(q)
-        || (t.description||'').toLowerCase().includes(q);
-  });
-
   // Compute flat rate for a task using the HTML engine
   const pbPrice = (task) => pbEngine ? calcFlatRate(task, pbEngine).flatRate : 0;
 
@@ -3594,7 +5168,6 @@ function CreateDocDrawer({type, onClose, onCreated}) {
       setOptItem(showPb.oi, showPb.ii, 'quantity', 1);
     }
     setShowPb(null);
-    setPbSearch('');
   };
 
   const save = async () => {
@@ -3648,7 +5221,7 @@ function CreateDocDrawer({type, onClose, onCreated}) {
               </div>
             ) : (
               <div style={{position:'relative'}}>
-                <input value={custSearch} onChange={e=>setCustSearch(e.target.value)} placeholder="Type customer name or phone…"
+                <input value={custSearch} onChange={e=>setCustSearch(e.target.value)} placeholder="Type customer name, phone, or address…"
                   style={{...inp,width:'100%'}}/>
                 {custSearch&&filteredCusts.length>0&&(
                   <div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,zIndex:10,maxHeight:220,overflowY:'auto',boxShadow:'0 4px 16px rgba(0,0,0,.3)'}}>
@@ -3786,173 +5359,3458 @@ function CreateDocDrawer({type, onClose, onCreated}) {
         </div>
 
         {/* ── Pricebook picker modal (shared by invoice lines & estimate options) ── */}
-        {showPb && (
-          <div onClick={()=>setShowPb(null)}
-            style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:950,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div onClick={e=>e.stopPropagation()}
-              style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:12,width:820,maxWidth:'95vw',height:'80vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}>
-              {/* Header */}
-              <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10,background:'var(--surface)'}}>
-                <span style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,flex:1}}>💲 Pricebook — Choose a Task</span>
-                <button onClick={()=>setShowPb(null)} style={{background:'transparent',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer'}}>✕</button>
-              </div>
-              {/* Category tabs */}
-              <div style={{padding:'8px 12px',borderBottom:'1px solid var(--border)',display:'flex',gap:6,flexWrap:'wrap',background:'var(--surface)'}}>
-                {PB_CATS.map(c=>(
-                  <button key={c.id} onClick={()=>setPbCat(c.id)}
-                    style={{fontSize:11,padding:'4px 10px',borderRadius:20,border:`1px solid ${pbCat===c.id?c.color:'var(--border)'}`,background:pbCat===c.id?`${c.color}22`:'transparent',color:pbCat===c.id?c.color:'var(--muted)',cursor:'pointer',fontWeight:pbCat===c.id?700:500}}>
-                    {c.icon} {c.name}
-                  </button>
-                ))}
-              </div>
-              {/* Search */}
-              <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
-                <input value={pbSearch} onChange={e=>setPbSearch(e.target.value)} autoFocus placeholder="Search tasks by name, tag, or description…"
-                  style={{...inp,width:'100%'}}/>
-              </div>
-              {/* List */}
-              <div style={{flex:1,overflowY:'auto'}}>
-                {pbLoading ? (
-                  <div style={{padding:20,display:'flex',justifyContent:'center'}}><Spinner/></div>
-                ) : pbFiltered.length === 0 ? (
-                  <div style={{padding:40,textAlign:'center',color:'var(--muted)',fontSize:13}}>No tasks found in this category.</div>
-                ) : pbFiltered.map(task => {
-                  const price = pbPrice(task);
-                  return (
-                    <div key={task.id}
-                      style={{padding:'10px 16px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
-                          <span style={{fontSize:13,fontWeight:700,color:'var(--text)'}}>{task.name}</span>
-                          {task.tag && <span style={{fontSize:10,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:3,padding:'1px 6px',color:'var(--muted)'}}>{task.tag}</span>}
-                        </div>
-                        {task.description && <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.4,maxHeight:32,overflow:'hidden'}}>{task.description}</div>}
-                      </div>
-                      <div style={{textAlign:'right',flexShrink:0}}>
-                        <div style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,color:'var(--amber)'}}>{fmt$(price)}</div>
-                        <div style={{fontSize:10,color:'var(--muted)'}}>{task.hours}h · {task.difficulty}</div>
-                      </div>
-                      <button onClick={()=>pickPbItem(task)}
-                        style={{background:'var(--green)',color:'#fff',border:'none',borderRadius:7,padding:'7px 14px',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>+ Add</button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
+        <MobilePricebookPicker
+          open={!!showPb}
+          onClose={() => { setShowPb(null); setPbSearch(''); }}
+          onPick={pickPbItem}
+          calcPrice={pbPrice}
+        />
       </div>
     </div>
   );
 }
 
-function InvoicesPage() {
-  const [docType, setDocType] = useState('all');  // 'all'|'estimate'|'invoice'
+function InvoicesPage({ initialId, onDidOpen } = {}) {
+  const [docType, setDocType] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [showCreate, setShowCreate] = useState(null); // null|'estimate'|'invoice'
+  const [showCreate, setShowCreate] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [detailInv, setDetailInv] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const {data, loading, reload} = useApi(()=>api.getInvoices());
+
+  // Detail panel state
+  const [editNotes, setEditNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
+
+  // Dispatch alert state (only used when invoice is linked to a job)
+  const [alertText, setAlertText] = useState('');
+  const [sendingAlert, setSendingAlert] = useState(false);
+  const [alertSent, setAlertSent] = useState(false);
+  const [payMethods, setPayMethods] = useState([]);
+  const [payMethodSel, setPayMethodSel] = useState(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [checkNum, setCheckNum] = useState('');
+  const [paySubmitting, setPaySubmitting] = useState(false);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [newItemDesc, setNewItemDesc] = useState('');
+  const [newItemQty, setNewItemQty] = useState('1');
+  const [newItemPrice, setNewItemPrice] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
+  const [showPbPicker, setShowPbPicker] = useState(false);
+  const [pbEngineInv, setPbEngineInv] = useState(null);
+  const [emailModal, setEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailMsg, setEmailMsg] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [busyStatus, setBusyStatus] = useState(false);
+  // Multi-select for merging invoices on the same job.
+  const [mergeIds, setMergeIds] = useState([]);
+  const [merging, setMerging] = useState(false);
+
+  // Load pricebook engine once
+  useEffect(() => { api.pbEngine('plumbing').then(setPbEngineInv).catch(()=>{}); }, []);
+  useEffect(() => { setEditNotes(detailInv?.notes||''); setNotesSaved(false); }, [detailInv?.id]);
+  // Pre-fill the Email To field with the customer's on-file email whenever the
+  // send-email modal opens or the invoice changes. User can still edit it.
+  useEffect(() => {
+    if (emailModal && detailInv?.customer_email && !emailTo) {
+      setEmailTo(detailInv.customer_email);
+    }
+  }, [emailModal, detailInv?.customer_email]);
+
+  const openDetail = async (doc) => {
+    setSelected(doc); setDetailLoading(true); setDetailInv(null);
+    try { const r = await api.get(`/invoices/${doc.id}`); setDetailInv(r.data||r); }
+    catch(e) { setDetailInv(doc); } finally { setDetailLoading(false); }
+  };
+  const refreshDetail = async () => {
+    if (!detailInv) return;
+    try { const r = await api.get(`/invoices/${detailInv.id}`); const u=r.data||r; setDetailInv(u); setSelected(s=>s?.id===u.id?u:s); reload(); } catch(e){}
+  };
+  const closeDetail = () => { setSelected(null); setDetailInv(null); };
+
+  // If a parent (e.g. JobsHubPage) hands us an id to preselect, open its detail panel.
+  useEffect(() => {
+    if (initialId) { openDetail({ id: initialId }); onDidOpen && onDidOpen(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialId]);
 
   const docs = (data||[]).filter(d=>{
     if(docType!=='all'&&d.type!==docType) return false;
     if(statusFilter!=='all'&&d.status!==statusFilter) return false;
     return true;
   });
-
   const totalAR = (data||[]).filter(d=>d.type==='invoice'&&!['paid','void'].includes(d.status)).reduce((s,d)=>s+parseFloat(d.total||0),0);
   const totalPaid30 = (data||[]).filter(d=>d.status==='paid'&&new Date(d.paid_at)>new Date(Date.now()-30*86400e3)).reduce((s,d)=>s+parseFloat(d.total||0),0);
 
+  // Merge helpers — only invoices, must be same job, none paid, none already merged.
+  const selectedInvoices = (data||[]).filter(d => mergeIds.includes(d.id));
+  const canMerge = selectedInvoices.length >= 2
+    && selectedInvoices.every(d => d.type === 'invoice')
+    && selectedInvoices.every(d => d.status !== 'paid' && d.status !== 'void' && !d.converted_invoice_id)
+    && new Set(selectedInvoices.map(d => d.job_id)).size === 1
+    && selectedInvoices[0].job_id != null;
+  const mergeBlockReason = () => {
+    if (selectedInvoices.length < 2) return 'Select 2+ invoices to merge.';
+    if (selectedInvoices.some(d => d.type !== 'invoice')) return 'Only invoices can be merged (not estimates).';
+    if (selectedInvoices.some(d => d.status === 'paid')) return 'Cannot merge a paid invoice.';
+    if (selectedInvoices.some(d => d.status === 'void' || d.converted_invoice_id)) return 'One of the selected invoices was already merged or voided.';
+    if (!selectedInvoices[0].job_id) return 'These invoices are not linked to a job.';
+    if (new Set(selectedInvoices.map(d => d.job_id)).size > 1) return 'Merge is only allowed for invoices on the same job.';
+    return null;
+  };
+  const toggleMerge = (id) => setMergeIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const doMerge = async () => {
+    const block = mergeBlockReason(); if (block) { toast.error('Cannot merge', block); return; }
+    const total = selectedInvoices.reduce((s,d) => s + parseFloat(d.total||0), 0);
+    if (!window.confirm(`Merge ${selectedInvoices.length} invoices into one? Total will be $${total.toFixed(2)}. The originals will be marked void.`)) return;
+    setMerging(true);
+    try {
+      const { invoice } = await api.mergeInvoices(mergeIds);
+      toast.success('Merged', `Created invoice #${invoice.display_number || invoice.invoice_number || invoice.id}.`);
+      setMergeIds([]); reload();
+      openDetail(invoice);
+    } catch(e) { toast.error('Merge failed', e.message); }
+    finally { setMerging(false); }
+  };
+
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try { await api.updateInvoice(detailInv.id,{notes:editNotes}); setDetailInv(d=>({...d,notes:editNotes})); setNotesSaved(true); setTimeout(()=>setNotesSaved(false),2000); }
+    catch(e){ toast.error('Save failed',e.message); } finally{ setSavingNotes(false); }
+  };
+  const rewriteNotes = async () => {
+    if(!editNotes.trim()) return; setAiLoading(true);
+    try { const {text}=await api.aiRewrite(editNotes,'plumbing service'); setEditNotes(text); setNotesSaved(false); }
+    catch(e){ toast.error('AI Error',e.message); } finally{ setAiLoading(false); }
+  };
+  const handleAddItem = async () => {
+    if(!newItemDesc.trim()) return; setAddingItem(true);
+    try { const u=await api.addInvoiceItem(detailInv.id,{description:newItemDesc,quantity:parseFloat(newItemQty)||1,unit_price:parseFloat(newItemPrice)||0}); setDetailInv(u); setNewItemDesc('');setNewItemQty('1');setNewItemPrice('');setShowAddItem(false); reload(); }
+    catch(e){ toast.error('Error',e.message); } finally{ setAddingItem(false); }
+  };
+  const pickPbItem = async (task) => {
+    const calc = pbEngineInv ? calcFlatRate(task,pbEngineInv) : {flatRate:0,matCost:0,burdened:0,ohPerHr:0};
+    const price = calc.flatRate;
+    const costPerHr = (calc.burdened||0) + (calc.ohPerHr||0);
+    const cogs = parseFloat(task.hours||0)*costPerHr + (calc.matCost||0);
+    setShowPbPicker(false); setAddingItem(true);
+    try { const u=await api.addInvoiceItem(detailInv.id,{description:task.name,quantity:1,unit_price:+price.toFixed(2),cost:+cogs.toFixed(2)}); setDetailInv(u); reload(); }
+    catch(e){ toast.error('Error',e.message); } finally{ setAddingItem(false); }
+  };
+  const removeItem = async (itemId) => {
+    try { const u=await api.removeInvoiceItem(detailInv.id,itemId); setDetailInv(u); reload(); }
+    catch(e){ toast.error('Error',e.message); }
+  };
+  const openPayModal = async () => {
+    const bal=parseFloat(detailInv.total||0)-parseFloat(detailInv.amount_paid||0);
+    setPayAmount(bal.toFixed(2)); setCheckNum(''); setShowPayModal(true);
+    try {
+      const list = await api.getPaymentMethods();
+      const enabled = (Array.isArray(list) ? list : []).filter(m => m.enabled && m.visible_to !== 'customer');
+      setPayMethods(enabled);
+      // Auto-select default if defined
+      const def = enabled.find(m => m.is_default);
+      setPayMethodSel(def || null);
+    } catch(e) {
+      setPayMethods([
+        {id:'cash', label:'Cash', icon:'💵'},
+        {id:'check', label:'Check', icon:'📝'},
+        {id:'credit_card', label:'Credit/Debit', icon:'💳'},
+      ]);
+      setPayMethodSel(null);
+    }
+  };
+  const submitPayment = async () => {
+    if(!payMethodSel){toast.error('Select a payment method');return;} if(!parseFloat(payAmount)){toast.error('Enter an amount');return;}
+    setPaySubmitting(true);
+    try {
+      // Include the surcharge in the recorded amount so the GL posts correctly
+      const base = parseFloat(payAmount);
+      const surchargeAmt = (base * (parseFloat(payMethodSel.surcharge_pct) || 0) / 100) + (parseFloat(payMethodSel.surcharge_fixed) || 0);
+      const total = +(base + surchargeAmt).toFixed(2);
+      await api.recordPayment(detailInv.id, {
+        amount_paid: total,
+        payment_method: payMethodSel.id,
+        check_number: payMethodSel.id === 'check' ? checkNum : undefined,
+        surcharge: surchargeAmt > 0 ? +surchargeAmt.toFixed(2) : undefined,
+      });
+      setShowPayModal(false);
+      await refreshDetail();
+    } catch(e){ toast.error('Payment error',e.message); } finally{ setPaySubmitting(false); }
+  };
+  const changeStatus = async (status) => {
+    setBusyStatus(true);
+    try { await api.updateInvoice(detailInv.id,{status}); await refreshDetail(); }
+    catch(e){ toast.error('Error',e.message); } finally{ setBusyStatus(false); }
+  };
+  const sendEmail = async () => {
+    if(!emailTo.trim()){toast.error('Enter an email');return;} setSendingEmail(true);
+    try { await api.sendInvoiceEmail(detailInv.id,{to:emailTo,message:emailMsg}); setEmailModal(false); toast.success('Sent!','Invoice emailed successfully'); await refreshDetail(); }
+    catch(e){ toast.error('Email failed',e.message); } finally{ setSendingEmail(false); }
+  };
+
+  const sendDispatchAlert = async () => {
+    if (!alertText.trim() || !detailInv?.job_id) return;
+    setSendingAlert(true);
+    try {
+      await api.updateJob(detailInv.job_id, { dispatch_alert: alertText.trim() });
+      setAlertSent(true);
+      setAlertText('');
+      setTimeout(() => setAlertSent(false), 3000);
+      toast.success('Alert sent!', 'Dispatch has been notified');
+    } catch(e) { toast.error('Failed to send alert', e.message); }
+    finally { setSendingAlert(false); }
+  };
+
+  const inp2 = {background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:7,padding:'7px 10px',fontSize:12,color:'var(--text)',boxSizing:'border-box'};
+  const lbl2 = {fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:3,display:'block'};
+
+  const inv = detailInv;
+  const lineItems = (inv?.line_items||[]).filter(Boolean).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0));
+  const subtotal = parseFloat(inv?.subtotal||0), taxAmt = parseFloat(inv?.tax_amount||0);
+  const total = parseFloat(inv?.total||0), paid = parseFloat(inv?.amount_paid||0);
+  const balance = Math.max(0,total-paid);
+  const editable = inv?.status==='draft'||inv?.status==='sent';
+  const pbPriceInv = (task) => pbEngineInv ? calcFlatRate(task,pbEngineInv).flatRate : 0;
+
   return (
-    <div style={{animation:'fadeUp .4s ease'}}>
+    <div style={{animation:'fadeUp .4s ease',height:'100%',display:'flex',flexDirection:'column'}}>
       {/* Header */}
-      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:18,flexWrap:'wrap'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14,flexWrap:'wrap',flexShrink:0}}>
         <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800,flex:1}}>Invoices & Estimates</div>
-        <button onClick={()=>setShowCreate('estimate')} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,color:'var(--text)',fontSize:12,fontWeight:600,cursor:'pointer'}}>
-          📋 New Estimate
-        </button>
-        <button onClick={()=>setShowCreate('invoice')} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:8,color:'var(--amber)',fontSize:12,fontWeight:600,cursor:'pointer'}}>
-          <Icon n="plus" size={13} color="#e8a84a"/> New Invoice
-        </button>
+        <button onClick={()=>setShowCreate('estimate')} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,color:'var(--text)',fontSize:12,fontWeight:600,cursor:'pointer'}}>📋 New Estimate</button>
+        <button onClick={()=>setShowCreate('invoice')} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:8,color:'var(--amber)',fontSize:12,fontWeight:600,cursor:'pointer'}}><Icon n="plus" size={13} color="#e8a84a"/> New Invoice</button>
       </div>
 
       {/* Summary cards */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:18}}>
-        {[
-          {label:'Open A/R',value:fmt$(totalAR),color:'var(--amber)',icon:'📤'},
-          {label:'Paid (Last 30d)',value:fmt$(totalPaid30),color:'var(--green)',icon:'✅'},
-          {label:'Total Documents',value:(data||[]).length,color:'var(--blue)',icon:'📄'},
-        ].map(card=>(
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:14,flexShrink:0}}>
+        {[{label:'Open A/R',value:fmt$(totalAR),color:'var(--amber)',icon:'📤'},{label:'Paid (Last 30d)',value:fmt$(totalPaid30),color:'var(--green)',icon:'✅'},{label:'Total Documents',value:(data||[]).length,color:'var(--blue)',icon:'📄'}].map(card=>(
           <div key={card.label} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 16px',display:'flex',alignItems:'center',gap:12}}>
             <div style={{fontSize:24}}>{card.icon}</div>
-            <div>
-              <div style={{fontSize:18,fontWeight:800,fontFamily:'var(--font-head)',color:card.color}}>{card.value}</div>
-              <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.05em'}}>{card.label}</div>
-            </div>
+            <div><div style={{fontSize:18,fontWeight:800,fontFamily:'var(--font-head)',color:card.color}}>{card.value}</div><div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.05em'}}>{card.label}</div></div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
-        <div style={{display:'flex',gap:2,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:3}}>
-          {[['all','All'],['estimate','Estimates'],['invoice','Invoices']].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setDocType(id)} style={{padding:'5px 12px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,
-              fontWeight:docType===id?600:400,background:docType===id?'var(--surface2)':'transparent',color:docType===id?'var(--text)':'var(--muted)'}}>
-              {lbl}
-            </button>
-          ))}
+      {/* Main area: table + detail panel side by side */}
+      <div style={{flex:1,display:'flex',gap:0,overflow:'hidden',minHeight:0}}>
+
+        {/* Table column */}
+        <div style={{flex:1,overflow:'auto',minWidth:0}}>
+          {/* Filters */}
+          <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:2,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:3}}>
+              {[['all','All'],['estimate','Estimates'],['invoice','Invoices']].map(([id,lb])=>(
+                <button key={id} onClick={()=>setDocType(id)} style={{padding:'5px 12px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:docType===id?600:400,background:docType===id?'var(--surface2)':'transparent',color:docType===id?'var(--text)':'var(--muted)'}}>{lb}</button>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+              {['all','draft','sent','approved','paid','void'].map(s=>(
+                <button key={s} onClick={()=>setStatusFilter(s)} style={{padding:'5px 10px',borderRadius:6,border:'1px solid',cursor:'pointer',fontSize:11,borderColor:statusFilter===s?'var(--amber)':'var(--border)',background:statusFilter===s?'var(--amberdim)':'transparent',color:statusFilter===s?'var(--amber)':'var(--muted)',textTransform:'uppercase',fontFamily:'var(--font-mono)',letterSpacing:'.04em'}}>{s}</button>
+              ))}
+            </div>
+            {mergeIds.length > 0 && (
+              <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
+                <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{mergeIds.length} selected</span>
+                <button onClick={() => setMergeIds([])} style={{padding:'5px 10px',borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--muted)',fontSize:11,cursor:'pointer'}}>Clear</button>
+                <button
+                  onClick={doMerge}
+                  disabled={!canMerge || merging}
+                  title={mergeBlockReason() || 'Merge selected invoices'}
+                  style={{padding:'6px 14px',borderRadius:6,border:'none',background:canMerge?'var(--green)':'var(--surface2)',color:canMerge?'#fff':'var(--muted)',fontSize:12,fontWeight:700,cursor:canMerge?'pointer':'not-allowed',letterSpacing:'.02em'}}
+                >
+                  {merging ? 'Merging…' : `🧾 Merge ${mergeIds.length} into one`}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {loading ? <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div> : (
+            <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr style={{background:'var(--surface2)',borderBottom:'1px solid var(--border2)'}}>
+                  <th style={{padding:'9px 12px',width:32}}></th>
+                  {['#','Type','Customer','Amount','Status','Date','Due'].map(h=>(
+                    <th key={h} style={{padding:'9px 12px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em'}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {docs.length===0&&<tr><td colSpan={8} style={{padding:30,textAlign:'center',fontSize:13,color:'var(--muted)'}}>No documents found.</td></tr>}
+                  {docs.map(d=>(
+                    <tr key={d.id} onClick={()=>openDetail(d)}
+                      style={{borderBottom:'1px solid var(--border)',cursor:'pointer',background:selected?.id===d.id?'var(--amberdim)':(mergeIds.includes(d.id)?'#5daf7c14':'transparent')}}
+                      onMouseEnter={e=>{if(selected?.id!==d.id&&!mergeIds.includes(d.id))e.currentTarget.style.background='var(--surface2)';}}
+                      onMouseLeave={e=>{if(selected?.id!==d.id&&!mergeIds.includes(d.id))e.currentTarget.style.background='transparent'; else if(mergeIds.includes(d.id)&&selected?.id!==d.id)e.currentTarget.style.background='#5daf7c14';}}>
+                      <td style={{padding:'9px 12px',width:32}} onClick={e=>e.stopPropagation()}>
+                        {d.type === 'invoice' && d.status !== 'paid' && d.status !== 'void' && !d.converted_invoice_id && (
+                          <input
+                            type="checkbox"
+                            checked={mergeIds.includes(d.id)}
+                            onChange={() => toggleMerge(d.id)}
+                            title="Select to merge with other invoices on the same job"
+                            style={{cursor:'pointer', width:16, height:16, accentColor:'var(--green)'}}
+                          />
+                        )}
+                      </td>
+                      <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>#{d.display_number || d.invoice_number}</td>
+                      <td style={{padding:'9px 12px'}}><span style={{fontSize:9,fontFamily:'var(--font-mono)',padding:'2px 7px',borderRadius:3,background:d.type==='estimate'?'#a78bfa18':'#4a9eff18',color:d.type==='estimate'?'#a78bfa':'#4a9eff',border:`1px solid ${d.type==='estimate'?'#a78bfa33':'#4a9eff33'}`}}>{d.type.toUpperCase()}</span></td>
+                      <td style={{padding:'9px 12px',fontSize:13,fontWeight:500}}>{d.customer_name}</td>
+                      <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:13,fontWeight:700,color:'var(--green)'}}>{fmt$(d.total)}</td>
+                      <td style={{padding:'9px 12px'}}><InvStatusBadge status={d.status}/></td>
+                      <td style={{padding:'9px 12px',fontSize:11,color:'var(--muted)'}}>{new Date(d.created_at).toLocaleDateString()}</td>
+                      <td style={{padding:'9px 12px',fontSize:11,color:d.due_date&&new Date(d.due_date)<new Date()&&d.status!=='paid'?'var(--red)':'var(--muted)'}}>{d.due_date?new Date(d.due_date).toLocaleDateString():'—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
-          {['all','draft','sent','approved','paid','unpaid','void'].map(s=>(
-            <button key={s} onClick={()=>setStatusFilter(s)} style={{padding:'5px 10px',borderRadius:6,border:'1px solid',cursor:'pointer',fontSize:11,
-              borderColor:statusFilter===s?'var(--amber)':'var(--border)',
-              background:statusFilter===s?'var(--amberdim)':'transparent',
-              color:statusFilter===s?'var(--amber)':'var(--muted)',textTransform:'uppercase',fontFamily:'var(--font-mono)',letterSpacing:'.04em'}}>
-              {s}
-            </button>
-          ))}
-        </div>
+
+        {/* Detail panel */}
+        {selected && (
+          <div style={{width:680,borderLeft:'1px solid var(--border)',background:'var(--bg)',display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0,animation:'slideRight .2s ease'}}>
+            {detailLoading ? (
+              <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}><Spinner/></div>
+            ) : inv ? (<>
+              {/* Panel header */}
+              <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',background:'var(--surface)',flexShrink:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                  <button onClick={closeDetail} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',padding:2,display:'flex'}}><Icon n="x" size={16}/></button>
+                  <div style={{fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)',flex:1}}>{inv.type?.toUpperCase()} #{inv.display_number || inv.invoice_number}</div>
+                  <InvStatusBadge status={inv.status}/>
+                </div>
+                <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800,color:'var(--text)',marginBottom:2}}>{inv.customer_name}</div>
+                <div style={{fontSize:11,color:'var(--muted)',display:'flex',gap:14,flexWrap:'wrap'}}>
+                  <span>Created {new Date(inv.created_at).toLocaleDateString()}</span>
+                  {inv.due_date&&<span style={{color:new Date(inv.due_date)<new Date()&&inv.status!=='paid'?'var(--red)':'var(--muted)'}}>Due {new Date(inv.due_date).toLocaleDateString()}</span>}
+                  {inv.payment_method&&<span>Paid via {inv.payment_method.replace(/_/g,' ')}</span>}
+                </div>
+              </div>
+
+              {/* Scrollable body */}
+              <div style={{flex:1,overflowY:'auto',padding:'14px 18px',display:'flex',flexDirection:'column',gap:14}}>
+
+                {/* Line items */}
+                <div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                    <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em',fontWeight:700,flex:1}}>LINE ITEMS</div>
+                    {editable&&<div style={{display:'flex',gap:6}}>
+                      <button onClick={()=>setShowPbPicker(true)} style={{fontSize:11,padding:'3px 10px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:6,color:'var(--amber)',cursor:'pointer',fontWeight:600}}>📖 Pricebook</button>
+                      <button onClick={()=>setShowAddItem(v=>!v)} style={{fontSize:11,padding:'3px 10px',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,color:'var(--text)',cursor:'pointer',fontWeight:600}}>+ Manual</button>
+                    </div>}
+                  </div>
+                  <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 52px 76px 68px 26px',padding:'6px 12px',background:'var(--surface2)',borderBottom:'1px solid var(--border)'}}>
+                      {['Description','Qty','Unit Price','Total',''].map(h=><div key={h} style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.05em'}}>{h}</div>)}
+                    </div>
+                    {lineItems.length===0 ? (
+                      <div style={{padding:'14px 12px',fontSize:12,color:'var(--muted)',textAlign:'center',fontStyle:'italic'}}>No items — add from pricebook or manually.</div>
+                    ) : lineItems.map((item,i)=>(
+                      <div key={item.id||i} style={{display:'grid',gridTemplateColumns:'1fr 52px 76px 68px 26px',padding:'9px 12px',borderBottom:i<lineItems.length-1?'1px solid var(--border)':'none',alignItems:'center'}}>
+                        <div style={{fontSize:13,fontWeight:500,color:'var(--text)',paddingRight:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>
+                        <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--muted)',textAlign:'center'}}>{item.quantity}</div>
+                        <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--muted)',textAlign:'right'}}>{fmt$(item.unit_price)}</div>
+                        <div style={{fontSize:13,fontFamily:'var(--font-mono)',fontWeight:700,color:'var(--text)',textAlign:'right'}}>{fmt$(item.quantity*item.unit_price)}</div>
+                        <div style={{display:'flex',justifyContent:'center'}}>
+                          {editable&&item.id&&<button onClick={()=>removeItem(item.id)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',padding:2,display:'flex'}} onMouseEnter={e=>e.currentTarget.style.color='var(--red)'} onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}><Icon n="x" size={12}/></button>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Add item form */}
+                  {showAddItem&&editable&&(
+                    <div style={{background:'var(--surface)',border:'1px solid var(--amber)',borderRadius:10,padding:12,marginTop:8,display:'flex',flexDirection:'column',gap:8}}>
+                      <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.06em',fontWeight:700}}>ADD LINE ITEM</div>
+                      <input value={newItemDesc} onChange={e=>setNewItemDesc(e.target.value)} placeholder="Description…" style={{...inp2,width:'100%'}} autoFocus/>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                        <div><label style={lbl2}>QUANTITY</label><input type="number" value={newItemQty} onChange={e=>setNewItemQty(e.target.value)} min="0.5" step="0.5" style={{...inp2,width:'100%'}}/></div>
+                        <div><label style={lbl2}>UNIT PRICE</label><input type="number" value={newItemPrice} onChange={e=>setNewItemPrice(e.target.value)} min="0" step="0.01" placeholder="0.00" style={{...inp2,width:'100%'}}/></div>
+                      </div>
+                      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                        <button onClick={()=>{setShowAddItem(false);setNewItemDesc('');setNewItemQty('1');setNewItemPrice('');}} style={{padding:'6px 14px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,fontSize:12,color:'var(--muted)',cursor:'pointer'}}>Cancel</button>
+                        <button onClick={handleAddItem} disabled={addingItem||!newItemDesc.trim()} style={{padding:'6px 14px',background:'var(--green)',border:'none',borderRadius:7,fontSize:12,fontWeight:700,color:'#fff',cursor:'pointer',opacity:addingItem||!newItemDesc.trim()?0.5:1}}>{addingItem?'Adding…':'Add Item'}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Totals */}
+                <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',display:'flex',flexDirection:'column',gap:5}}>
+                  {[[`Subtotal`,fmt$(subtotal),false],[`Tax (${((inv.tax_rate||0)*100).toFixed(2)}%)`,fmt$(taxAmt),false],['Total',fmt$(total),true],...(paid>0?[['Amount Paid',`(${fmt$(paid)})`,false],['Balance Due',fmt$(balance),'bal']]:[])]
+                    .map(([label,value,bold])=>(
+                    <div key={label} style={{display:'flex',justifyContent:'space-between',paddingTop:bold===true?8:0,marginTop:bold===true?2:0,borderTop:bold===true?'1px solid var(--border)':'none'}}>
+                      <span style={{fontSize:bold==='bal'?13:bold?14:12,fontWeight:bold?700:400,color:bold?'var(--text)':'var(--muted)'}}>{label}</span>
+                      <span style={{fontFamily:'var(--font-mono)',fontSize:bold==='bal'?14:bold?16:12,fontWeight:bold?800:400,color:bold==='bal'?'var(--amber)':bold?'var(--green)':'var(--muted)'}}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.08em',fontWeight:700,marginBottom:6}}>NOTES</div>
+                  <textarea value={editNotes} onChange={e=>{setEditNotes(e.target.value);setNotesSaved(false);}} placeholder="Notes visible to the customer…" rows={3} style={{...inp2,width:'100%',resize:'vertical',lineHeight:1.5}}/>
+                  <div style={{display:'flex',gap:8,marginTop:6}}>
+                    <button onClick={rewriteNotes} disabled={aiLoading||!editNotes.trim()} style={{flex:1,padding:'7px',background:aiLoading?'var(--surface2)':'linear-gradient(135deg,#6366f1,#8b5cf6)',border:'1px solid #6366f144',borderRadius:7,color:aiLoading?'var(--muted)':'#fff',fontSize:11,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:5,opacity:!editNotes.trim()?0.4:1}}>
+                      {aiLoading?<><Spinner size={11}/> Rewriting…</>:'✨ Make it sound better'}
+                    </button>
+                    <button onClick={saveNotes} disabled={savingNotes} style={{padding:'7px 16px',background:notesSaved?'var(--greendim)':savingNotes?'var(--surface2)':'var(--green)',border:'none',borderRadius:7,color:notesSaved?'var(--green)':savingNotes?'var(--muted)':'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                      {notesSaved?'✓ Saved':savingNotes?'Saving…':'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Dispatch Alert — visible when invoice is linked to a job ── */}
+                {inv.job_id && (
+                  <div style={{background:'#f5656508',border:'1px solid #f5656533',borderRadius:10,padding:'12px 14px'}}>
+                    <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'#f56565',letterSpacing:'.08em',fontWeight:700,marginBottom:8}}>🚨 SEND ALERT TO DISPATCH</div>
+                    <textarea
+                      value={alertText}
+                      onChange={e=>{ setAlertText(e.target.value); setAlertSent(false); }}
+                      placeholder="Type a message for dispatch… (e.g. 'Need a second tech', 'Customer refusing service', 'Parts needed before we can proceed')"
+                      rows={3}
+                      style={{...inp2,width:'100%',resize:'vertical',lineHeight:1.5,borderColor:'#f5656533',background:'var(--surface)'}}
+                    />
+                    <button
+                      onClick={sendDispatchAlert}
+                      disabled={sendingAlert || !alertText.trim()}
+                      style={{marginTop:8,width:'100%',padding:'9px',background:alertSent?'#22c55e22':sendingAlert?'var(--surface2)':'#f5656518',border:`1px solid ${alertSent?'#22c55e':sendingAlert?'var(--border)':'#f56565'}`,borderRadius:8,color:alertSent?'#22c55e':sendingAlert?'var(--muted)':'#f56565',fontSize:13,fontWeight:700,cursor:sendingAlert||!alertText.trim()?'not-allowed':'pointer',opacity:!alertText.trim()&&!alertSent?0.5:1,transition:'all .15s'}}>
+                      {alertSent ? '✓ Alert Sent to Dispatch' : sendingAlert ? 'Sending…' : '🚨 Send to Dispatch'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Payment badge */}
+                {paid>0&&(
+                  <div style={{background:'#5daf7c08',border:'1px solid #5daf7c33',borderRadius:10,padding:'10px 14px'}}>
+                    <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--green)',letterSpacing:'.08em',fontWeight:700,marginBottom:4}}>PAYMENT RECORDED</div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span style={{fontSize:13,color:'var(--text)'}}>{inv.payment_method?.replace(/_/g,' ')||'Payment'}{inv.check_number?` #${inv.check_number}`:''}</span>
+                      <span style={{fontFamily:'var(--font-mono)',fontSize:14,fontWeight:700,color:'var(--green)'}}>{fmt$(paid)}</span>
+                    </div>
+                    {inv.paid_at&&<div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{new Date(inv.paid_at).toLocaleDateString()}</div>}
+                  </div>
+                )}
+              </div>
+
+              {/* Action bar */}
+              <div style={{padding:'12px 18px',borderTop:'1px solid var(--border)',background:'var(--surface)',flexShrink:0,display:'flex',flexDirection:'column',gap:8}}>
+                {inv.status!=='paid'&&inv.status!=='void'&&(
+                  <button onClick={openPayModal} style={{width:'100%',padding:'11px',background:'var(--green)',border:'none',borderRadius:9,color:'#fff',fontSize:14,fontWeight:800,cursor:'pointer'}}>
+                    💳 Collect Payment — {fmt$(balance)} Due
+                  </button>
+                )}
+                {inv.status==='paid'&&(
+                  <div style={{textAlign:'center',padding:'10px',background:'#5daf7c0d',border:'1px solid #5daf7c33',borderRadius:9,color:'var(--green)',fontWeight:700,fontSize:14}}>✅ Paid in Full — {fmt$(paid)} collected</div>
+                )}
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <button onClick={()=>setEmailModal(true)} style={{flex:1,minWidth:100,padding:'8px',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,color:'var(--text)',fontSize:12,fontWeight:600,cursor:'pointer'}}>📧 Email</button>
+                  <button onClick={()=>window.open(`/api/invoices/${inv.id}/html`,'_blank')} style={{flex:1,minWidth:100,padding:'8px',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,color:'var(--text)',fontSize:12,fontWeight:600,cursor:'pointer'}}>🖨 Print / PDF</button>
+                  {inv.status==='draft'&&<button onClick={()=>changeStatus('sent')} disabled={busyStatus} style={{flex:1,padding:'8px',background:'#4a9eff18',border:'1px solid #4a9eff55',borderRadius:8,color:'#4a9eff',fontSize:12,fontWeight:600,cursor:'pointer'}}>📤 Mark Sent</button>}
+                  {!['paid','void'].includes(inv.status)&&<button onClick={()=>changeStatus('paid')} disabled={busyStatus} style={{flex:1,padding:'8px',background:'var(--greendim)',border:'1px solid var(--green)',borderRadius:8,color:'var(--green)',fontSize:12,fontWeight:600,cursor:'pointer'}}>✓ Mark Paid</button>}
+                  {inv.status!=='void'&&<button onClick={()=>{if(window.confirm('Void this invoice?'))changeStatus('void');}} disabled={busyStatus} style={{padding:'8px 12px',background:'#f5656508',border:'1px solid #f5656533',borderRadius:8,color:'var(--red)',fontSize:12,fontWeight:600,cursor:'pointer'}}>🚫</button>}
+                </div>
+              </div>
+            </>) : null}
+          </div>
+        )}
       </div>
 
-      {/* Table */}
-      {loading ? <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div> : (
-        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-          <table style={{width:'100%',borderCollapse:'collapse'}}>
+      {showCreate&&<CreateDocDrawer type={showCreate} onClose={()=>setShowCreate(null)} onCreated={()=>{setShowCreate(null);reload();}}/>}
+
+      {/* Payment modal */}
+      {showPayModal&&(() => {
+        const balance = parseFloat(inv?.total||0) - parseFloat(inv?.amount_paid||0);
+        const base = parseFloat(payAmount) || 0;
+        const sPct = parseFloat(payMethodSel?.surcharge_pct) || 0;
+        const sFix = parseFloat(payMethodSel?.surcharge_fixed) || 0;
+        const surcharge = base > 0 ? (base * sPct / 100) + sFix : 0;
+        const total = base + surcharge;
+        return (
+          <div style={{position:'fixed',inset:0,zIndex:800,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,.65)'}}>
+            <div style={{background:'var(--surface)',borderRadius:16,padding:28,width:440,display:'flex',flexDirection:'column',gap:14,boxShadow:'0 20px 60px rgba(0,0,0,.5)'}}>
+              <div style={{display:'flex', alignItems:'center'}}>
+                <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800,flex:1}}>Collect Payment</div>
+                <div style={{fontSize:11, color:'var(--muted)'}}>Balance <strong style={{color:'var(--text)', fontFamily:'var(--font-mono)', marginLeft:4}}>${balance.toFixed(2)}</strong></div>
+              </div>
+              <div style={{fontSize:12,color:'var(--muted)'}}>{inv?.customer_name}</div>
+              <div>
+                <label style={lbl2}>AMOUNT</label>
+                <div style={{display:'flex',alignItems:'center',background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,overflow:'hidden'}}>
+                  <span style={{padding:'0 12px',fontSize:20,color:'var(--muted)'}}>$</span>
+                  <input value={payAmount} onChange={e=>setPayAmount(e.target.value)} type="number" step="0.01" min="0" style={{flex:1,background:'none',border:'none',padding:'10px 0',fontSize:20,fontWeight:300,color:'var(--text)',outline:'none'}}/>
+                </div>
+                <div style={{display:'flex', gap:6, marginTop:8}}>
+                  {[
+                    { label:'Full', val: balance },
+                    { label:'½',    val: balance / 2 },
+                    { label:'¼',    val: balance / 4 },
+                  ].map(q => (
+                    <button key={q.label} onClick={() => setPayAmount(q.val.toFixed(2))}
+                      style={{flex:1, padding:'5px 0', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:7, color:'var(--muted)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--font-mono)'}}>
+                      {q.label} · ${q.val.toFixed(2)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={lbl2}>PAYMENT METHOD</label>
+                <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(80px, 1fr))', gap:8}}>
+                  {payMethods.map(m => {
+                    const sel = payMethodSel?.id === m.id;
+                    const hasSurcharge = (m.surcharge_pct || m.surcharge_fixed) > 0;
+                    return (
+                      <button key={m.id} onClick={() => setPayMethodSel(p => p?.id === m.id ? null : m)}
+                        style={{padding:'10px 6px', borderRadius:10, border:`1.5px solid ${sel?'var(--green)':'var(--border)'}`, background:sel?'#5daf7c18':'var(--bg)', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative'}}>
+                        {m.is_default && !sel && <span style={{position:'absolute', top:2, right:4, fontSize:8, color:'var(--green)'}}>★</span>}
+                        {hasSurcharge && <span style={{position:'absolute', top:2, left:4, fontSize:8, color:'#f97316', fontFamily:'var(--font-mono)', fontWeight:700}}>+{m.surcharge_pct||m.surcharge_fixed}{m.surcharge_pct?'%':''}</span>}
+                        <span style={{fontSize:18}}>{m.icon||'💰'}</span>
+                        <span style={{fontSize:10, fontWeight:700, color: sel ? 'var(--green)' : 'var(--muted)', textAlign:'center', lineHeight:1.2}}>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {payMethodSel?.description && (
+                  <div style={{fontSize:11, color:'var(--muted)', marginTop:8, padding:'6px 10px', background:'var(--surface2)', borderRadius:6}}>
+                    {payMethodSel.description}
+                  </div>
+                )}
+              </div>
+              {payMethodSel?.id==='check' && (
+                <div>
+                  <label style={lbl2}>CHECK NUMBER</label>
+                  <input value={checkNum} onChange={e=>setCheckNum(e.target.value)} placeholder="e.g. 1042" style={{...inp2, width:'100%', fontSize:16}}/>
+                </div>
+              )}
+
+              {/* Surcharge breakdown */}
+              {surcharge > 0 && (
+                <div style={{padding:'10px 14px', background:'#f9731618', border:'1px solid #f9731644', borderRadius:8}}>
+                  <div style={{fontSize:11, color:'#f97316', fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6}}>Surcharge applied</div>
+                  <div style={{display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--muted)', marginBottom:2, fontFamily:'var(--font-mono)'}}>
+                    <span>Base</span><span>${base.toFixed(2)}</span>
+                  </div>
+                  <div style={{display:'flex', justifyContent:'space-between', fontSize:12, color:'#f97316', marginBottom:4, fontFamily:'var(--font-mono)'}}>
+                    <span>+ {sPct ? `${sPct}%` : ''}{sPct && sFix ? ' & ' : ''}{sFix ? `$${sFix.toFixed(2)}` : ''}</span>
+                    <span>${surcharge.toFixed(2)}</span>
+                  </div>
+                  <div style={{display:'flex', justifyContent:'space-between', fontSize:14, fontWeight:800, paddingTop:6, borderTop:'1px solid #f9731644', fontFamily:'var(--font-mono)'}}>
+                    <span>Customer pays</span><span>${total.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{display:'flex',gap:10}}>
+                <button onClick={()=>setShowPayModal(false)} style={{flex:1,padding:'11px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9,color:'var(--muted)',cursor:'pointer',fontWeight:600}}>Cancel</button>
+                <button onClick={submitPayment} disabled={paySubmitting||!payMethodSel||!base} style={{flex:2,padding:'11px',background:'var(--green)',border:'none',borderRadius:9,color:'#fff',fontWeight:800,fontSize:14,cursor:'pointer',opacity:!payMethodSel||!base||paySubmitting?0.5:1}}>
+                  {paySubmitting ? 'Recording…' : surcharge > 0 ? `✓ Record $${total.toFixed(2)}` : `✓ Record $${base.toFixed(2)}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Email modal */}
+      {emailModal&&(
+        <div style={{position:'fixed',inset:0,zIndex:800,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,.65)'}}>
+          <div style={{background:'var(--surface)',borderRadius:16,padding:28,width:440,display:'flex',flexDirection:'column',gap:14,boxShadow:'0 20px 60px rgba(0,0,0,.5)'}}>
+            <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800}}>Send Invoice by Email</div>
+            <div><label style={lbl2}>TO EMAIL</label><input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="customer@email.com" type="email" style={{...inp2,width:'100%'}}/></div>
+            <div><label style={lbl2}>MESSAGE (OPTIONAL)</label><textarea value={emailMsg} onChange={e=>setEmailMsg(e.target.value)} rows={3} placeholder="Hi, please find your invoice attached…" style={{...inp2,width:'100%',resize:'vertical'}}/></div>
+            <div style={{fontSize:11,color:'var(--muted)',background:'var(--surface2)',borderRadius:8,padding:'8px 12px'}}>Configure SMTP in Settings → Invoices & Estimates → Email to enable sending.</div>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={()=>setEmailModal(false)} style={{flex:1,padding:'11px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:9,color:'var(--muted)',cursor:'pointer',fontWeight:600}}>Cancel</button>
+              <button onClick={sendEmail} disabled={sendingEmail||!emailTo.trim()} style={{flex:2,padding:'11px',background:'#4a9eff',border:'none',borderRadius:9,color:'#fff',fontWeight:800,fontSize:14,cursor:'pointer',opacity:sendingEmail||!emailTo.trim()?0.5:1}}>
+                {sendingEmail?'Sending…':'📧 Send Invoice'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pricebook picker */}
+      <MobilePricebookPicker
+        open={showPbPicker}
+        onClose={() => setShowPbPicker(false)}
+        onPick={pickPbItem}
+        calcPrice={pbPriceInv}
+      />
+    </div>
+  );
+}
+
+// ─── INVOICE LAYOUT SETTINGS ───────────────────────────────────
+// ── Invoice / Estimate layout preview modal ───────────────────────────────────
+function InvoicePreviewModal({ layout, type, onClose }) {
+  const L = layout || {};
+  const co = L._company || {};
+  const primary  = L.primary_color  || co.brand_primary   || '#e8a84a';
+  const accent   = L.accent_color   || co.brand_secondary || '#1a2a4a';
+  const isEst    = type === 'estimate';
+  const title    = isEst ? (L.estimate_title || 'ESTIMATE') : (L.invoice_title || 'INVOICE');
+  const docNum   = isEst ? 'EST-0012' : 'INV-0042';
+  const today    = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+  const sampleLines = [
+    { desc:'Diagnose and repair main shut-off valve',       qty:1,  price:185 },
+    { desc:'Replace kitchen faucet — parts + labor',        qty:1,  price:320 },
+    { desc:'1″ copper pipe section',                        qty:3,  price:24  },
+    { desc:'Service call / dispatch fee',                    qty:1,  price:89  },
+  ];
+  const subtotal = sampleLines.reduce((s, l) => s + l.qty * l.price, 0);
+  const tax      = L.default_tax_rate ? subtotal * parseFloat(L.default_tax_rate) / 100 : subtotal * 0.0825;
+  const total    = subtotal + tax;
+
+  const col = { padding:'8px 10px', textAlign:'left', fontSize:12, borderBottom:'1px solid #e5e7eb' };
+  const muted = '#6b7280';
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.7)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:720, maxHeight:'90vh', overflow:'auto', boxShadow:'0 25px 60px rgba(0,0,0,.45)' }}>
+
+        {/* Modal chrome */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 20px', background:'var(--surface)', borderBottom:'1px solid var(--border)', borderRadius:'14px 14px 0 0', position:'sticky', top:0, zIndex:1 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>
+            {isEst ? 'Estimate' : 'Invoice'} Preview — sample data only
+          </div>
+          <button onClick={onClose} style={{ background:'transparent', border:'none', fontSize:20, color:'var(--muted)', cursor:'pointer', lineHeight:1 }}>✕</button>
+        </div>
+
+        {/* Document */}
+        <div style={{ padding:'32px 36px', fontFamily: L.font_style === 'classic' ? 'Georgia, serif' : L.font_style === 'minimal' ? 'system-ui, sans-serif' : 'Inter, system-ui, sans-serif', color:'#111', background:'#fff' }}>
+
+          {/* Header bar */}
+          <div style={{ background:primary, borderRadius:8, padding:'18px 24px', marginBottom:24, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+              {L.show_logo && co.logo_url && (
+                <img src={co.logo_url + (co.logo_url.includes('?') ? '' : '?v=' + (co.updated_at ? new Date(co.updated_at).getTime() : Date.now()))} style={{ height:44, maxWidth:100, objectFit:'contain', background:'#fff', borderRadius:4, padding:4 }} alt="logo"/>
+              )}
+              <div>
+                <div style={{ fontWeight:800, fontSize:16, color:'#fff' }}>{co.name || 'Your Company Name'}</div>
+                {L.show_tagline && L.tagline && <div style={{ fontSize:11, color:'rgba(255,255,255,.75)', marginTop:2 }}>{L.tagline}</div>}
+              </div>
+            </div>
+            <div style={{ textAlign:'right' }}>
+              <div style={{ fontSize:22, fontWeight:900, color:'#fff', letterSpacing:1 }}>{title}</div>
+              {L.show_invoice_number && <div style={{ fontSize:11, color:'rgba(255,255,255,.8)', marginTop:2 }}>{docNum}</div>}
+            </div>
+          </div>
+
+          {/* Meta row */}
+          <div style={{ display:'flex', gap:24, marginBottom:24, flexWrap:'wrap' }}>
+            {/* Company info */}
+            <div style={{ flex:1, minWidth:160 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:muted, textTransform:'uppercase', letterSpacing:1, marginBottom:6 }}>From</div>
+              {L.show_company_address && <div style={{ fontSize:12, color:'#374151', lineHeight:1.6 }}>{co.address || '123 Main St'}<br/>{co.name || 'Your Company'}</div>}
+              {L.show_company_phone   && <div style={{ fontSize:12, color:muted }}>{co.phone || '(555) 867-5309'}</div>}
+              {L.show_company_email   && <div style={{ fontSize:12, color:muted }}>{co.email || 'info@company.com'}</div>}
+            </div>
+            {/* Customer info */}
+            <div style={{ flex:1, minWidth:160 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:muted, textTransform:'uppercase', letterSpacing:1, marginBottom:6 }}>Bill To</div>
+              {L.show_customer_address && <div style={{ fontSize:12, color:'#374151', lineHeight:1.6 }}>John &amp; Mary Sample<br/>456 Oak Ave<br/>Austin, TX 78701</div>}
+              {L.show_customer_phone   && <div style={{ fontSize:12, color:muted }}>(512) 555-0100</div>}
+            </div>
+            {/* Dates */}
+            <div style={{ minWidth:140 }}>
+              {L.show_invoice_date && <div style={{ marginBottom:6 }}><div style={{ fontSize:10, fontWeight:700, color:muted, textTransform:'uppercase', letterSpacing:1 }}>Date</div><div style={{ fontSize:12 }}>{today}</div></div>}
+              {L.show_due_date     && <div><div style={{ fontSize:10, fontWeight:700, color:muted, textTransform:'uppercase', letterSpacing:1 }}>Due</div><div style={{ fontSize:12, color:'#dc2626', fontWeight:600 }}>Due on receipt</div></div>}
+            </div>
+          </div>
+
+          {/* Line items table */}
+          <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:20 }}>
             <thead>
-              <tr style={{background:'var(--surface2)',borderBottom:'1px solid var(--border2)'}}>
-                {['#','Type','Customer','Job','Amount','Status','Date'].map(h=>(
-                  <th key={h} style={{padding:'9px 12px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em'}}>{h.toUpperCase()}</th>
-                ))}
+              <tr style={{ background:accent }}>
+                {L.show_col_index     && <th style={{ ...col, color:'#fff', fontWeight:700, width:36 }}>#</th>}
+                {L.show_col_sku       && <th style={{ ...col, color:'#fff', fontWeight:700 }}>SKU</th>}
+                <th style={{ ...col, color:'#fff', fontWeight:700 }}>Description</th>
+                {L.show_col_qty       && <th style={{ ...col, color:'#fff', fontWeight:700, textAlign:'right', width:50 }}>Qty</th>}
+                {L.show_col_unit_price && <th style={{ ...col, color:'#fff', fontWeight:700, textAlign:'right', width:90 }}>Unit Price</th>}
+                {L.show_col_line_total && <th style={{ ...col, color:'#fff', fontWeight:700, textAlign:'right', width:90 }}>Total</th>}
               </tr>
             </thead>
             <tbody>
-              {docs.length===0&&(
-                <tr><td colSpan={7} style={{padding:30,textAlign:'center',fontSize:13,color:'var(--muted)'}}>No documents found.</td></tr>
-              )}
-              {docs.map(d=>(
-                <tr key={d.id} onClick={()=>setSelected(d)}
-                  style={{borderBottom:'1px solid var(--border)',cursor:'pointer'}}
-                  onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
-                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>#{d.invoice_number}</td>
-                  <td style={{padding:'9px 12px'}}>
-                    <span style={{fontSize:9,fontFamily:'var(--font-mono)',padding:'2px 7px',borderRadius:3,background:d.type==='estimate'?'#a78bfa18':'#4a9eff18',color:d.type==='estimate'?'#a78bfa':'#4a9eff',border:`1px solid ${d.type==='estimate'?'#a78bfa33':'#4a9eff33'}`}}>
-                      {d.type.toUpperCase()}
-                    </span>
-                  </td>
-                  <td style={{padding:'9px 12px',fontSize:13,fontWeight:500}}>{d.customer_name}</td>
-                  <td style={{padding:'9px 12px',fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{d.job_id?'Linked':'—'}</td>
-                  <td style={{padding:'9px 12px',fontFamily:'var(--font-mono)',fontSize:13,fontWeight:700,color:'var(--green)'}}>{fmt$(d.total)}</td>
-                  <td style={{padding:'9px 12px'}}><InvStatusBadge status={d.status}/></td>
-                  <td style={{padding:'9px 12px',fontSize:11,color:'var(--muted)'}}>{new Date(d.created_at).toLocaleDateString()}</td>
+              {sampleLines.map((line, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                  {L.show_col_index     && <td style={col}>{i+1}</td>}
+                  {L.show_col_sku       && <td style={{...col, color:muted, fontFamily:'monospace', fontSize:11}}>PLB-{String(100+i).padStart(3,'0')}</td>}
+                  <td style={col}>{line.desc}</td>
+                  {L.show_col_qty        && <td style={{...col, textAlign:'right'}}>{line.qty}</td>}
+                  {L.show_col_unit_price && <td style={{...col, textAlign:'right'}}>${line.price.toFixed(2)}</td>}
+                  {L.show_col_line_total && <td style={{...col, textAlign:'right', fontWeight:600}}>${(line.qty*line.price).toFixed(2)}</td>}
                 </tr>
               ))}
             </tbody>
           </table>
+
+          {/* Totals */}
+          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:24 }}>
+            <div style={{ minWidth:220 }}>
+              {L.show_subtotal    && <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #e5e7eb', fontSize:13 }}><span style={{ color:muted }}>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>}
+              {L.show_tax_line    && <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid #e5e7eb', fontSize:13 }}><span style={{ color:muted }}>Tax ({L.default_tax_rate||'8.25'}%)</span><span>${tax.toFixed(2)}</span></div>}
+              {L.show_total       && <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 10px', background:primary, borderRadius:6, marginTop:6 }}><span style={{ color:'#fff', fontWeight:700, fontSize:14 }}>Total</span><span style={{ color:'#fff', fontWeight:800, fontSize:16 }}>${total.toFixed(2)}</span></div>}
+              {L.show_balance_due && <div style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', fontSize:13, fontWeight:700, color:'#dc2626', marginTop:4 }}><span>Balance Due</span><span>${total.toFixed(2)}</span></div>}
+            </div>
+          </div>
+
+          {/* Footer content */}
+          {(L.show_thank_you && L.thank_you_text) && <div style={{ textAlign:'center', fontSize:13, color:muted, fontStyle:'italic', marginBottom:10 }}>{L.thank_you_text}</div>}
+          {(L.show_terms && L.terms)               && <div style={{ fontSize:11, color:muted, borderTop:'1px solid #e5e7eb', paddingTop:12, lineHeight:1.6 }}><strong>Terms:</strong> {L.terms}</div>}
+          {(L.show_footer && L.footer_text)        && <div style={{ textAlign:'center', fontSize:11, color:muted, marginTop:10, paddingTop:10, borderTop:'1px solid #e5e7eb' }}>{L.footer_text}</div>}
+          {L.show_paid_watermark && <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%) rotate(-35deg)', fontSize:72, fontWeight:900, color:'rgba(34,197,94,.12)', pointerEvents:'none', whiteSpace:'nowrap', letterSpacing:8 }}>PAID</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stable module-level sub-components for InvoiceLayoutSettings ──────────────
+// These MUST live outside InvoiceLayoutSettings so React doesn't treat them as
+// new component types on every render (which would unmount inputs on each keystroke).
+function InvoiceSection({ title, children, last }) {
+  return (
+    <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'4px 20px 4px', marginBottom:last?0:14 }}>
+      <div style={{ fontFamily:'var(--font-mono)', fontSize:9, color:'var(--muted)', letterSpacing:'.1em', fontWeight:700, padding:'14px 0 8px' }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+function InvoiceToggle({ k, label, hint, disabled, checked, onChange }) {
+  const on = !!checked;
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'11px 0', borderBottom:'1px solid var(--border)', opacity:disabled?0.4:1 }}>
+      <div style={{flex:1,paddingRight:16}}>
+        <div style={{ fontSize:13, color:'var(--text)', fontWeight:500 }}>{label}</div>
+        {hint && <div style={{ fontSize:11, color:'var(--muted)', marginTop:2, lineHeight:1.4 }}>{hint}</div>}
+      </div>
+      <label style={{ position:'relative', display:'inline-block', width:44, height:24, cursor:disabled?'default':'pointer', flexShrink:0 }}>
+        <input type="checkbox" checked={on} disabled={!!disabled} onChange={e=>onChange(k,e.target.checked)} style={{opacity:0,width:0,height:0}}/>
+        <span style={{ position:'absolute', inset:0, borderRadius:12, background:on?'var(--accent)':'var(--border2)', transition:'background .18s' }}>
+          <span style={{ position:'absolute', top:3, left:on?22:3, width:18, height:18, borderRadius:'50%', background:'#fff', transition:'left .18s', boxShadow:'0 1px 3px rgba(0,0,0,.35)' }}/>
+        </span>
+      </label>
+    </div>
+  );
+}
+
+function InvoiceLayoutSettings() {
+  const [layout, setLayout] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState('branding');
+  const [preview, setPreview] = useState(null); // null | 'invoice' | 'estimate'
+
+  useEffect(() => {
+    api.getInvoiceLayout().then(d => {
+      const co = d?._company || {};
+      // Merge defaults — brand colors from Company Info sync in automatically
+      const defaults = {
+        show_logo:true, show_tagline:true, show_company_address:true,
+        show_company_phone:true, show_company_email:true, show_company_website:false,
+        show_customer_address:true, show_customer_phone:true, show_customer_email:false,
+        show_invoice_number:true, show_invoice_date:true, show_due_date:true,
+        show_po_number:false, show_job_reference:true,
+        show_col_index:false, show_col_description:true, show_col_qty:true,
+        show_col_unit_price:true, show_col_line_total:true, show_col_sku:false,
+        show_col_notes:false,
+        show_subtotal:true, show_tax_line:true, show_discount_line:false,
+        show_total:true, show_amount_paid:true, show_balance_due:true,
+        show_payment_instructions:true, show_notes_section:true,
+        show_terms:true, show_footer:true, show_thank_you:true,
+        show_paid_watermark:true, show_signature_line:false,
+        // Default to company brand colors so they stay in sync automatically
+        primary_color: co.brand_primary   || '#e8a84a',
+        accent_color:  co.brand_secondary || '#1a2a4a',
+        font_style:'modern', logo_position:'left',
+        payment_terms:'due_on_receipt', default_tax_rate:'',
+      };
+      setLayout({ ...defaults, ...(d||{}), _company: co });
+    }).catch(() => setLayout({}));
+  }, []);
+
+  const set = (k, v) => setLayout(prev => ({ ...prev, [k]: v }));
+
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try { await api.saveInvoiceLayout(layout); setSaved(true); setTimeout(() => setSaved(false), 3000); }
+    catch { toast.error('Error', 'Could not save layout'); }
+    finally { setSaving(false); }
+  };
+
+  if (!layout) return <div style={{padding:40,textAlign:'center'}}><Spinner/></div>;
+
+  const inp = { width:'100%', padding:'8px 12px', background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, color:'var(--text)', fontSize:13, outline:'none', boxSizing:'border-box' };
+  const lbl = { fontSize:11, fontFamily:'var(--font-mono)', color:'var(--muted)', letterSpacing:'.06em', marginBottom:4, display:'block' };
+  const row = { display:'flex', flexDirection:'column', gap:4 };
+
+  // Short aliases so the JSX below stays readable.
+  // IMPORTANT: Section must point directly to the module-level InvoiceSection —
+  // NOT wrap it in a new arrow function — otherwise React sees a new component
+  // type every render, remounts all children, and text inputs lose focus.
+  const Toggle  = (props) => <InvoiceToggle  {...props} checked={layout[props.k]} onChange={set} />;
+  const Section = InvoiceSection;
+
+  const TABS = [
+    { id:'branding',    label:'Branding' },
+    { id:'header',      label:'Header' },
+    { id:'line_items',  label:'Line Items' },
+    { id:'totals',      label:'Totals' },
+    { id:'footer',      label:'Footer & Terms' },
+    { id:'content',     label:'Content' },
+  ];
+
+  return (
+    <div style={{ animation:'fadeUp .4s ease', maxWidth:660 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:20, gap:12, flexWrap:'wrap' }}>
+        <div>
+          <div style={{ fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:4 }}>Invoice Layout</div>
+          <div style={{ fontSize:13, color:'var(--muted)' }}>Control exactly what appears on your invoices and estimates.</div>
+        </div>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <button onClick={() => setPreview('invoice')}
+            style={{ padding:'9px 16px', background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, color:'var(--text)', fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+            👁 Preview Invoice
+          </button>
+          <button onClick={() => setPreview('estimate')}
+            style={{ padding:'9px 16px', background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, color:'var(--text)', fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+            👁 Preview Estimate
+          </button>
+          <button onClick={save} disabled={saving} style={{ padding:'9px 20px', background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving?0.7:1, whiteSpace:'nowrap' }}>
+            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Layout'}
+          </button>
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ display:'flex', gap:2, marginBottom:16, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, padding:4, flexWrap:'wrap' }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={()=>setActiveTab(t.id)} style={{ padding:'7px 16px', borderRadius:7, border:'none', background:activeTab===t.id?'var(--accent)':'transparent', color:activeTab===t.id?'#fff':'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', transition:'all .15s' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── BRANDING TAB ── */}
+      {activeTab==='branding' && (<>
+        <Section title="LOGO & IDENTITY">
+          <Toggle k="show_logo" label="Show Company Logo" hint="Displays your logo at the top of every invoice and estimate"/>
+          {layout.show_logo && (
+            <div style={{padding:'12px 0', borderBottom:'1px solid var(--border)'}}>
+              <div style={{display:'flex', alignItems:'center', gap:14, padding:'10px 14px', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:9}}>
+                {layout._company?.logo_url
+                  ? <img src={layout._company.logo_url + (layout._company.logo_url.includes('?') ? '' : '?v=' + (layout._company.updated_at ? new Date(layout._company.updated_at).getTime() : Date.now()))} style={{height:44, maxWidth:100, objectFit:'contain', borderRadius:4, background:'#fff', padding:4, border:'1px solid var(--border2)'}} alt="logo"/>
+                  : <div style={{width:60, height:44, borderRadius:6, border:'1px dashed var(--border2)', background:'var(--surface)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                      <span style={{fontSize:10, color:'var(--muted)'}}>No Logo</span>
+                    </div>
+                }
+                <div>
+                  <div style={{fontSize:12, fontWeight:600, color:'var(--text)', marginBottom:3}}>
+                    {layout._company?.logo_url ? '✓ Logo synced from Company Information' : 'No logo uploaded yet'}
+                  </div>
+                  <div style={{fontSize:11, color:'var(--muted)', lineHeight:1.4}}>
+                    Upload or change your logo in <strong>Settings → Company Information</strong>.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {layout.show_logo && (
+            <div style={{...row, padding:'12px 0', borderBottom:'1px solid var(--border)'}}>
+              <label style={lbl}>Logo Position</label>
+              <div style={{display:'flex',gap:8}}>
+                {[['left','Left'],['center','Center'],['right','Right']].map(([v,l])=>(
+                  <button key={v} onClick={()=>set('logo_position',v)} style={{ flex:1, padding:'7px 0', borderRadius:7, border:'1px solid '+(layout.logo_position===v?'var(--accent)':'var(--border2)'), background:layout.logo_position===v?'var(--accentdim)':'var(--surface)', color:layout.logo_position===v?'var(--accent)':'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <Toggle k="show_tagline" label="Show Company Tagline" hint="A short line of text shown under your company name"/>
+          {layout.show_tagline && (
+            <div style={{...row, padding:'12px 0', borderBottom:'1px solid var(--border)'}}>
+              <label style={lbl}>Tagline Text</label>
+              <input style={inp} value={layout.tagline||''} onChange={e=>set('tagline',e.target.value)} placeholder="Your plumbing, done right."/>
+            </div>
+          )}
+        </Section>
+
+        <Section title="COLORS" last>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,padding:'12px 0'}}>
+            <div style={row}>
+              <label style={lbl}>Primary Color</label>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input type="color" value={layout.primary_color||'#1a73e8'} onChange={e=>set('primary_color',e.target.value)} style={{width:38,height:34,border:'1px solid var(--border2)',borderRadius:7,cursor:'pointer',background:'none',padding:2}}/>
+                <input style={{...inp,flex:1}} value={layout.primary_color||'#1a73e8'} onChange={e=>set('primary_color',e.target.value)} placeholder="#1a73e8"/>
+              </div>
+              <div style={{fontSize:11,color:'var(--muted)'}}>Header bar, section titles</div>
+            </div>
+            <div style={row}>
+              <label style={lbl}>Accent Color</label>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input type="color" value={layout.accent_color||'#0d5fc4'} onChange={e=>set('accent_color',e.target.value)} style={{width:38,height:34,border:'1px solid var(--border2)',borderRadius:7,cursor:'pointer',background:'none',padding:2}}/>
+                <input style={{...inp,flex:1}} value={layout.accent_color||'#0d5fc4'} onChange={e=>set('accent_color',e.target.value)} placeholder="#0d5fc4"/>
+              </div>
+              <div style={{fontSize:11,color:'var(--muted)'}}>Totals row, highlights</div>
+            </div>
+          </div>
+          <div style={{...row,padding:'4px 0 14px'}}>
+            <label style={lbl}>Font Style</label>
+            <div style={{display:'flex',gap:8}}>
+              {[['modern','Modern'],['classic','Classic'],['minimal','Minimal']].map(([v,l])=>(
+                <button key={v} onClick={()=>set('font_style',v)} style={{ flex:1, padding:'8px 0', borderRadius:7, border:'1px solid '+(layout.font_style===v?'var(--accent)':'var(--border2)'), background:layout.font_style===v?'var(--accentdim)':'var(--surface)', color:layout.font_style===v?'var(--accent)':'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </Section>
+      </>)}
+
+      {/* ── HEADER TAB ── */}
+      {activeTab==='header' && (<>
+        <Section title="INVOICE META">
+          <Toggle k="show_invoice_number" label="Invoice / Estimate Number" hint="e.g. INV-0042 shown prominently in the header"/>
+          <Toggle k="show_invoice_date" label="Invoice Date" hint="The date the invoice was created"/>
+          <Toggle k="show_due_date" label="Due Date" hint="Payment due date, highlighted in red when past due"/>
+          <Toggle k="show_po_number" label="PO / Reference Number" hint="Customer's purchase order number field"/>
+          <Toggle k="show_job_reference" label="Job Reference" hint="Your internal job number linked to this invoice"/>
+        </Section>
+        <Section title="YOUR COMPANY INFO">
+          <Toggle k="show_company_address" label="Company Address" hint="Street, city, state, ZIP"/>
+          <Toggle k="show_company_phone" label="Company Phone"/>
+          <Toggle k="show_company_email" label="Company Email"/>
+          <Toggle k="show_company_website" label="Company Website URL"/>
+        </Section>
+        <Section title="CUSTOMER INFO" last>
+          <Toggle k="show_customer_address" label="Customer Address" hint="Bill-to address block"/>
+          <Toggle k="show_customer_phone" label="Customer Phone"/>
+          <Toggle k="show_customer_email" label="Customer Email"/>
+        </Section>
+      </>)}
+
+      {/* ── LINE ITEMS TAB ── */}
+      {activeTab==='line_items' && (<>
+        <div style={{background:'var(--accentdim)',border:'1px solid var(--accent)',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:12,color:'var(--accent)',lineHeight:1.5}}>
+          These toggles control which <strong>columns</strong> appear in the line items table on every invoice and estimate.
+        </div>
+        <Section title="TABLE COLUMNS">
+          <Toggle k="show_col_index"       label="Row Number (#)" hint="Sequential item number at the start of each row"/>
+          <Toggle k="show_col_sku"         label="SKU / Item Code" hint="Part number or catalog code for each line item"/>
+          <Toggle k="show_col_description" label="Description" hint="Item or service name — always recommended" disabled={true}/>
+          <Toggle k="show_col_notes"       label="Item Notes" hint="A second sub-line with additional detail per item"/>
+          <Toggle k="show_col_qty"         label="Quantity" hint="Number of units for each line item"/>
+          <Toggle k="show_col_unit_price"  label="Unit Price" hint="Price per individual unit (e.g. $150.00 each)"/>
+          <Toggle k="show_col_line_total"  label="Line Total" hint="Qty × Unit Price shown at the right of each row"/>
+        </Section>
+        <Section title="DISPLAY OPTIONS" last>
+          <Toggle k="show_paid_watermark"  label="PAID Watermark" hint="Diagonal 'PAID' stamp across the page when status is paid"/>
+          <Toggle k="show_signature_line"  label="Signature Line" hint="Blank signature and date line at the bottom of the invoice"/>
+        </Section>
+      </>)}
+
+      {/* ── TOTALS TAB ── */}
+      {activeTab==='totals' && (<>
+        <Section title="TOTALS BREAKDOWN">
+          <Toggle k="show_subtotal"       label="Subtotal" hint="Sum of all line items before tax and discounts"/>
+          <Toggle k="show_discount_line"  label="Discount" hint="Shows a discount amount or percentage if applied"/>
+          <Toggle k="show_tax_line"       label="Tax" hint="Calculated tax amount shown as a separate line"/>
+          <Toggle k="show_total"          label="Total" hint="Final grand total — always recommended" disabled={true}/>
+          <Toggle k="show_amount_paid"    label="Amount Paid" hint="Payments already received, shown before balance due"/>
+          <Toggle k="show_balance_due"    label="Balance Due" hint="Remaining amount owed, prominently displayed"/>
+        </Section>
+        <Section title="TAX SETTINGS" last>
+          <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+            <label style={lbl}>Default Tax Rate (%)</label>
+            <input type="number" style={inp} value={layout.default_tax_rate||''} onChange={e=>set('default_tax_rate',e.target.value)} placeholder="8.25" min="0" max="30" step="0.01"/>
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>Applied to new invoices automatically. Can be overridden per invoice.</div>
+          </div>
+          <div style={{...row,padding:'12px 0'}}>
+            <label style={lbl}>Default Payment Terms</label>
+            <select value={layout.payment_terms||'due_on_receipt'} onChange={e=>set('payment_terms',e.target.value)} style={inp}>
+              <option value="due_on_receipt">Due on Receipt</option>
+              <option value="net7">Net 7 Days</option>
+              <option value="net15">Net 15 Days</option>
+              <option value="net30">Net 30 Days</option>
+              <option value="net60">Net 60 Days</option>
+              <option value="net90">Net 90 Days</option>
+            </select>
+          </div>
+        </Section>
+      </>)}
+
+      {/* ── FOOTER & TERMS TAB ── */}
+      {activeTab==='footer' && (<>
+        <Section title="SECTIONS">
+          <Toggle k="show_thank_you"           label="Thank You Message" hint="A short thank-you line just below the totals"/>
+          <Toggle k="show_payment_instructions" label="Payment Instructions" hint="ACH routing, Venmo, Zelle, check details, etc."/>
+          <Toggle k="show_notes_section"        label="Notes Section" hint="Free-form notes added per invoice"/>
+          <Toggle k="show_terms"               label="Terms &amp; Conditions" hint="Legal payment terms block at the bottom"/>
+          <Toggle k="show_footer"              label="Footer Text" hint="A final line of text at the very bottom of the page"/>
+        </Section>
+        <Section title="CONTENT" last>
+          <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+            <label style={lbl}>Thank You Message</label>
+            <input style={inp} value={layout.thank_you_text||''} onChange={e=>set('thank_you_text',e.target.value)} placeholder="Thank you for choosing Davis Plumbing!"/>
+          </div>
+          <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+            <label style={lbl}>Payment Instructions / Bank Details</label>
+            <textarea rows={3} style={{...inp,resize:'vertical'}} value={layout.bank_details||''} onChange={e=>set('bank_details',e.target.value)} placeholder="ACH: Routing 021000021, Acct 123456789&#10;Zelle: billing@yourdomain.com&#10;Check payable to: Davis Plumbing LLC"/>
+          </div>
+          <div style={{...row,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+            <label style={lbl}>Terms &amp; Conditions</label>
+            <textarea rows={4} style={{...inp,resize:'vertical'}} value={layout.terms||''} onChange={e=>set('terms',e.target.value)} placeholder="Payment due within 30 days. Late payments subject to 1.5% monthly interest. All work warranted for 1 year."/>
+          </div>
+          <div style={{...row,padding:'12px 0'}}>
+            <label style={lbl}>Footer Text</label>
+            <input style={inp} value={layout.footer_text||''} onChange={e=>set('footer_text',e.target.value)} placeholder="Licensed & Insured · Davis Plumbing LLC · (555) 867-5309"/>
+          </div>
+        </Section>
+      </>)}
+
+      {/* ── CONTENT TAB ── */}
+      {activeTab==='content' && (<>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:20,marginBottom:14}}>
+          <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--muted)',letterSpacing:'.1em',fontWeight:700,marginBottom:16}}>DOCUMENT TITLES</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div style={row}>
+              <label style={lbl}>Invoice Title</label>
+              <input style={inp} value={layout.invoice_title||''} onChange={e=>set('invoice_title',e.target.value)} placeholder="INVOICE"/>
+            </div>
+            <div style={row}>
+              <label style={lbl}>Estimate Title</label>
+              <input style={inp} value={layout.estimate_title||''} onChange={e=>set('estimate_title',e.target.value)} placeholder="ESTIMATE"/>
+            </div>
+          </div>
+        </div>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:20,marginBottom:14}}>
+          <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--muted)',letterSpacing:'.1em',fontWeight:700,marginBottom:16}}>COLUMN LABELS</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            {[
+              ['col_label_description','Description Column','Description'],
+              ['col_label_qty','Quantity Column','Qty'],
+              ['col_label_unit_price','Unit Price Column','Unit Price'],
+              ['col_label_total','Line Total Column','Total'],
+              ['col_label_sku','SKU Column','SKU / Code'],
+            ].map(([k2,label2,ph])=>(
+              <div key={k2} style={row}>
+                <label style={lbl}>{label2}</label>
+                <input style={inp} value={layout[k2]||''} onChange={e=>set(k2,e.target.value)} placeholder={ph}/>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:20}}>
+          <div style={{fontFamily:'var(--font-mono)',fontSize:9,color:'var(--muted)',letterSpacing:'.1em',fontWeight:700,marginBottom:16}}>DATE FORMAT</div>
+          <div style={row}>
+            <label style={lbl}>Date Display Format</label>
+            <select value={layout.date_format||'M/D/YYYY'} onChange={e=>set('date_format',e.target.value)} style={inp}>
+              <option value="M/D/YYYY">1/15/2025 (M/D/YYYY)</option>
+              <option value="MM/DD/YYYY">01/15/2025 (MM/DD/YYYY)</option>
+              <option value="MMMM D, YYYY">January 15, 2025 (long)</option>
+              <option value="MMM D, YYYY">Jan 15, 2025 (short)</option>
+              <option value="YYYY-MM-DD">2025-01-15 (ISO)</option>
+            </select>
+          </div>
+        </div>
+      </>)}
+
+      {/* Sticky save bar */}
+      <div style={{ display:'flex', gap:10, alignItems:'center', marginTop:20, padding:'14px 0', borderTop:'1px solid var(--border)' }}>
+        <button onClick={save} disabled={saving} style={{ padding:'10px 28px', background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving?0.7:1 }}>
+          {saving ? 'Saving…' : saved ? '✓ Layout Saved' : 'Save Layout'}
+        </button>
+        {saved && <span style={{fontSize:12,color:'var(--green)'}}>Changes will apply to all new and printed invoices.</span>}
+      </div>
+
+      {/* Preview modal */}
+      {preview && <InvoicePreviewModal layout={layout} type={preview} onClose={() => setPreview(null)}/>}
+    </div>
+  );
+}
+
+// Module-level section wrapper for InvoiceEmailSettings. MUST live outside the
+// component — defining it inside made React see a new component type on every
+// render, remount every child input, and drop focus after each keystroke.
+function EmailSettingsSection({ title, children }) {
+  return (
+    <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:20, marginBottom:16 }}>
+      <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--muted)', letterSpacing:'.08em', fontWeight:700, marginBottom:14 }}>{title}</div>
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>{children}</div>
+    </div>
+  );
+}
+
+// ─── INVOICE EMAIL SETTINGS ────────────────────────────────────
+function InvoiceEmailSettings() {
+  const [layout, setLayout] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [showTestInput, setShowTestInput] = useState(false);
+
+  useEffect(() => {
+    api.getInvoiceLayout().then(d => {
+      setLayout(d || {});
+      setTestEmail(d?._company?.email || '');
+    }).catch(() => setLayout({}));
+  }, []);
+
+  const set = (k, v) => setLayout(prev => ({ ...prev, [k]: v }));
+
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try { await api.saveInvoiceLayout(layout); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    catch { toast.error('Error', 'Could not save email settings'); }
+    finally { setSaving(false); }
+  };
+
+  if (!layout) return <div style={{padding:40,textAlign:'center'}}><Spinner/></div>;
+
+  const inputStyle = { width:'100%', padding:'8px 12px', background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, color:'var(--text)', fontSize:13, outline:'none', boxSizing:'border-box' };
+  const labelStyle = { fontSize:11, fontFamily:'var(--font-mono)', color:'var(--muted)', letterSpacing:'.06em', marginBottom:4, display:'block' };
+  const rowStyle   = { display:'flex', flexDirection:'column', gap:4 };
+  // Reference the module-level component directly — do NOT wrap in an arrow function.
+  const Section = EmailSettingsSection;
+
+  return (
+    <div style={{ animation:'fadeUp .4s ease', maxWidth:620 }}>
+      <div style={{ fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:6 }}>Email Settings</div>
+      <div style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>Configure your outgoing email server and default message templates for invoices and estimates.</div>
+
+      <Section title="SMTP SERVER">
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 120px', gap:12 }}>
+          <div style={rowStyle}>
+            <label style={labelStyle}>SMTP Host</label>
+            <input style={inputStyle} value={layout.smtp_host||''} onChange={e=>set('smtp_host',e.target.value)} placeholder="smtp.gmail.com"/>
+          </div>
+          <div style={rowStyle}>
+            <label style={labelStyle}>Port</label>
+            <input type="number" style={inputStyle} value={layout.smtp_port||''} onChange={e=>set('smtp_port',e.target.value)} placeholder="587"/>
+          </div>
+        </div>
+        <div style={rowStyle}>
+          <label style={labelStyle}>Security</label>
+          <div style={{ display:'flex', gap:12 }}>
+            {[['tls','STARTTLS (port 587)'],['ssl','SSL/TLS (port 465)'],['none','None (port 25)']].map(([val,lbl])=>(
+              <label key={val} style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer', fontSize:13, color:'var(--text)' }}>
+                <input type="radio" name="smtp_secure" value={val} checked={(layout.smtp_secure||'tls')===val} onChange={()=>set('smtp_secure',val)} style={{ accentColor:'var(--accent)' }}/>
+                {lbl}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div style={rowStyle}>
+            <label style={labelStyle}>Username</label>
+            <input style={inputStyle} value={layout.smtp_user||''} onChange={e=>set('smtp_user',e.target.value)} placeholder="your@email.com" autoComplete="off"/>
+          </div>
+          <div style={rowStyle}>
+            <label style={labelStyle}>Password</label>
+            <input type="password" style={inputStyle} value={layout.smtp_pass||''} onChange={e=>set('smtp_pass',e.target.value)} placeholder="••••••••••••" autoComplete="new-password"/>
+          </div>
+        </div>
+        <div style={{ background:'#1a2e1a', border:'1px solid #2d5a2d', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#6abf69' }}>
+          <strong>Gmail tip:</strong> Use an App Password, not your Google account password. Go to myaccount.google.com → Security → 2-Step Verification → App Passwords.
+        </div>
+      </Section>
+
+      <Section title="SENDER INFO">
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div style={rowStyle}>
+            <label style={labelStyle}>From Name</label>
+            <input style={inputStyle} value={layout.smtp_from_name||''} onChange={e=>set('smtp_from_name',e.target.value)} placeholder="Davis Plumbing"/>
+          </div>
+          <div style={rowStyle}>
+            <label style={labelStyle}>From Email</label>
+            <input type="email" style={inputStyle} value={layout.smtp_from_email||''} onChange={e=>set('smtp_from_email',e.target.value)} placeholder="billing@yourdomain.com"/>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="DEFAULT TEMPLATES">
+        <div style={rowStyle}>
+          <label style={labelStyle}>Invoice Subject Line</label>
+          <input style={inputStyle} value={layout.email_invoice_subject||''} onChange={e=>set('email_invoice_subject',e.target.value)} placeholder="Invoice #{number} from {company}"/>
+          <div style={{fontSize:11,color:'var(--muted)'}}> Variables: {'{number}'}, {'{company}'}, {'{customer}'}, {'{total}'}</div>
+        </div>
+        <div style={rowStyle}>
+          <label style={labelStyle}>Invoice Message Body</label>
+          <textarea rows={5} style={{...inputStyle,resize:'vertical'}} value={layout.email_invoice_body||''} onChange={e=>set('email_invoice_body',e.target.value)} placeholder={`Hi {customer},\n\nPlease find your invoice attached. The total due is {total}.\n\nThank you for your business!\n\n{company}`}/>
+        </div>
+        <div style={rowStyle}>
+          <label style={labelStyle}>Estimate Subject Line</label>
+          <input style={inputStyle} value={layout.email_estimate_subject||''} onChange={e=>set('email_estimate_subject',e.target.value)} placeholder="Estimate #{number} from {company}"/>
+        </div>
+        <div style={rowStyle}>
+          <label style={labelStyle}>Estimate Message Body</label>
+          <textarea rows={5} style={{...inputStyle,resize:'vertical'}} value={layout.email_estimate_body||''} onChange={e=>set('email_estimate_body',e.target.value)} placeholder={`Hi {customer},\n\nPlease review the attached estimate. Reply or call us to approve.\n\nThank you!\n\n{company}`}/>
+        </div>
+      </Section>
+
+      <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+        <button onClick={save} disabled={saving} style={{ padding:'10px 22px', background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving?0.7:1 }}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Settings'}
+        </button>
+        <button onClick={()=>setShowTestInput(v=>!v)} style={{ padding:'10px 18px', background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, color:'var(--text)', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+          📧 Send Test Email
+        </button>
+      </div>
+
+      {showTestInput && (
+        <div style={{ marginTop:12, display:'flex', gap:8, alignItems:'center' }}>
+          <input type="email" value={testEmail} onChange={e=>setTestEmail(e.target.value)} placeholder="test@example.com" style={{...inputStyle,flex:1}}/>
+          <button
+            disabled={testing||!testEmail}
+            onClick={async()=>{
+              setTesting(true);
+              try {
+                await api.sendInvoiceEmail('test',{to:testEmail,message:'This is a test email from DPS. Your SMTP configuration is working correctly!'});
+                toast.success('Sent!','Test email delivered to '+testEmail);
+              } catch(e) {
+                toast.error('Failed','SMTP error: '+(e?.message||'check your server settings'));
+              } finally { setTesting(false); }
+            }}
+            style={{ padding:'9px 18px', background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', opacity:testing?0.7:1 }}
+          >
+            {testing?'Sending…':'Send'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MARKETING PAGE ───────────────────────────────────────────
+function MarketingPage() {
+  const [tab, setTab] = useState('overview');
+  const [overview, setOverview] = useState(null);
+  const [leadSources, setLeadSources] = useState(null);
+  const [campaigns, setCampaigns] = useState(null);
+  const [promos, setPromos] = useState(null);
+  const [reviews, setReviews] = useState(null);
+  const [techCsat, setTechCsat] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Modal state for create/edit
+  const [editing, setEditing] = useState(null); // {kind:'campaign'|'promo'|'review', data:obj|'new'}
+
+  const fmt$ = (n) => '$' + parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtK = (n) => { const v = parseFloat(n||0); return v >= 1000 ? '$' + (v/1000).toFixed(1) + 'k' : fmt$(v); };
+  const fmtPct = (n) => n === null || n === undefined ? '—' : `${n}%`;
+
+  // Load on mount
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      api.getMarketingOverview().then(setOverview).catch(()=>{}),
+      api.getTechCSAT().then(setTechCsat).catch(()=>setTechCsat([])),
+    ]).finally(()=>setLoading(false));
+  }, []);
+
+  // Lazy-load tabs
+  useEffect(() => {
+    if (tab === 'lead-sources' && !leadSources) {
+      api.getMarketingLeadSources().then(setLeadSources).catch(()=>setLeadSources({sources:[]}));
+    }
+    if (tab === 'campaigns' && !campaigns) {
+      api.getMarketingCampaigns().then(setCampaigns).catch(()=>setCampaigns([]));
+    }
+    if (tab === 'promotions' && !promos) {
+      api.getMarketingPromotions().then(setPromos).catch(()=>setPromos([]));
+    }
+    if (tab === 'reviews' && !reviews) {
+      api.getMarketingReviews().then(setReviews).catch(()=>setReviews([]));
+    }
+  }, [tab]);
+
+  const reloadCampaigns = () => api.getMarketingCampaigns().then(setCampaigns).catch(()=>{});
+  const reloadPromos    = () => api.getMarketingPromotions().then(setPromos).catch(()=>{});
+  const reloadReviews   = () => api.getMarketingReviews().then(setReviews).catch(()=>{});
+
+  const TABS = [
+    { id: 'overview',     label: '📊 Overview' },
+    { id: 'lead-sources', label: '🎯 Lead Sources' },
+    { id: 'campaigns',    label: '📣 Campaigns' },
+    { id: 'promotions',   label: '🎟️ Promotions' },
+    { id: 'reviews',      label: '⭐ Reviews' },
+  ];
+
+  const tabBtn = (t) => ({
+    padding:'8px 18px', borderRadius:8, cursor:'pointer', fontSize:13,
+    fontWeight: tab === t.id ? 700 : 500,
+    background: tab === t.id ? 'var(--blue)' : 'var(--surface)',
+    color:      tab === t.id ? '#fff' : 'var(--muted)',
+    border: `1px solid ${tab === t.id ? 'var(--blue)' : 'var(--border)'}`,
+  });
+
+  const STAR = (n) => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5-n);
+
+  if (loading) return (
+    <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:300}}>
+      <div style={{width:28, height:28, border:'3px solid var(--border)', borderTopColor:'var(--blue)', borderRadius:'50%', animation:'spin 1s linear infinite'}}/>
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:1100, margin:'0 auto', display:'flex', flexDirection:'column', gap:20}}>
+
+      {/* Page header */}
+      <div style={{display:'flex', alignItems:'center', gap:12}}>
+        <div>
+          <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800}}>📣 Marketing</div>
+          <div style={{fontSize:12, color:'var(--muted)', marginTop:3}}>
+            Lead Sources · Campaigns · Promotions · Reviews
+          </div>
+        </div>
+        <div style={{flex:1}}/>
+        <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+          {new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})}
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      {overview && (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12}}>
+          {[
+            { label:'New Customers MTD', value: overview.new_customers_mtd, sub: `${overview.new_customers_ytd} YTD`, color:'var(--green)', icon:'👥' },
+            { label:'Conversion Rate',   value: fmtPct(overview.conversion_rate_pct), sub: `${overview.conversions_mtd} of ${overview.leads_mtd} leads`, color:'var(--blue)', icon:'🎯' },
+            { label:'Active Spend',      value: fmt$(overview.total_active_spend), sub: `${overview.active_campaigns} active campaign${overview.active_campaigns===1?'':'s'}`, color:'var(--amber)', icon:'💸' },
+            { label:'Blended CPA',       value: overview.blended_cpa === null ? '—' : fmt$(overview.blended_cpa), sub: 'cost per converted customer', color:'#a78bfa', icon:'📈' },
+          ].map((k, i) => (
+            <div key={i} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'16px 18px', position:'relative', overflow:'hidden'}}>
+              <div style={{position:'absolute', top:12, right:14, fontSize:22, opacity:.2}}>{k.icon}</div>
+              <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:8}}>
+                {k.label}
+              </div>
+              <div style={{fontSize:24, fontWeight:800, color:k.color, fontFamily:'var(--font-head)', lineHeight:1}}>
+                {k.value}
+              </div>
+              <div style={{fontSize:11, color:'var(--muted)', marginTop:6}}>{k.sub}</div>
+            </div>
+          ))}
         </div>
       )}
 
-      {showCreate&&<CreateDocDrawer type={showCreate} onClose={()=>setShowCreate(null)} onCreated={()=>{ setShowCreate(null); reload(); }}/>}
+      {/* Sub-tabs */}
+      <div style={{display:'flex', gap:8, overflowX:'auto', paddingBottom:2, flexShrink:0}}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={tabBtn(t)}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── OVERVIEW TAB ─────────────────────────────────────────── */}
+      {tab === 'overview' && overview && (
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+
+          {/* Revenue by source */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              Revenue by Source — All Time
+            </div>
+            {(!overview.revenue_by_source || overview.revenue_by_source.length === 0) ? (
+              <div style={{color:'var(--muted)', fontSize:13}}>No revenue attribution yet</div>
+            ) : (() => {
+              const max = Math.max(...overview.revenue_by_source.map(s=>s.revenue), 1);
+              const PALETTE = ['#3ecf8e','#4a9eff','#a78bfa','#f97316','#f56565','#e8a84a','#10b981','#ec4899','#94a3b8'];
+              return overview.revenue_by_source.slice(0, 8).map((s, i) => {
+                const pct = (s.revenue / max) * 100;
+                const color = s.source === 'Unattributed' ? '#94a3b8' : PALETTE[i % PALETTE.length];
+                return (
+                  <div key={s.source} style={{marginBottom:12}}>
+                    <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                      <div style={{width:8, height:8, borderRadius:2, background:color, flexShrink:0}}/>
+                      <div style={{flex:1, fontSize:13, fontWeight:600}}>{s.source}</div>
+                      <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                        {s.customers} cust · {s.invoices} inv
+                      </div>
+                      <div style={{fontSize:13, fontWeight:700, color, fontFamily:'var(--font-mono)', minWidth:90, textAlign:'right'}}>
+                        {fmtK(s.revenue)}
+                      </div>
+                    </div>
+                    <div style={{height:5, background:'var(--surface2)', borderRadius:3, marginLeft:16}}>
+                      <div style={{height:5, width:`${pct}%`, background:color, borderRadius:3, transition:'width .5s'}}/>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {/* Reviews snapshot */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              Reviews
+            </div>
+            <div style={{display:'flex', alignItems:'center', gap:18, padding:'10px 0'}}>
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:32, fontWeight:800, color:'var(--amber)', fontFamily:'var(--font-head)', lineHeight:1}}>
+                  {overview.reviews_avg_rating}
+                </div>
+                <div style={{fontSize:18, color:'var(--amber)', marginTop:4, letterSpacing:1}}>
+                  {STAR(Math.round(parseFloat(overview.reviews_avg_rating)))}
+                </div>
+                <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+                  {overview.reviews_count} review{overview.reviews_count === 1 ? '' : 's'}
+                </div>
+              </div>
+              <div style={{flex:1, fontSize:12, color:'var(--muted)', lineHeight:1.6}}>
+                Track customer reviews from Google, Yelp, Facebook, BBB, and NextDoor in one place.
+                Mark each as responded so you don't miss a complaint.
+              </div>
+            </div>
+            <button onClick={() => { setTab('reviews'); }}
+              style={{padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:600, cursor:'pointer', marginTop:8, width:'100%'}}>
+              Open Reviews →
+            </button>
+          </div>
+
+          {/* CSAT by Technician — links each tech's customer reviews to their score */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px', gridColumn:'1 / -1'}}>
+            <div style={{display:'flex', alignItems:'center', marginBottom:14}}>
+              <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', flex:1}}>
+                Customer Satisfaction by Technician
+              </div>
+              <div style={{fontSize:11, color:'var(--muted)'}}>
+                CSAT % = (4★ + 5★) ÷ total reviews
+              </div>
+            </div>
+            {(!techCsat || techCsat.length === 0) ? (
+              <div style={{color:'var(--muted)', fontSize:13, padding:'16px 0', textAlign:'center'}}>
+                No tech reviews yet. Reviews auto-link to the technician who ran the job once a customer submits feedback.
+              </div>
+            ) : (
+              <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                <thead>
+                  <tr>
+                    {['Technician','Reviews','Avg ★','CSAT %','5★','4★','3★','2★','1★','Critical','Last'].map(h => (
+                      <th key={h} style={{padding:'8px 10px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {techCsat.filter(t => t.reviews_count > 0).map((t, i) => {
+                    const tc = t.color || '#3ecf8e';
+                    const csatColor = t.csat_pct === null ? 'var(--muted)' : t.csat_pct >= 90 ? 'var(--green)' : t.csat_pct >= 75 ? 'var(--amber)' : '#f56565';
+                    return (
+                      <tr key={t.id} style={{borderTop:'1px solid var(--border)'}}>
+                        <td style={{padding:'10px'}}>
+                          <span style={{display:'inline-flex', alignItems:'center', gap:8}}>
+                            <span style={{width:24, height:24, borderRadius:'50%', background:tc+'22', border:`2px solid ${tc}`, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:tc, fontFamily:'var(--font-mono)'}}>
+                              {t.initials || t.name.slice(0,2).toUpperCase()}
+                            </span>
+                            <span style={{fontWeight:600}}>{t.name}</span>
+                          </span>
+                        </td>
+                        <td style={{padding:'10px', fontFamily:'var(--font-mono)'}}>{t.reviews_count}</td>
+                        <td style={{padding:'10px', fontFamily:'var(--font-mono)', color:'var(--amber)', fontWeight:700}}>{t.avg_rating.toFixed(2)}</td>
+                        <td style={{padding:'10px', fontFamily:'var(--font-mono)', color:csatColor, fontWeight:800}}>
+                          {t.csat_pct === null ? '—' : `${t.csat_pct}%`}
+                        </td>
+                        {[5,4,3,2,1].map(n => (
+                          <td key={n} style={{padding:'10px', fontFamily:'var(--font-mono)', color: n >= 4 ? 'var(--green)' : n === 3 ? 'var(--amber)' : '#f56565', opacity: t.distribution[n] ? 1 : 0.3}}>
+                            {t.distribution[n] || 0}
+                          </td>
+                        ))}
+                        <td style={{padding:'10px', fontFamily:'var(--font-mono)', color: t.critical_count > 0 ? '#f56565' : 'var(--muted)', fontWeight: t.critical_count > 0 ? 700 : 400}}>
+                          {t.critical_count}
+                        </td>
+                        <td style={{padding:'10px', fontFamily:'var(--font-mono)', color:'var(--muted)', fontSize:11}}>
+                          {t.last_review_at ? new Date(t.last_review_at).toLocaleDateString() : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Quick stats */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px', gridColumn:'1 / -1'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              At-a-Glance
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12}}>
+              {[
+                { label:'Leads MTD',          val: overview.leads_mtd },
+                { label:'Conversions MTD',    val: overview.conversions_mtd },
+                { label:'New Customers YTD',  val: overview.new_customers_ytd },
+                { label:'Active Campaigns',   val: overview.active_campaigns },
+              ].map((s,i)=>(
+                <div key={i} style={{background:'var(--surface2)', borderRadius:8, padding:'12px 14px'}}>
+                  <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', letterSpacing:'.06em', marginBottom:4}}>
+                    {s.label.toUpperCase()}
+                  </div>
+                  <div style={{fontSize:22, fontWeight:800, color:'var(--text)', fontFamily:'var(--font-mono)'}}>
+                    {s.val}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── LEAD SOURCES TAB ─────────────────────────────────────── */}
+      {tab === 'lead-sources' && (
+        <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden'}}>
+          <div style={{padding:'14px 18px', borderBottom:'1px solid var(--border)', fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em'}}>
+            Lead Source Performance — YTD
+          </div>
+          {leadSources === null
+            ? <div style={{padding:32, textAlign:'center', color:'var(--muted)'}}>Loading…</div>
+            : leadSources.sources.length === 0
+              ? <div style={{padding:32, textAlign:'center', color:'var(--muted)', fontSize:13}}>
+                  No customer data yet. Set the "marketing source" field on customers to start tracking.
+                </div>
+              : (
+                <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                  <thead>
+                    <tr style={{background:'var(--surface2)'}}>
+                      {['Source','Customers','Jobs','Paid Inv','Conversion','Avg Ticket','Total Revenue'].map(h => (
+                        <th key={h} style={{padding:'10px 14px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leadSources.sources.map((s, i) => (
+                      <tr key={s.source} style={{borderBottom:'1px solid var(--border)', background: i%2===0 ? 'transparent' : 'var(--surface2)44'}}>
+                        <td style={{padding:'12px 14px', fontWeight:600}}>
+                          {s.source}
+                          {s.source === 'Unattributed' && <span style={{fontSize:9, marginLeft:6, padding:'1px 5px', background:'var(--surface3)', color:'var(--muted)', borderRadius:3}}>NO TRACKING</span>}
+                        </td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)'}}>{s.customers}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)'}}>{s.jobs}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)'}}>{s.paid_invoices}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', color: s.conversion_rate >= 50 ? 'var(--green)' : s.conversion_rate >= 20 ? 'var(--amber)' : 'var(--muted)'}}>
+                          {fmtPct(s.conversion_rate)}
+                        </td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)'}}>{fmt$(s.avg_ticket)}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--green)'}}>{fmt$(s.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+          }
+        </div>
+      )}
+
+      {/* ── CAMPAIGNS TAB ────────────────────────────────────────── */}
+      {tab === 'campaigns' && (
+        <div>
+          <div style={{display:'flex', alignItems:'center', marginBottom:14}}>
+            <div style={{flex:1, fontSize:12, color:'var(--muted)'}}>
+              Track ad spend, lead volume, conversions, and ROI per campaign. Set the campaign's UTM tag to match the customer's marketing source for automatic attribution.
+            </div>
+            <button onClick={() => setEditing({kind:'campaign', data:'new'})}
+              style={{padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer'}}>
+              + New Campaign
+            </button>
+          </div>
+
+          {campaigns === null
+            ? <div style={{padding:24, color:'var(--muted)'}}>Loading…</div>
+            : campaigns.length === 0
+              ? <div style={{padding:32, textAlign:'center', color:'var(--muted)', fontSize:13, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12}}>
+                  No campaigns yet. Click "New Campaign" to track your first.
+                </div>
+              : (
+                <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                  {campaigns.map(c => {
+                    const status = c.status || 'active';
+                    const STATUS_COLOR = { active:'var(--green)', paused:'var(--amber)', completed:'var(--muted)', draft:'var(--blue)' };
+                    const sc = STATUS_COLOR[status] || 'var(--muted)';
+                    return (
+                      <div key={c.id} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'16px 20px'}}>
+                        <div style={{display:'flex', alignItems:'flex-start', gap:12, marginBottom:10}}>
+                          <div style={{flex:1}}>
+                            <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                              <div style={{fontSize:15, fontWeight:700}}>{c.name}</div>
+                              <span style={{fontSize:10, padding:'2px 8px', background:`${sc}22`, color:sc, borderRadius:4, fontWeight:700, textTransform:'uppercase'}}>{status}</span>
+                              {c.channel && <span style={{fontSize:11, color:'var(--muted)'}}>· {c.channel}</span>}
+                            </div>
+                            <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                              {c.start_date ? new Date(c.start_date).toLocaleDateString() : '—'}
+                              {' → '}
+                              {c.end_date ? new Date(c.end_date).toLocaleDateString() : 'ongoing'}
+                              {c.utm_campaign && ` · utm:${c.utm_campaign}`}
+                            </div>
+                          </div>
+                          <button onClick={() => setEditing({kind:'campaign', data:c})}
+                            style={{padding:'5px 12px', background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', fontSize:11, fontWeight:600, cursor:'pointer'}}>Edit</button>
+                          <button onClick={async () => { if (confirm('Delete this campaign?')) { await api.deleteMarketingCampaign(c.id); reloadCampaigns(); } }}
+                            style={{padding:'5px 10px', background:'transparent', border:'1px solid #f5656544', borderRadius:6, color:'#f56565', fontSize:11, cursor:'pointer'}}>Delete</button>
+                        </div>
+                        <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:10, paddingTop:10, borderTop:'1px solid var(--border)'}}>
+                          {[
+                            { label:'Budget',     val: fmt$(c.budget),    color:'var(--text)' },
+                            { label:'Spend',      val: fmt$(c.spend),     color:'var(--amber)' },
+                            { label:'Customers',  val: c.attributed_customers, color:'var(--blue)', mono:true },
+                            { label:'Revenue',    val: fmt$(c.attributed_revenue), color:'var(--green)' },
+                            { label:'ROI',
+                              val: c.roi === null ? '—' : `${c.roi > 0 ? '+' : ''}${c.roi}%`,
+                              color: c.roi === null ? 'var(--muted)' : c.roi >= 0 ? 'var(--green)' : '#f56565' },
+                          ].map((s,i)=>(
+                            <div key={i} style={{textAlign:'center'}}>
+                              <div style={{fontSize:9, color:'var(--muted)', fontFamily:'var(--font-mono)', letterSpacing:'.06em', marginBottom:3}}>{s.label.toUpperCase()}</div>
+                              <div style={{fontSize:14, fontWeight:700, color:s.color, fontFamily:s.mono?'var(--font-mono)':'var(--font-head)'}}>{s.val}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+          }
+        </div>
+      )}
+
+      {/* ── PROMOTIONS TAB ───────────────────────────────────────── */}
+      {tab === 'promotions' && (
+        <div>
+          <div style={{display:'flex', alignItems:'center', marginBottom:14}}>
+            <div style={{flex:1, fontSize:12, color:'var(--muted)'}}>
+              Discount codes for invoices and estimates. Track usage and set expiration windows.
+            </div>
+            <button onClick={() => setEditing({kind:'promo', data:'new'})}
+              style={{padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer'}}>
+              + New Promotion
+            </button>
+          </div>
+          {promos === null ? <div style={{padding:24, color:'var(--muted)'}}>Loading…</div>
+          : promos.length === 0 ? (
+              <div style={{padding:32, textAlign:'center', color:'var(--muted)', fontSize:13, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12}}>
+                No active promotions.
+              </div>
+            )
+          : (
+              <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                {promos.map(p => {
+                  const isExpired = p.end_date && new Date(p.end_date) < new Date();
+                  const usagePct = p.max_uses ? (p.usage_count / p.max_uses * 100) : 0;
+                  return (
+                    <div key={p.id} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px', display:'flex', alignItems:'center', gap:14}}>
+                      <div style={{display:'flex', alignItems:'center', justifyContent:'center', width:80, height:60, background:'var(--amberdim)', borderRadius:8, border:'2px dashed var(--amber)', flexShrink:0}}>
+                        <div style={{fontFamily:'var(--font-mono)', fontWeight:800, color:'var(--amber)', fontSize:13}}>{p.code}</div>
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                          <div style={{fontSize:14, fontWeight:700}}>
+                            {p.discount_type === 'percent' ? `${p.discount_value}% off` : `${fmt$(p.discount_value)} off`}
+                          </div>
+                          {!p.active && <span style={{fontSize:10, padding:'1px 6px', background:'var(--surface3)', color:'var(--muted)', borderRadius:3, fontWeight:700}}>INACTIVE</span>}
+                          {isExpired && <span style={{fontSize:10, padding:'1px 6px', background:'#f5656522', color:'#f56565', borderRadius:3, fontWeight:700}}>EXPIRED</span>}
+                          {p.min_amount && <span style={{fontSize:11, color:'var(--muted)'}}>· min {fmt$(p.min_amount)}</span>}
+                        </div>
+                        <div style={{fontSize:12, color:'var(--muted)'}}>{p.description || '—'}</div>
+                        <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', marginTop:3}}>
+                          {p.start_date ? new Date(p.start_date).toLocaleDateString() : 'no start'} → {p.end_date ? new Date(p.end_date).toLocaleDateString() : 'no end'}
+                          {' · '}
+                          {p.usage_count || 0} use{p.usage_count === 1 ? '' : 's'}
+                          {p.max_uses ? ` of ${p.max_uses}` : ''}
+                        </div>
+                        {p.max_uses && (
+                          <div style={{height:4, background:'var(--surface2)', borderRadius:2, marginTop:5, overflow:'hidden'}}>
+                            <div style={{height:4, width:`${Math.min(100, usagePct)}%`, background: usagePct >= 100 ? '#f56565' : 'var(--amber)', transition:'width .5s'}}/>
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={() => setEditing({kind:'promo', data:p})}
+                        style={{padding:'5px 12px', background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', fontSize:11, fontWeight:600, cursor:'pointer'}}>Edit</button>
+                      <button onClick={async () => { if (confirm('Delete this promotion?')) { await api.deleteMarketingPromotion(p.id); reloadPromos(); } }}
+                        style={{padding:'5px 10px', background:'transparent', border:'1px solid #f5656544', borderRadius:6, color:'#f56565', fontSize:11, cursor:'pointer'}}>Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* ── REVIEWS TAB ──────────────────────────────────────────── */}
+      {tab === 'reviews' && (
+        <div>
+          <div style={{display:'flex', alignItems:'center', marginBottom:14, gap:10, flexWrap:'wrap'}}>
+            <div style={{flex:1, minWidth:280, fontSize:12, color:'var(--muted)'}}>
+              Reviews flow in three ways: <strong>internal CSAT</strong> from the auto-sent customer feedback link after job completion, <strong>external</strong> via webhook from Google/Yelp/etc., and <strong>manual</strong> entries you add here. Each review links to the technician for per-tech satisfaction scoring.
+            </div>
+            <button onClick={() => setEditing({kind:'review', data:'new'})}
+              style={{padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer'}}>
+              + Log Review
+            </button>
+          </div>
+          {reviews === null ? <div style={{padding:24, color:'var(--muted)'}}>Loading…</div>
+          : reviews.length === 0 ? (
+              <div style={{padding:32, textAlign:'center', color:'var(--muted)', fontSize:13, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12}}>
+                No reviews logged yet.
+              </div>
+            )
+          : (
+              <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                {reviews.map(r => {
+                  const PLATFORM_COLORS = { Google:'#4a9eff', Yelp:'#f56565', Facebook:'#3b5998', BBB:'#0d4a8a', NextDoor:'#10b981', Internal:'#a78bfa', Other:'var(--muted)' };
+                  const pc = PLATFORM_COLORS[r.platform] || 'var(--muted)';
+                  const tc = r.technician_color || '#3ecf8e';
+                  return (
+                    <div key={r.id} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px'}}>
+                      <div style={{display:'flex', alignItems:'flex-start', gap:12, marginBottom:8}}>
+                        <div style={{display:'flex', flexDirection:'column', alignItems:'center', flexShrink:0}}>
+                          <div style={{fontSize:18, color:'var(--amber)', letterSpacing:1}}>{STAR(r.rating || 0)}</div>
+                          <div style={{fontSize:10, color:pc, fontWeight:700, marginTop:3}}>{r.platform}</div>
+                          {r.is_internal && <span style={{fontSize:8, padding:'1px 5px', background:'#a78bfa22', color:'#a78bfa', borderRadius:3, fontWeight:700, marginTop:3}}>CSAT</span>}
+                        </div>
+                        <div style={{flex:1, minWidth:0}}>
+                          <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap'}}>
+                            <div style={{fontSize:14, fontWeight:700}}>{r.customer_name || 'Anonymous reviewer'}</div>
+                            {r.technician_name && (
+                              <span style={{display:'inline-flex', alignItems:'center', gap:5, padding:'2px 8px', background:tc+'22', border:`1px solid ${tc}44`, borderRadius:10, fontSize:11, fontWeight:600, color:tc}}>
+                                <span style={{width:14, height:14, borderRadius:'50%', background:tc, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:8, color:'#fff', fontWeight:700, fontFamily:'var(--font-mono)'}}>
+                                  {r.technician_initials || (r.technician_name || '?').slice(0,2).toUpperCase()}
+                                </span>
+                                {r.technician_name}
+                              </span>
+                            )}
+                            {r.responded
+                              ? <span style={{fontSize:10, padding:'1px 6px', background:'var(--greendim)', color:'var(--green)', borderRadius:3, fontWeight:700}}>RESPONDED</span>
+                              : <span style={{fontSize:10, padding:'1px 6px', background:'#f5656522', color:'#f56565', borderRadius:3, fontWeight:700}}>NEEDS REPLY</span>
+                            }
+                            {r.received_at && <span style={{fontSize:11, color:'var(--muted)', marginLeft:'auto'}}>{new Date(r.received_at).toLocaleDateString()}</span>}
+                          </div>
+                          {r.review_text && <div style={{fontSize:13, color:'var(--text)', marginTop:5, lineHeight:1.5}}>{r.review_text}</div>}
+                          {r.responded && r.response_text && (
+                            <div style={{fontSize:12, color:'var(--muted)', marginTop:8, padding:'8px 12px', background:'var(--surface2)', borderLeft:'3px solid var(--green)', borderRadius:4}}>
+                              <strong style={{color:'var(--green)'}}>Our reply: </strong>{r.response_text}
+                            </div>
+                          )}
+                          {r.url && (
+                            <div style={{marginTop:6}}>
+                              <a href={r.url} target="_blank" rel="noopener noreferrer" style={{fontSize:11, color:'var(--blue)'}}>View on {r.platform} ↗</a>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{display:'flex', flexDirection:'column', gap:6, flexShrink:0}}>
+                          <button onClick={() => setEditing({kind:'review', data:r})}
+                            style={{padding:'5px 12px', background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', fontSize:11, fontWeight:600, cursor:'pointer'}}>Edit</button>
+                          <button onClick={async () => { if (confirm('Delete this review?')) { await api.deleteMarketingReview(r.id); reloadReviews(); } }}
+                            style={{padding:'5px 10px', background:'transparent', border:'1px solid #f5656544', borderRadius:6, color:'#f56565', fontSize:11, cursor:'pointer'}}>Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* Edit modals */}
+      {editing?.kind === 'campaign' && (
+        <SimpleEditModal
+          title={`${editing.data === 'new' ? 'New' : 'Edit'} Campaign`}
+          initial={editing.data === 'new' ? {name:'', channel:'Google Ads', status:'active', start_date:'', end_date:'', budget:0, spend:0, leads_manual:0, utm_source:'', utm_medium:'', utm_campaign:'', notes:''} : editing.data}
+          onClose={() => setEditing(null)}
+          onSave={async (form) => {
+            if (form.id) await api.updateMarketingCampaign(form.id, form);
+            else         await api.createMarketingCampaign(form);
+            setEditing(null); reloadCampaigns();
+          }}
+          fields={[
+            { key:'name',         label:'Campaign Name *', type:'text', placeholder:'Spring 2026 Drain Promo' },
+            { key:'channel',      label:'Channel',         type:'select', options:[
+              {value:'Google Ads',label:'Google Ads'}, {value:'Facebook Ads',label:'Facebook Ads'},
+              {value:'Yelp',label:'Yelp'}, {value:'NextDoor',label:'NextDoor'},
+              {value:'Direct Mail',label:'Direct Mail'}, {value:'Radio',label:'Radio'},
+              {value:'Truck Wrap',label:'Truck Wrap'}, {value:'SEO',label:'SEO/Organic'},
+              {value:'Referral',label:'Referral Program'}, {value:'Other',label:'Other'},
+            ]},
+            { key:'status',       label:'Status',          type:'select', options:[
+              {value:'active',label:'Active'},{value:'paused',label:'Paused'},
+              {value:'completed',label:'Completed'},{value:'draft',label:'Draft'},
+            ]},
+            { key:'start_date',   label:'Start Date',      type:'date' },
+            { key:'end_date',     label:'End Date',        type:'date' },
+            { key:'budget',       label:'Budget ($)',      type:'number', step:'0.01' },
+            { key:'spend',        label:'Spend to Date ($)', type:'number', step:'0.01' },
+            { key:'utm_campaign', label:'UTM / Tracking Tag', type:'text', placeholder:'spring-drain-2026',
+              help:'Set this to match the customer\'s "marketing source" field for automatic attribution.' },
+            { key:'utm_source',   label:'UTM Source',      type:'text', placeholder:'google' },
+            { key:'utm_medium',   label:'UTM Medium',      type:'text', placeholder:'cpc' },
+            { key:'notes',        label:'Notes',           type:'textarea' },
+          ]}
+        />
+      )}
+      {editing?.kind === 'promo' && (
+        <SimpleEditModal
+          title={`${editing.data === 'new' ? 'New' : 'Edit'} Promotion`}
+          initial={editing.data === 'new' ? {code:'', description:'', discount_type:'percent', discount_value:10, start_date:'', end_date:'', max_uses:'', usage_count:0, min_amount:'', active:true} : editing.data}
+          onClose={() => setEditing(null)}
+          onSave={async (form) => {
+            const payload = {...form,
+              max_uses:    form.max_uses    === '' ? null : parseInt(form.max_uses),
+              min_amount:  form.min_amount  === '' ? null : parseFloat(form.min_amount),
+              discount_value: parseFloat(form.discount_value || 0),
+            };
+            if (form.id) await api.updateMarketingPromotion(form.id, payload);
+            else         await api.createMarketingPromotion(payload);
+            setEditing(null); reloadPromos();
+          }}
+          fields={[
+            { key:'code',           label:'Promo Code *',  type:'text', placeholder:'SPRING25' },
+            { key:'description',    label:'Description',   type:'text', placeholder:'25% off drain cleaning, Mar–May' },
+            { key:'discount_type',  label:'Discount Type', type:'select', options:[
+              {value:'percent', label:'Percentage off'},
+              {value:'fixed',   label:'Fixed amount off'},
+            ]},
+            { key:'discount_value', label:'Discount Value *', type:'number', step:'0.01', placeholder:'25' },
+            { key:'min_amount',     label:'Minimum Invoice ($)', type:'number', step:'0.01', placeholder:'(optional)' },
+            { key:'start_date',     label:'Valid From',    type:'date' },
+            { key:'end_date',       label:'Valid Until',   type:'date' },
+            { key:'max_uses',       label:'Max Uses',      type:'number', placeholder:'unlimited if blank' },
+            { key:'active',         label:'Active', type:'checkbox' },
+          ]}
+        />
+      )}
+      {editing?.kind === 'review' && (
+        <SimpleEditModal
+          title={`${editing.data === 'new' ? 'Log' : 'Edit'} Review`}
+          initial={editing.data === 'new' ? {customer_id:'', platform:'Google', rating:5, review_text:'', responded:false, response_text:'', url:'', received_at:new Date().toISOString().slice(0,10), notes:''} : editing.data}
+          onClose={() => setEditing(null)}
+          onSave={async (form) => {
+            const payload = {...form,
+              rating: parseInt(form.rating) || null,
+              customer_id: form.customer_id || null,
+            };
+            if (form.id) await api.updateMarketingReview(form.id, payload);
+            else         await api.createMarketingReview(payload);
+            setEditing(null); reloadReviews();
+          }}
+          fields={[
+            { key:'platform', label:'Platform *', type:'select', options:[
+              {value:'Google', label:'Google'}, {value:'Yelp', label:'Yelp'},
+              {value:'Facebook', label:'Facebook'}, {value:'BBB', label:'Better Business Bureau'},
+              {value:'NextDoor', label:'NextDoor'}, {value:'Other', label:'Other'},
+            ]},
+            { key:'rating',      label:'Star Rating *', type:'select', options:[
+              {value:5,label:'★★★★★ (5)'},{value:4,label:'★★★★☆ (4)'},{value:3,label:'★★★☆☆ (3)'},
+              {value:2,label:'★★☆☆☆ (2)'},{value:1,label:'★☆☆☆☆ (1)'},
+            ]},
+            { key:'received_at', label:'Date Received', type:'date' },
+            { key:'review_text', label:'Review Text',   type:'textarea', placeholder:'What did the customer say?' },
+            { key:'responded',   label:'Marked as responded', type:'checkbox' },
+            { key:'response_text', label:'Our Reply',   type:'textarea', placeholder:'How you responded (optional)' },
+            { key:'url',         label:'Link to Review', type:'text', placeholder:'https://…' },
+            { key:'notes',       label:'Internal Notes', type:'textarea' },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── ACCOUNTING PAGE ───────────────────────────────────────────
+function AccountingPage() {
+  const [tab, setTab]             = useState('overview');
+  const [summary, setSummary]     = useState(null);
+  const [chart, setChart]         = useState([]);
+  const [openInv, setOpenInv]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+
+  // Payroll tab
+  const now = new Date();
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  const defaultTo   = now.toISOString().slice(0,10);
+  const [payPeriodFrom,  setPayPeriodFrom]  = useState(defaultFrom);
+  const [payPeriodTo,    setPayPeriodTo]    = useState(defaultTo);
+  const [payroll,        setPayroll]        = useState(null);
+  const [payrollLoading, setPayrollLoading] = useState(false);
+  const [payStaffType,   setPayStaffType]   = useState('technicians');
+  const [payManagerId,   setPayManagerId]   = useState('');
+  const [managers,       setManagers]       = useState([]);
+  const [payWeekEndDay,  setPayWeekEndDay]  = useState('saturday');
+  const [payWeekOptions, setPayWeekOptions] = useState([]);
+
+  const buildPayWeekOptions = (endDayName) => {
+    const dayIdx = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 };
+    const target = dayIdx[endDayName] ?? 6;
+    const today  = new Date();
+    today.setHours(12, 0, 0, 0);
+    const daysUntil = (target - today.getDay() + 7) % 7;
+    const currentWeekEnd = new Date(today);
+    currentWeekEnd.setDate(today.getDate() + daysUntil);
+    return Array.from({ length: 16 }, (_, i) => {
+      const d = new Date(currentWeekEnd);
+      d.setDate(currentWeekEnd.getDate() - i * 7);
+      return d.toISOString().split('T')[0];
+    });
+  };
+
+  // Expenses tab
+  const [expenses, setExpenses]     = useState([]);
+  const [expLoading, setExpLoading] = useState(false);
+  const [expModal, setExpModal]     = useState(null); // null | 'new' | expense object
+  const [expForm, setExpForm]       = useState({ date: defaultTo, category:'Fuel', description:'', amount:'', vendor:'' });
+  const EXP_CATS = ['Fuel','Tools','Materials','Insurance','Marketing','Office','Rent','Utilities','Subcontract','Other'];
+
+  // P&L tab
+  const [plFrom, setPlFrom] = useState(new Date(now.getFullYear(), 0, 1).toISOString().slice(0,10));
+  const [plTo,   setPlTo]   = useState(defaultTo);
+  const [pl, setPl]         = useState(null);
+  const [plLoading, setPlLoading] = useState(false);
+
+  // QB tab
+  const [qbStatus, setQbStatus]   = useState(null);
+  const [qbLoading, setQbLoading] = useState(false);
+  const [qbSyncing, setQbSyncing] = useState(false);
+  const [qbMsg, setQbMsg]         = useState('');
+
+  // Revenue tab — date range + detail
+  const ytdStart = new Date(now.getFullYear(), 0, 1).toISOString().slice(0,10);
+  const [revFrom, setRevFrom] = useState(ytdStart);
+  const [revTo,   setRevTo]   = useState(defaultTo);
+  const [revDetail, setRevDetail] = useState(null);
+  const [revDetailLoading, setRevDetailLoading] = useState(false);
+
+  // Tax tab — year selector + detail
+  const [taxYear, setTaxYear] = useState(now.getFullYear());
+  const [taxDetail, setTaxDetail] = useState(null);
+  const [taxDetailLoading, setTaxDetailLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      api.getAccountingSummary(),
+      api.getAccountingRevenueChart(),
+    ]).then(([s, c]) => {
+      setSummary(s);
+      setChart(Array.isArray(c) ? c : []);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'ar') {
+      api.getOpenInvoices().then(d => setOpenInv(Array.isArray(d) ? d : [])).catch(() => {});
+    }
+    if (tab === 'expenses' && expenses.length === 0) loadExpenses();
+    if (tab === 'pl' && !pl) loadPL();
+    if (tab === 'qb' && !qbStatus) {
+      setQbLoading(true);
+      api.getQBStatus().then(s => setQbStatus(s)).catch(() => setQbStatus({ connected: false })).finally(() => setQbLoading(false));
+    }
+    if (tab === 'revenue' && !revDetail) loadRevenueDetail();
+    if (tab === 'tax' && !taxDetail) loadTaxDetail();
+    if (tab === 'payroll' && managers.length === 0) {
+      api.getPayrollManagers().then(setManagers).catch(() => {});
+      api.getBusinessHours().then(d => {
+        const wd = d.weekEndDay ?? 'saturday';
+        setPayWeekEndDay(wd);
+        setPayWeekOptions(buildPayWeekOptions(wd));
+      }).catch(() => {});
+    }
+  }, [tab]);
+
+  const loadRevenueDetail = async () => {
+    setRevDetailLoading(true);
+    try { setRevDetail(await api.getAccountingRevenueDetail(revFrom, revTo)); }
+    catch(e) { console.error(e); setRevDetail(null); }
+    finally { setRevDetailLoading(false); }
+  };
+
+  const loadTaxDetail = async () => {
+    setTaxDetailLoading(true);
+    try { setTaxDetail(await api.getAccountingTaxDetail(taxYear)); }
+    catch(e) { console.error(e); setTaxDetail(null); }
+    finally { setTaxDetailLoading(false); }
+  };
+
+  const loadPayroll = async () => {
+    setPayrollLoading(true);
+    try { setPayroll(await api.getAccountingPayroll(payPeriodFrom, payPeriodTo, payStaffType, payManagerId || null)); }
+    catch(e) { console.error(e); }
+    finally { setPayrollLoading(false); }
+  };
+
+  const loadExpenses = async () => {
+    setExpLoading(true);
+    try { setExpenses(await api.getExpenses()); }
+    catch { setExpenses([]); }
+    finally { setExpLoading(false); }
+  };
+
+  const loadPL = async () => {
+    setPlLoading(true);
+    try { setPl(await api.getAccountingPL(plFrom, plTo)); }
+    catch { setPl(null); }
+    finally { setPlLoading(false); }
+  };
+
+  const saveExpense = async () => {
+    try {
+      if (expModal === 'new') {
+        await api.createExpense(expForm);
+      } else {
+        await api.updateExpense(expModal.id, expForm);
+      }
+      setExpModal(null);
+      loadExpenses();
+    } catch(e) { alert(e.message); }
+  };
+
+  const deleteExpense = async (id) => {
+    if (!confirm('Delete this expense?')) return;
+    await api.deleteExpense(id).catch(() => {});
+    loadExpenses();
+  };
+
+  const handleQbSyncAll = async () => {
+    setQbSyncing(true); setQbMsg('');
+    try {
+      const r = await api.syncAllQB();
+      setQbMsg('✅ ' + r.message);
+    } catch(e) { setQbMsg('❌ ' + e.message); }
+    finally { setQbSyncing(false); }
+  };
+
+  const fmt$ = n => '$' + parseFloat(n||0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtK = n => { const v = parseFloat(n||0); return v >= 1000 ? '$' + (v/1000).toFixed(1) + 'k' : fmt$(v); };
+
+  const mom = summary
+    ? summary.revenue.prev_month > 0
+      ? ((summary.revenue.mtd - summary.revenue.prev_month) / summary.revenue.prev_month * 100).toFixed(1)
+      : null
+    : null;
+
+  const TABS = [
+    { id: 'overview', label: '📊 Overview' },
+    { id: 'ar',       label: '📬 AR' },
+    { id: 'revenue',  label: '💰 Revenue' },
+    { id: 'tax',      label: '🧾 Tax' },
+    { id: 'payroll',  label: '💵 Payroll' },
+    { id: 'expenses', label: '💸 Expenses' },
+    { id: 'pl',       label: '📋 P&L' },
+    { id: 'qb',       label: '🔗 QuickBooks' },
+  ];
+
+  const tabBtn = (t) => ({
+    padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+    fontWeight: tab === t.id ? 700 : 500,
+    background: tab === t.id ? 'var(--blue)' : 'var(--surface)',
+    color: tab === t.id ? '#fff' : 'var(--muted)',
+    border: `1px solid ${tab === t.id ? 'var(--blue)' : 'var(--border)'}`,
+    transition: 'all .15s',
+  });
+
+  // ── Revenue bar chart ─────────────────────────────────────────
+  const maxRev = Math.max(...chart.map(r => parseFloat(r.revenue)), 1);
+  const RevenueChart = () => (
+    <div style={{display:'flex', alignItems:'flex-end', gap:6, height:160, padding:'0 4px'}}>
+      {chart.map((r, i) => {
+        const h = Math.max(4, (parseFloat(r.revenue) / maxRev) * 140);
+        const isLatest = i === chart.length - 1;
+        return (
+          <div key={i} style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4}}>
+            <div style={{fontSize:9, color:'var(--muted)', fontFamily:'var(--font-mono)', fontWeight: isLatest?700:400}}>
+              {isLatest ? fmtK(r.revenue) : ''}
+            </div>
+            <div title={`${r.month}: ${fmt$(r.revenue)}`}
+              style={{width:'100%', height:h, borderRadius:'4px 4px 0 0',
+                background: isLatest ? 'var(--blue)' : 'var(--blue)66',
+                transition:'height .4s ease', cursor:'default'}}>
+            </div>
+            <div style={{fontSize:9, color: isLatest ? 'var(--text)' : 'var(--muted)',
+              fontFamily:'var(--font-mono)', whiteSpace:'nowrap', fontWeight: isLatest ? 700 : 400}}>
+              {r.month}
+            </div>
+          </div>
+        );
+      })}
+      {!chart.length && (
+        <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted)', fontSize:13}}>
+          No payment data yet
+        </div>
+      )}
+    </div>
+  );
+
+  // ── AR aging bar ──────────────────────────────────────────────
+  const aging = summary?.ar?.aging;
+  const agingTotal = aging ? Object.values(aging).reduce((s, b) => s + b.amount, 0) : 0;
+  const AGING_BUCKETS = [
+    { key: 'current', label: 'Today',  color: 'var(--green)' },
+    { key: 'd30',     label: '1–30 days', color: 'var(--amber)' },
+    { key: 'd60',     label: '31–60 days', color: '#f97316' },
+    { key: 'd90',     label: '61–90 days', color: '#ef4444' },
+    { key: 'd90p',    label: '90+ days',   color: '#991b1b' },
+  ];
+
+  const PMT_ICONS = { Cash:'💵', Check:'📝', card:'💳', Credit:'💳', Square:'🟩', Unknown:'❓' };
+  const pmtIcon = (m) => {
+    const k = Object.keys(PMT_ICONS).find(k => m?.toLowerCase().includes(k.toLowerCase()));
+    return PMT_ICONS[k] || '💳';
+  };
+
+  if (loading) return (
+    <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:300}}>
+      <div style={{width:28, height:28, border:'3px solid var(--border)', borderTopColor:'var(--blue)', borderRadius:'50%', animation:'spin 1s linear infinite'}}/>
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:1100, margin:'0 auto', display:'flex', flexDirection:'column', gap:20}}>
+
+      {/* Page header */}
+      <div style={{display:'flex', alignItems:'center', gap:12}}>
+        <div>
+          <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800}}>💼 Accounting</div>
+          <div style={{fontSize:12, color:'var(--muted)', marginTop:3}}>
+            Revenue · AR · Tax · Payroll · Expenses · P&L · QuickBooks
+          </div>
+        </div>
+        <div style={{flex:1}}/>
+        <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+          {new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})}
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      {summary && (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12}}>
+          {[
+            {
+              label: 'Revenue MTD',
+              value: fmt$(summary.revenue.mtd),
+              sub: mom !== null ? `${mom > 0 ? '▲' : '▼'} ${Math.abs(mom)}% vs last month` : 'First month of data',
+              color: 'var(--green)',
+              icon: '💰',
+            },
+            {
+              label: 'Revenue YTD',
+              value: fmt$(summary.revenue.ytd),
+              sub: `${new Date().getFullYear()} total collected`,
+              color: 'var(--blue)',
+              icon: '📈',
+            },
+            {
+              label: 'Open AR',
+              value: fmt$(summary.ar.total),
+              sub: `${Object.values(summary.ar.aging).reduce((s,b)=>s+b.count,0)} unpaid invoices`,
+              color: summary.ar.total > 0 ? '#f97316' : 'var(--green)',
+              icon: '📬',
+            },
+            {
+              label: 'Tax Collected MTD',
+              value: fmt$(summary.tax.mtd),
+              sub: `${fmt$(summary.tax.ytd)} YTD`,
+              color: '#8b5cf6',
+              icon: '🧾',
+            },
+          ].map((k, i) => (
+            <div key={i} style={{background:'var(--surface)', border:'1px solid var(--border)',
+              borderRadius:12, padding:'16px 18px', position:'relative', overflow:'hidden'}}>
+              <div style={{position:'absolute', top:12, right:14, fontSize:22, opacity:.2}}>{k.icon}</div>
+              <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:8}}>
+                {k.label}
+              </div>
+              <div style={{fontSize:24, fontWeight:800, color:k.color, fontFamily:'var(--font-head)', lineHeight:1}}>
+                {k.value}
+              </div>
+              <div style={{fontSize:11, color:'var(--muted)', marginTop:6}}>{k.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Sub-tabs */}
+      <div style={{display:'flex', gap:8, overflowX:'auto', paddingBottom:2, flexShrink:0}}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={tabBtn(t)}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Overview tab ──────────────────────────────────────── */}
+      {tab === 'overview' && summary && (
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+
+          {/* Revenue chart */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16}}>
+              <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em'}}>
+                Revenue — Last 12 Months
+              </div>
+              <div style={{fontSize:14, fontWeight:800, color:'var(--blue)'}}>
+                {fmtK(summary.revenue.ytd)} YTD
+              </div>
+            </div>
+            <RevenueChart/>
+          </div>
+
+          {/* AR Aging summary */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:16}}>
+              AR Aging
+            </div>
+            {agingTotal === 0 ? (
+              <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:8, padding:'24px 0', color:'var(--green)'}}>
+                <span style={{fontSize:28}}>✅</span>
+                <span style={{fontSize:13, fontWeight:600}}>All invoices paid — $0 outstanding</span>
+              </div>
+            ) : (
+              <>
+                {/* Stacked bar */}
+                <div style={{display:'flex', height:14, borderRadius:7, overflow:'hidden', marginBottom:16}}>
+                  {AGING_BUCKETS.map(b => {
+                    const pct = agingTotal ? (aging[b.key]?.amount / agingTotal * 100) : 0;
+                    return pct > 0 ? (
+                      <div key={b.key} title={`${b.label}: ${fmt$(aging[b.key]?.amount)}`}
+                        style={{width:`${pct}%`, background:b.color, transition:'width .4s'}}/>
+                    ) : null;
+                  })}
+                </div>
+                {AGING_BUCKETS.map(b => (
+                  <div key={b.key} style={{display:'flex', alignItems:'center', gap:10,
+                    padding:'7px 0', borderBottom:'1px solid var(--border)'}}>
+                    <div style={{width:10, height:10, borderRadius:2, background:b.color, flexShrink:0}}/>
+                    <div style={{flex:1, fontSize:13, color:'var(--text)'}}>{b.label}</div>
+                    <div style={{fontSize:12, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                      {aging[b.key]?.count || 0} inv
+                    </div>
+                    <div style={{fontSize:14, fontWeight:700, color:b.color, fontFamily:'var(--font-mono)', minWidth:80, textAlign:'right'}}>
+                      {fmt$(aging[b.key]?.amount || 0)}
+                    </div>
+                  </div>
+                ))}
+                <div style={{display:'flex', justifyContent:'space-between', paddingTop:10, marginTop:4}}>
+                  <div style={{fontSize:12, fontWeight:600, color:'var(--muted)'}}>Total Outstanding</div>
+                  <div style={{fontSize:15, fontWeight:800, color:'#f97316'}}>{fmt$(agingTotal)}</div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Payment methods */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              Payment Methods — MTD
+            </div>
+            {summary.payment_methods.length === 0
+              ? <div style={{color:'var(--muted)', fontSize:13}}>No payments this month yet</div>
+              : summary.payment_methods.map((m, i) => {
+                const pct = summary.revenue.mtd ? (m.total / summary.revenue.mtd * 100) : 0;
+                return (
+                  <div key={i} style={{marginBottom:10}}>
+                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:4, fontSize:13}}>
+                      <span>{pmtIcon(m.method)} {m.method}</span>
+                      <span style={{fontFamily:'var(--font-mono)', fontWeight:700}}>{fmt$(m.total)}
+                        <span style={{fontSize:10, color:'var(--muted)', fontWeight:400, marginLeft:6}}>
+                          ({m.count} inv)
+                        </span>
+                      </span>
+                    </div>
+                    <div style={{height:6, background:'var(--surface2)', borderRadius:3}}>
+                      <div style={{height:6, width:`${pct}%`, background:'var(--blue)', borderRadius:3, transition:'width .5s'}}/>
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>
+
+          {/* Recent payments */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              Recent Payments
+            </div>
+            {summary.recent_payments.length === 0
+              ? <div style={{color:'var(--muted)', fontSize:13}}>No payments recorded yet</div>
+              : summary.recent_payments.map((p, i) => (
+                <div key={i} style={{display:'flex', alignItems:'center', gap:10,
+                  padding:'8px 0', borderBottom:i < summary.recent_payments.length-1 ? '1px solid var(--border)' : 'none'}}>
+                  <div style={{width:32, height:32, borderRadius:8, background:'var(--greendim)',
+                    display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0}}>
+                    {pmtIcon(p.payment_method)}
+                  </div>
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                      {p.customer_name}
+                    </div>
+                    <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                      #{p.invoice_number} · {new Date(p.paid_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div style={{fontSize:14, fontWeight:700, color:'var(--green)', fontFamily:'var(--font-mono)', flexShrink:0}}>
+                    {fmt$(p.total)}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+
+          {/* Top Techs MTD */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              Top Technicians — MTD
+            </div>
+            {(!summary.top_techs || summary.top_techs.length === 0)
+              ? <div style={{color:'var(--muted)', fontSize:13}}>No tech revenue this month yet</div>
+              : (() => {
+                  const maxRev = Math.max(...summary.top_techs.map(t => t.revenue), 1);
+                  return summary.top_techs.map((t, i) => {
+                    const pct = (t.revenue / maxRev) * 100;
+                    return (
+                      <div key={t.id} style={{marginBottom:10}}>
+                        <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:4}}>
+                          <div style={{width:26, height:26, borderRadius:'50%', background:(t.color||'#3ecf8e')+'22',
+                            border:`2px solid ${t.color||'#3ecf8e'}`, display:'flex', alignItems:'center', justifyContent:'center',
+                            fontSize:9, fontWeight:700, color:t.color||'#3ecf8e', fontFamily:'var(--font-mono)', flexShrink:0}}>
+                            {t.initials || (t.name||'?').slice(0,2).toUpperCase()}
+                          </div>
+                          <div style={{flex:1, fontSize:13, fontWeight:600}}>{t.name}</div>
+                          <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>{t.invoice_count} inv</div>
+                          <div style={{fontSize:13, fontWeight:700, color:'var(--green)', fontFamily:'var(--font-mono)', minWidth:80, textAlign:'right'}}>
+                            {fmt$(t.revenue)}
+                          </div>
+                        </div>
+                        <div style={{height:5, background:'var(--surface2)', borderRadius:3, marginLeft:36}}>
+                          <div style={{height:5, width:`${pct}%`, background:t.color||'var(--green)', borderRadius:3, transition:'width .5s'}}/>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()
+            }
+          </div>
+
+          {/* Top Customers MTD */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+              Top Customers — MTD
+            </div>
+            {(!summary.top_customers || summary.top_customers.length === 0)
+              ? <div style={{color:'var(--muted)', fontSize:13}}>No customer revenue this month yet</div>
+              : summary.top_customers.map((c, i) => (
+                <div key={c.id || i} style={{display:'flex', alignItems:'center', gap:10,
+                  padding:'8px 0', borderBottom:i < summary.top_customers.length-1 ? '1px solid var(--border)' : 'none'}}>
+                  <div style={{width:26, height:26, borderRadius:8, background:'var(--blue)22',
+                    display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'var(--blue)', flexShrink:0}}>
+                    {i+1}
+                  </div>
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                      {c.name || '—'}
+                    </div>
+                    <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                      {c.invoice_count} invoice{c.invoice_count===1?'':'s'}
+                    </div>
+                  </div>
+                  <div style={{fontSize:14, fontWeight:700, color:'var(--green)', fontFamily:'var(--font-mono)', flexShrink:0}}>
+                    {fmt$(c.revenue)}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+
+          {/* Quick Stats — MTD */}
+          {summary.stats_mtd && (
+            <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+              <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+                Quick Stats — MTD
+              </div>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+                {[
+                  { label:'Invoices Paid', val: summary.stats_mtd.invoice_count, mono:true },
+                  { label:'Avg Ticket',    val: fmt$(summary.stats_mtd.avg_ticket) },
+                  { label:'Largest Ticket',val: fmt$(summary.stats_mtd.max_ticket) },
+                  { label:'Days Elapsed',  val: new Date().getDate(), mono:true },
+                ].map((s,i)=>(
+                  <div key={i} style={{background:'var(--surface2)', borderRadius:8, padding:'10px 12px'}}>
+                    <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', letterSpacing:'.06em', marginBottom:4}}>
+                      {s.label.toUpperCase()}
+                    </div>
+                    <div style={{fontSize:18, fontWeight:800, color:'var(--text)', fontFamily: s.mono?'var(--font-mono)':'var(--font-head)'}}>
+                      {s.val}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── AR tab ────────────────────────────────────────────── */}
+      {tab === 'ar' && (
+        <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden'}}>
+          <div style={{padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12}}>
+            <div style={{fontSize:13, fontWeight:700}}>Open Invoices</div>
+            <div style={{fontSize:12, color:'var(--muted)'}}>
+              {openInv.length} invoices · {fmt$(openInv.reduce((s,i)=>s+parseFloat(i.total||0),0))} outstanding
+            </div>
+          </div>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+              <thead>
+                <tr style={{background:'var(--surface2)'}}>
+                  {['Invoice','Customer','Created','Due','Days Over','Amount','Status'].map(h => (
+                    <th key={h} style={{padding:'9px 14px', textAlign:'left', fontSize:10,
+                      fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700,
+                      textTransform:'uppercase', letterSpacing:'.06em', whiteSpace:'nowrap'}}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {openInv.length === 0 && (
+                  <tr><td colSpan={7} style={{padding:32, textAlign:'center', color:'var(--green)', fontWeight:600}}>
+                    ✅ No open invoices — AR is clear!
+                  </td></tr>
+                )}
+                {openInv.map((inv, i) => {
+                  const over = parseInt(inv.days_overdue);
+                  const ageColor = over > 90 ? '#991b1b' : over > 60 ? '#ef4444' : over > 30 ? '#f97316' : over > 0 ? 'var(--amber)' : 'var(--green)';
+                  return (
+                    <tr key={inv.id} style={{borderBottom:'1px solid var(--border)',
+                      background: i % 2 === 0 ? 'transparent' : 'var(--surface2)44'}}>
+                      <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', color:'var(--blue)', fontWeight:600}}>
+                        #{inv.invoice_number}
+                      </td>
+                      <td style={{padding:'10px 14px', fontWeight:500}}>{inv.customer_name}</td>
+                      <td style={{padding:'10px 14px', color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                        {new Date(inv.created_at).toLocaleDateString()}
+                      </td>
+                      <td style={{padding:'10px 14px', color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                        {inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '—'}
+                      </td>
+                      <td style={{padding:'10px 14px'}}>
+                        {over > 0
+                          ? <span style={{background:ageColor+'22', color:ageColor, borderRadius:5, padding:'2px 8px', fontSize:11, fontWeight:700, fontFamily:'var(--font-mono)'}}>
+                              {over}d
+                            </span>
+                          : <span style={{color:'var(--green)', fontSize:11, fontWeight:700}}>Current</span>
+                        }
+                      </td>
+                      <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--text)'}}>
+                        {fmt$(inv.total)}
+                      </td>
+                      <td style={{padding:'10px 14px'}}>
+                        <span style={{fontSize:10, padding:'2px 7px', borderRadius:5, fontWeight:700, fontFamily:'var(--font-mono)',
+                          background: inv.status==='overdue' ? '#ef444422' : 'var(--amber)22',
+                          color:       inv.status==='overdue' ? '#ef4444'   : 'var(--amber)'}}>
+                          {inv.status?.toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Revenue tab ───────────────────────────────────────── */}
+      {tab === 'revenue' && (
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+
+          {/* Monthly chart (existing) */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px'}}>
+            <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:20}}>
+              Monthly Revenue — Last 12 Months
+            </div>
+            <RevenueChart/>
+            <div style={{marginTop:20, display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px,1fr))', gap:10}}>
+              {chart.map((r, i) => (
+                <div key={i} style={{background:'var(--surface2)', borderRadius:8, padding:'10px 14px'}}>
+                  <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)', marginBottom:4}}>{r.month}</div>
+                  <div style={{fontSize:15, fontWeight:700, color:'var(--text)', fontFamily:'var(--font-mono)'}}>{fmt$(r.revenue)}</div>
+                  <div style={{fontSize:10, color:'var(--muted)', marginTop:2}}>{r.invoice_count} invoices · {fmt$(r.tax)} tax</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Date-range picker for breakdowns */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px',
+            display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+            <div style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em'}}>
+              Breakdown Range
+            </div>
+            <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12}}>
+              From <input type="date" value={revFrom} onChange={e=>setRevFrom(e.target.value)}
+                style={{padding:'4px 8px', border:'1px solid var(--border)', borderRadius:6, fontSize:12, background:'var(--surface2)'}}/>
+            </label>
+            <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12}}>
+              To <input type="date" value={revTo} onChange={e=>setRevTo(e.target.value)}
+                style={{padding:'4px 8px', border:'1px solid var(--border)', borderRadius:6, fontSize:12, background:'var(--surface2)'}}/>
+            </label>
+            <button onClick={loadRevenueDetail} disabled={revDetailLoading}
+              style={{padding:'5px 14px', background:'var(--blue)', color:'#fff', borderRadius:6, fontSize:12, fontWeight:700, border:'none', cursor:'pointer', opacity:revDetailLoading?0.6:1}}>
+              {revDetailLoading ? 'Loading…' : 'Apply'}
+            </button>
+            {/* Quick presets */}
+            {[
+              { label:'MTD', from:new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10), to:defaultTo },
+              { label:'YTD', from:ytdStart, to:defaultTo },
+              { label:'Last 30d', from:new Date(Date.now()-30*86400000).toISOString().slice(0,10), to:defaultTo },
+              { label:'Last 90d', from:new Date(Date.now()-90*86400000).toISOString().slice(0,10), to:defaultTo },
+            ].map(p=>(
+              <button key={p.label} onClick={()=>{ setRevFrom(p.from); setRevTo(p.to); setTimeout(loadRevenueDetail,0); }}
+                style={{padding:'4px 10px', background:'var(--surface2)', color:'var(--muted)', borderRadius:6, fontSize:11, fontWeight:600, border:'1px solid var(--border)', cursor:'pointer'}}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* KPI strip + YoY */}
+          {revDetail && (
+            <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12}}>
+              {[
+                { label:'Period Revenue', value: fmt$(revDetail.range_stats.revenue), color:'var(--green)' },
+                { label:'Invoices Paid',  value: revDetail.range_stats.invoice_count, color:'var(--blue)' },
+                { label:'Avg Ticket',     value: fmt$(revDetail.range_stats.avg_ticket), color:'var(--text)' },
+                { label:'YoY (YTD)',
+                  value: revDetail.yoy.delta_pct === null ? '—' : `${revDetail.yoy.delta_pct > 0 ? '▲' : '▼'} ${Math.abs(revDetail.yoy.delta_pct)}%`,
+                  color: revDetail.yoy.delta_pct === null ? 'var(--muted)' : revDetail.yoy.delta_pct >= 0 ? 'var(--green)' : '#ef4444',
+                  sub: `${fmt$(revDetail.yoy.ytd_this_year)} vs ${fmt$(revDetail.yoy.ytd_last_year)}` },
+              ].map((k,i)=>(
+                <div key={i} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 16px'}}>
+                  <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:6}}>
+                    {k.label}
+                  </div>
+                  <div style={{fontSize:20, fontWeight:800, color:k.color, fontFamily:'var(--font-head)', lineHeight:1.1}}>
+                    {k.value}
+                  </div>
+                  {k.sub && <div style={{fontSize:10, color:'var(--muted)', marginTop:4}}>{k.sub}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* By tech + by job type side-by-side */}
+          {revDetail && (
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+
+              {/* Revenue by Technician */}
+              <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+                <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+                  Revenue by Technician
+                </div>
+                {revDetail.by_tech.length === 0
+                  ? <div style={{color:'var(--muted)', fontSize:13}}>No tech revenue in this range</div>
+                  : (() => {
+                      const max = Math.max(...revDetail.by_tech.map(t=>t.revenue), 1);
+                      return revDetail.by_tech.map(t => {
+                        const pct = (t.revenue / max) * 100;
+                        return (
+                          <div key={t.id} style={{marginBottom:12}}>
+                            <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:4}}>
+                              <div style={{width:24, height:24, borderRadius:'50%', background:(t.color||'#3ecf8e')+'22',
+                                border:`2px solid ${t.color||'#3ecf8e'}`, display:'flex', alignItems:'center', justifyContent:'center',
+                                fontSize:9, fontWeight:700, color:t.color||'#3ecf8e', fontFamily:'var(--font-mono)', flexShrink:0}}>
+                                {t.initials || (t.name||'?').slice(0,2).toUpperCase()}
+                              </div>
+                              <div style={{flex:1, fontSize:13, fontWeight:600}}>{t.name}</div>
+                              <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', minWidth:60, textAlign:'right'}}>
+                                avg {fmt$(t.avg_ticket)}
+                              </div>
+                              <div style={{fontSize:13, fontWeight:700, color:'var(--green)', fontFamily:'var(--font-mono)', minWidth:90, textAlign:'right'}}>
+                                {fmt$(t.revenue)}
+                              </div>
+                            </div>
+                            <div style={{height:5, background:'var(--surface2)', borderRadius:3, marginLeft:34}}>
+                              <div style={{height:5, width:`${pct}%`, background:t.color||'var(--green)', borderRadius:3, transition:'width .5s'}}/>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()
+                }
+              </div>
+
+              {/* Revenue by Job Type */}
+              <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 20px'}}>
+                <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:14}}>
+                  Revenue by Service Type
+                </div>
+                {revDetail.by_job_type.length === 0
+                  ? <div style={{color:'var(--muted)', fontSize:13}}>No service-type data</div>
+                  : (() => {
+                      const max = Math.max(...revDetail.by_job_type.map(j=>j.revenue), 1);
+                      const total = revDetail.by_job_type.reduce((s,j)=>s+j.revenue, 0);
+                      const PALETTE = ['#3ecf8e','#4a9eff','#a78bfa','#f97316','#f56565','#e8a84a','#10b981','#ec4899'];
+                      return revDetail.by_job_type.map((j, i) => {
+                        const pct = (j.revenue / max) * 100;
+                        const sharePct = total > 0 ? (j.revenue / total * 100).toFixed(1) : 0;
+                        const c = PALETTE[i % PALETTE.length];
+                        return (
+                          <div key={i} style={{marginBottom:12}}>
+                            <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                              <div style={{width:8, height:8, borderRadius:2, background:c, flexShrink:0}}/>
+                              <div style={{flex:1, fontSize:13, fontWeight:600}}>{j.job_type}</div>
+                              <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>{sharePct}%</div>
+                              <div style={{fontSize:13, fontWeight:700, color:'var(--text)', fontFamily:'var(--font-mono)', minWidth:90, textAlign:'right'}}>
+                                {fmt$(j.revenue)}
+                              </div>
+                            </div>
+                            <div style={{height:5, background:'var(--surface2)', borderRadius:3, marginLeft:16}}>
+                              <div style={{height:5, width:`${pct}%`, background:c, borderRadius:3, transition:'width .5s'}}/>
+                            </div>
+                            <div style={{fontSize:10, color:'var(--muted)', marginLeft:16, marginTop:2}}>{j.invoice_count} invoice{j.invoice_count===1?'':'s'}</div>
+                          </div>
+                        );
+                      });
+                    })()
+                }
+              </div>
+            </div>
+          )}
+
+          {/* Top Customers */}
+          {revDetail && (
+            <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden'}}>
+              <div style={{padding:'14px 18px', borderBottom:'1px solid var(--border)', fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em'}}>
+                Top Customers — {revDetail.from} to {revDetail.to}
+              </div>
+              {revDetail.top_customers.length === 0 ? (
+                <div style={{padding:32, textAlign:'center', color:'var(--muted)', fontSize:13}}>No customer revenue in this range</div>
+              ) : (
+                <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                  <thead>
+                    <tr style={{background:'var(--surface2)'}}>
+                      {['Rank','Customer','Invoices','Revenue','Share'].map(h=>(
+                        <th key={h} style={{padding:'9px 14px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const total = revDetail.top_customers.reduce((s,c)=>s+c.revenue, 0);
+                      return revDetail.top_customers.map((c, i) => {
+                        const sharePct = total > 0 ? (c.revenue / total * 100).toFixed(1) : 0;
+                        return (
+                          <tr key={c.id||i} style={{borderBottom:'1px solid var(--border)', background: i%2===0 ? 'transparent' : 'var(--surface2)44'}}>
+                            <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, width:50}}>#{i+1}</td>
+                            <td style={{padding:'10px 14px', fontWeight:600}}>{c.name || '—'}</td>
+                            <td style={{padding:'10px 14px', color:'var(--muted)', fontFamily:'var(--font-mono)'}}>{c.invoice_count}</td>
+                            <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--green)'}}>{fmt$(c.revenue)}</td>
+                            <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)'}}>{sharePct}%</td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {revDetailLoading && !revDetail && (
+            <div style={{display:'flex', alignItems:'center', justifyContent:'center', padding:40}}>
+              <div style={{width:24, height:24, border:'3px solid var(--border)', borderTopColor:'var(--blue)', borderRadius:'50%', animation:'spin 1s linear infinite'}}/>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tax tab ───────────────────────────────────────────── */}
+      {tab === 'tax' && summary && (
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+
+          {/* Year selector */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 18px',
+            display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+            <div style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em'}}>
+              Tax Year
+            </div>
+            <select value={taxYear}
+              onChange={e=>{ const y = parseInt(e.target.value); setTaxYear(y); setTimeout(loadTaxDetail, 0); }}
+              style={{padding:'5px 10px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)', color:'var(--text)'}}>
+              {[0,1,2,3].map(off => {
+                const y = now.getFullYear() - off;
+                return <option key={y} value={y}>{y}</option>;
+              })}
+            </select>
+            <button onClick={loadTaxDetail} disabled={taxDetailLoading}
+              style={{padding:'5px 14px', background:'#8b5cf6', color:'#fff', borderRadius:6, fontSize:12, fontWeight:700, border:'none', cursor:'pointer', opacity:taxDetailLoading?0.6:1}}>
+              {taxDetailLoading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
+
+          {/* Income-tax reserve banner — running set-aside for Q-payments */}
+          {taxDetail && (
+            <div style={{background:'linear-gradient(135deg, #f9731622 0%, #f9731611 100%)', border:'1px solid #f9731666',
+              borderRadius:12, padding:'18px 22px', display:'flex', alignItems:'center', gap:18, flexWrap:'wrap'}}>
+              <div style={{fontSize:32, flexShrink:0}}>🏦</div>
+              <div style={{flex:1, minWidth:240}}>
+                <div style={{fontSize:11, fontWeight:700, color:'#f97316', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4}}>
+                  Income Tax Reserve · {taxDetail.tax_reserve_pct}% of Revenue
+                </div>
+                <div style={{fontSize:28, fontWeight:800, color:'#f97316', fontFamily:'var(--font-head)', lineHeight:1}}>
+                  {fmt$(taxDetail.year_totals.reserve)}
+                </div>
+                <div style={{fontSize:12, color:'var(--muted)', marginTop:6}}>
+                  Set aside this much from {taxDetail.year} revenue to cover federal income + self-employment taxes.
+                  Sales tax is tracked separately below.
+                </div>
+              </div>
+              {(() => {
+                const today = new Date();
+                const currentQ = Math.floor(today.getMonth() / 3) + 1;
+                const thisQ = taxDetail.quarters[currentQ - 1];
+                if (!thisQ) return null;
+                return (
+                  <div style={{background:'var(--surface)', borderRadius:10, padding:'12px 18px', minWidth:170}}>
+                    <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4}}>
+                      {thisQ.label} Reserve
+                    </div>
+                    <div style={{fontSize:22, fontWeight:800, color:'#f97316', fontFamily:'var(--font-head)'}}>
+                      {fmt$(thisQ.reserve)}
+                    </div>
+                    <div style={{fontSize:10, color:'var(--muted)', marginTop:3}}>
+                      of {fmt$(thisQ.subtotal)} revenue
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* KPI strip: Reserve YTD / MTD sales tax / Effective rate / YoY */}
+          {taxDetail && (
+            <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12}}>
+              {[
+                { label:`Tax Reserve ${taxDetail.year}`,
+                  value: fmt$(taxDetail.year_totals.reserve),
+                  sub: `${taxDetail.tax_reserve_pct}% × ${fmt$(taxDetail.year_totals.subtotal)} revenue`,
+                  icon:'🏦', color:'#f97316' },
+                { label:'Sales Tax MTD',
+                  value: fmt$(summary.tax.mtd),
+                  sub: `${summary.stats_mtd?.invoice_count || 0} invoices this month`,
+                  icon:'📅', color:'#8b5cf6' },
+                { label:`Sales Tax ${taxDetail.year}`,
+                  value: fmt$(taxDetail.year_totals.tax),
+                  sub: `${taxDetail.effective_tax_rate}% effective rate`,
+                  icon:'🧾', color:'#8b5cf6' },
+                { label:'YoY Sales Tax',
+                  value: taxDetail.yoy.delta_pct === null ? '—' : `${taxDetail.yoy.delta_pct >= 0 ? '▲' : '▼'} ${Math.abs(taxDetail.yoy.delta_pct)}%`,
+                  sub: `${fmt$(taxDetail.yoy.tax_this_year)} vs ${fmt$(taxDetail.yoy.tax_last_year)}`,
+                  icon:'📈',
+                  color: taxDetail.yoy.delta_pct === null ? 'var(--muted)' : taxDetail.yoy.delta_pct >= 0 ? 'var(--green)' : '#ef4444' },
+              ].map((k,i)=>(
+                <div key={i} style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 16px', position:'relative', overflow:'hidden'}}>
+                  <div style={{position:'absolute', top:10, right:12, fontSize:18, opacity:.2}}>{k.icon}</div>
+                  <div style={{fontSize:10, color:'var(--muted)', fontFamily:'var(--font-mono)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:6}}>
+                    {k.label}
+                  </div>
+                  <div style={{fontSize:20, fontWeight:800, color:k.color, fontFamily:'var(--font-head)', lineHeight:1.1}}>
+                    {k.value}
+                  </div>
+                  <div style={{fontSize:10, color:'var(--muted)', marginTop:4}}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Quarterly breakdown — for filing */}
+          {taxDetail && (
+            <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden'}}>
+              <div style={{padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center'}}>
+                <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', flex:1}}>
+                  Quarterly Breakdown — {taxDetail.year}
+                </div>
+                <div style={{fontSize:11, color:'var(--muted)'}}>For sales-tax filing</div>
+              </div>
+              <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                <thead>
+                  <tr style={{background:'var(--surface2)'}}>
+                    {['Quarter','Period','Invoices','Pre-Tax Revenue','Sales Tax','Total Collected', `Tax Reserve (${taxDetail.tax_reserve_pct}%)`].map(h=>(
+                      <th key={h} style={{padding:'9px 14px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {taxDetail.quarters.map((q, i) => {
+                    const periods = ['Jan – Mar','Apr – Jun','Jul – Sep','Oct – Dec'];
+                    return (
+                      <tr key={q.quarter} style={{borderBottom:'1px solid var(--border)', background: i%2===0 ? 'transparent' : 'var(--surface2)44'}}>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'#8b5cf6'}}>{q.label}</td>
+                        <td style={{padding:'12px 14px', color:'var(--muted)', fontSize:12}}>{periods[q.quarter-1]}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)'}}>{q.invoice_count}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)'}}>{fmt$(q.subtotal)}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'#8b5cf6'}}>{fmt$(q.tax)}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', fontWeight:700}}>{fmt$(q.total)}</td>
+                        <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'#f97316'}}>{fmt$(q.reserve)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{background:'var(--surface2)', fontWeight:800, borderTop:'2px solid var(--border)'}}>
+                    <td style={{padding:'12px 14px', color:'var(--text)'}}>Year Total</td>
+                    <td style={{padding:'12px 14px', color:'var(--muted)', fontSize:12}}>{taxDetail.year}</td>
+                    <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)'}}>{taxDetail.year_totals.invoice_count}</td>
+                    <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)'}}>{fmt$(taxDetail.year_totals.subtotal)}</td>
+                    <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', color:'#8b5cf6'}}>{fmt$(taxDetail.year_totals.tax)}</td>
+                    <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)'}}>{fmt$(taxDetail.year_totals.total)}</td>
+                    <td style={{padding:'12px 14px', fontFamily:'var(--font-mono)', color:'#f97316'}}>{fmt$(taxDetail.year_totals.reserve)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+            {/* Tax by Month — existing 12-month chart */}
+            <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px'}}>
+              <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:16}}>
+                Tax by Month — Last 12 Months
+              </div>
+              {chart.length === 0
+                ? <div style={{color:'var(--muted)', fontSize:13}}>No data yet</div>
+                : chart.map((r, i) => {
+                  const pct = Math.max(...chart.map(c=>parseFloat(c.tax))) > 0
+                    ? (parseFloat(r.tax) / Math.max(...chart.map(c=>parseFloat(c.tax))) * 100)
+                    : 0;
+                  return (
+                    <div key={i} style={{display:'flex', alignItems:'center', gap:10, marginBottom:8}}>
+                      <div style={{fontSize:11, fontFamily:'var(--font-mono)', color:'var(--muted)', width:52, flexShrink:0}}>{r.month}</div>
+                      <div style={{flex:1, height:8, background:'var(--surface2)', borderRadius:4}}>
+                        <div style={{height:8, width:`${pct}%`, background:'#8b5cf6', borderRadius:4, transition:'width .4s'}}/>
+                      </div>
+                      <div style={{fontSize:12, fontFamily:'var(--font-mono)', fontWeight:600, color:'#8b5cf6', width:70, textAlign:'right', flexShrink:0}}>
+                        {fmt$(r.tax)}
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+
+            {/* Filing-readiness checklist */}
+            <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px'}}>
+              <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:16}}>
+                Filing Reference
+              </div>
+              {taxDetail && (() => {
+                const today = new Date();
+                const currentQ = Math.floor(today.getMonth() / 3) + 1;
+                // Sales-tax remittance (TX monthly/quarterly schedule — Apr 20, Jul 20, Oct 20, Jan 20)
+                const salesDueDates = {
+                  1: `${taxDetail.year}-04-20`,
+                  2: `${taxDetail.year}-07-20`,
+                  3: `${taxDetail.year}-10-20`,
+                  4: `${taxDetail.year+1}-01-20`,
+                };
+                // IRS quarterly estimated tax due-dates (Apr 15, Jun 15, Sep 15, Jan 15)
+                const incomeDueDates = {
+                  1: `${taxDetail.year}-04-15`,
+                  2: `${taxDetail.year}-06-15`,
+                  3: `${taxDetail.year}-09-15`,
+                  4: `${taxDetail.year+1}-01-15`,
+                };
+                const upcomingQ = Math.min(currentQ, 4);
+                const salesDue = new Date(salesDueDates[upcomingQ]);
+                const incomeDue = new Date(incomeDueDates[upcomingQ]);
+                const dq = (d) => Math.ceil((d - today) / 86400000);
+                const thisQ = taxDetail.quarters[upcomingQ-1] || {};
+                return (
+                  <>
+                    {/* Income-tax reserve (the new 30% bucket) */}
+                    <div style={{padding:'14px 16px', background:'#f9731622', border:'1px solid #f9731666', borderRadius:10, marginBottom:10}}>
+                      <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:4}}>
+                        <span style={{fontSize:12}}>🏦</span>
+                        <div style={{fontSize:11, color:'var(--muted)'}}>Q{upcomingQ} Estimated Income Tax</div>
+                      </div>
+                      <div style={{display:'flex', alignItems:'baseline', gap:10}}>
+                        <div style={{fontSize:20, fontWeight:800, color:'#f97316', fontFamily:'var(--font-head)'}}>
+                          {fmt$(thisQ.reserve || 0)}
+                        </div>
+                        <div style={{fontSize:12, color:'var(--muted)'}}>
+                          due {incomeDue.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+                          {dq(incomeDue) > 0 && ` · ${dq(incomeDue)}d`}
+                        </div>
+                      </div>
+                      <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+                        {taxDetail.tax_reserve_pct}% of {fmt$(thisQ.subtotal || 0)} pre-tax revenue
+                      </div>
+                    </div>
+
+                    {/* Sales-tax remittance */}
+                    <div style={{padding:'14px 16px', background:'#8b5cf622', border:'1px solid #8b5cf644', borderRadius:10, marginBottom:14}}>
+                      <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:4}}>
+                        <span style={{fontSize:12}}>🧾</span>
+                        <div style={{fontSize:11, color:'var(--muted)'}}>Q{upcomingQ} Sales Tax Remittance</div>
+                      </div>
+                      <div style={{display:'flex', alignItems:'baseline', gap:10}}>
+                        <div style={{fontSize:20, fontWeight:800, color:'#8b5cf6', fontFamily:'var(--font-head)'}}>
+                          {fmt$(thisQ.tax || 0)}
+                        </div>
+                        <div style={{fontSize:12, color:'var(--muted)'}}>
+                          due {salesDue.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+                          {dq(salesDue) > 0 && ` · ${dq(salesDue)}d`}
+                        </div>
+                      </div>
+                      <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+                        Sales tax collected from customers
+                      </div>
+                    </div>
+
+                    <div style={{fontSize:12, color:'var(--muted)', lineHeight:1.6}}>
+                      <div style={{marginBottom:5}}>
+                        ✅ Sales tax = pass-through liability. You collected it; you remit it to the state.
+                      </div>
+                      <div style={{marginBottom:5}}>
+                        🏦 Income tax reserve ({taxDetail.tax_reserve_pct}% of revenue) = your money set aside for federal income + self-employment tax.
+                      </div>
+                      <div style={{marginBottom:5}}>
+                        ⚠️ Due-dates shown are typical TX/IRS deadlines. Verify with your jurisdiction.
+                      </div>
+                      <div>
+                        💡 Reserve is an estimate — your actual tax bill depends on deductions, expenses, and filing status. Consult your accountant.
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+              {!taxDetail && (
+                <div style={{color:'var(--muted)', fontSize:13, padding:'24px 0', textAlign:'center'}}>
+                  Loading filing reference…
+                </div>
+              )}
+            </div>
+          </div>
+
+          {taxDetailLoading && !taxDetail && (
+            <div style={{display:'flex', alignItems:'center', justifyContent:'center', padding:40}}>
+              <div style={{width:24, height:24, border:'3px solid var(--border)', borderTopColor:'#8b5cf6', borderRadius:'50%', animation:'spin 1s linear infinite'}}/>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Payroll tab ───────────────────────────────────────── */}
+      {tab === 'payroll' && (
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+          {/* Payroll controls */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'16px 20px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:10, flexWrap:'wrap'}}>
+
+              {/* Week ending */}
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <span style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', whiteSpace:'nowrap'}}>Week Ending</span>
+                <select value={payPeriodTo} onChange={e => {
+                    const end = new Date(e.target.value + 'T12:00:00Z');
+                    const start = new Date(end); start.setUTCDate(end.getUTCDate() - 6);
+                    setPayPeriodTo(e.target.value);
+                    setPayPeriodFrom(start.toISOString().split('T')[0]);
+                  }}
+                  style={{padding:'6px 10px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)', color:'var(--text)', cursor:'pointer'}}>
+                  {payWeekOptions.length === 0
+                    ? <option value={payPeriodTo}>{payPeriodTo}</option>
+                    : payWeekOptions.map(w => {
+                        const d = new Date(w + 'T12:00:00Z');
+                        const label = d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
+                        return <option key={w} value={w}>{label}</option>;
+                      })
+                  }
+                </select>
+              </div>
+
+              <div style={{width:1, height:24, background:'var(--border)', flexShrink:0}}/>
+
+              {/* Staff type */}
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <span style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', whiteSpace:'nowrap'}}>Show</span>
+                <select value={payStaffType} onChange={e => setPayStaffType(e.target.value)}
+                  style={{padding:'6px 10px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)', color:'var(--text)', cursor:'pointer'}}>
+                  <option value="technicians">Technicians</option>
+                  <option value="employees">Employees</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
+
+              <div style={{width:1, height:24, background:'var(--border)', flexShrink:0}}/>
+
+              {/* Manager filter */}
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <span style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', whiteSpace:'nowrap'}}>Manager</span>
+                <select value={payManagerId} onChange={e => setPayManagerId(e.target.value)}
+                  style={{padding:'6px 10px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)', color:'var(--text)', cursor:'pointer', minWidth:160}}>
+                  <option value="">All Managers</option>
+                  {managers.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{width:1, height:24, background:'var(--border)', flexShrink:0}}/>
+
+              {/* Date range (manual override) */}
+              <label style={{display:'flex', alignItems:'center', gap:6, fontSize:13, color:'var(--muted)'}}>
+                From <input type="date" value={payPeriodFrom} onChange={e=>setPayPeriodFrom(e.target.value)}
+                  style={{padding:'5px 8px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)', color:'var(--text)'}}/>
+              </label>
+              <label style={{display:'flex', alignItems:'center', gap:6, fontSize:13, color:'var(--muted)'}}>
+                To <input type="date" value={payPeriodTo} onChange={e=>setPayPeriodTo(e.target.value)}
+                  style={{padding:'5px 8px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)', color:'var(--text)'}}/>
+              </label>
+
+              <button onClick={loadPayroll} disabled={payrollLoading}
+                style={{padding:'8px 20px', background:'var(--blue)', color:'#fff', borderRadius:8, fontSize:13, fontWeight:700, border:'none', cursor:'pointer', opacity:payrollLoading?0.6:1, marginLeft:'auto'}}>
+                {payrollLoading ? 'Loading…' : 'Run Payroll'}
+              </button>
+            </div>
+          </div>
+
+          {/* Results */}
+          {payroll && (
+            <>
+              <div style={{display:'flex', alignItems:'center', gap:12}}>
+                <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 20px', display:'flex', gap:24}}>
+                  <div>
+                    <div style={{fontSize:11, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em'}}>Total Payroll</div>
+                    <div style={{fontSize:22, fontWeight:800, color:'var(--text)', fontFamily:'var(--font-head)'}}>
+                      {fmt$(payroll.total_payroll)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em'}}>
+                      {payStaffType === 'employees' ? 'Employees' : payStaffType === 'both' ? 'Staff' : 'Technicians'}
+                    </div>
+                    <div style={{fontSize:22, fontWeight:800, color:'var(--blue)', fontFamily:'var(--font-head)'}}>
+                      {payroll.employees.length}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em'}}>Period Revenue</div>
+                    <div style={{fontSize:22, fontWeight:800, color:'var(--green2)', fontFamily:'var(--font-head)'}}>
+                      {fmt$(payroll.employees.reduce((s,e)=>s+e.revenue,0))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden'}}>
+                <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                  <thead>
+                    <tr style={{background:'var(--surface2)'}}>
+                      {[payStaffType==='employees'?'Employee':'Technician','Pay Type','License','Revenue','Invoices','Gross Pay','Breakdown'].map(h=>(
+                        <th key={h} style={{padding:'9px 14px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em'}}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payroll.employees.length === 0 && (
+                      <tr><td colSpan={7} style={{padding:32, textAlign:'center', color:'var(--muted)'}}>No active employees found</td></tr>
+                    )}
+                    {payroll.employees.map((emp, i) => (
+                      <tr key={emp.employee_id} style={{borderBottom:'1px solid var(--border)',
+                        background: i%2===0?'transparent':'var(--surface2)44'}}>
+                        <td style={{padding:'10px 14px', fontWeight:600}}>
+                          <div style={{display:'flex', alignItems:'center', gap:7}}>
+                            {emp.name}
+                            {!emp.has_emp_record && (
+                              <span title="No employee record matched by email — pay settings defaulted to hourly at $0"
+                                style={{fontSize:10, background:'#fef9c3', border:'1px solid #fde047', color:'#a16207',
+                                  borderRadius:4, padding:'1px 6px', fontWeight:700}}>
+                                ⚠ No HR record
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{padding:'10px 14px', textTransform:'capitalize', color:'var(--muted)'}}>
+                          {(emp.pay_type||'hourly').replace(/_/g,' ')}
+                        </td>
+                        <td style={{padding:'10px 14px', color:'var(--muted)', fontFamily:'var(--font-mono)', fontSize:11}}>
+                          {emp.license_type || '—'}
+                        </td>
+                        <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', fontWeight:600, color:'var(--green2)'}}>
+                          {fmt$(emp.revenue)}
+                        </td>
+                        <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)'}}>
+                          {emp.invoice_count}
+                        </td>
+                        <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', fontWeight:800, color:'var(--text)', fontSize:14}}>
+                          {fmt$(emp.gross_pay)}
+                        </td>
+                        <td style={{padding:'10px 14px', fontSize:11, color:'var(--muted)'}}>
+                          {emp.pay_breakdown || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{display:'flex', alignItems:'center', gap:12}}>
+                <div style={{flex:1, padding:'10px 14px', background:'var(--surface2)', border:'1px solid var(--border)',
+                  borderRadius:8, fontSize:12, color:'var(--muted)'}}>
+                  💡 Pay rates come from Settings → Employees, matched by email address. Hourly assumes 80 hrs/period. Salary divides annual by 26 pay periods.
+                </div>
+                <button onClick={() => {
+                  const rows = [['Name','Pay Type','License','Revenue','Invoices','Gross Pay']];
+                  payroll.employees.forEach(e => rows.push([e.name, e.pay_type, e.license_type||'', e.revenue, e.invoice_count, e.gross_pay]));
+                  const csv = rows.map(r=>r.join(',')).join('\n');
+                  const a = document.createElement('a'); a.href = 'data:text/csv,' + encodeURIComponent(csv);
+                  a.download = `payroll_${payPeriodFrom}_${payPeriodTo}.csv`; a.click();
+                }} style={{padding:'8px 18px', background:'var(--surface)', border:'1px solid var(--border)',
+                  borderRadius:8, fontSize:13, fontWeight:600, color:'var(--text)', cursor:'pointer', flexShrink:0}}>
+                  📥 Export CSV
+                </button>
+              </div>
+            </>
+          )}
+
+          {!payroll && !payrollLoading && (
+            <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:12, padding:60,
+              background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, color:'var(--muted)'}}>
+              <span style={{fontSize:36}}>💵</span>
+              <div style={{fontSize:14, fontWeight:600}}>Select a pay period and click Run Payroll</div>
+              <div style={{fontSize:12}}>Calculates gross pay using each technician's pay type and commission tiers from Payroll Settings.</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Expenses tab ──────────────────────────────────────── */}
+      {tab === 'expenses' && (
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+          {/* Header */}
+          <div style={{display:'flex', alignItems:'center', gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14, fontWeight:700}}>Business Expenses</div>
+              <div style={{fontSize:12, color:'var(--muted)'}}>Track operating costs for your P&L</div>
+            </div>
+            <button onClick={() => { setExpForm({date:defaultTo, category:'Fuel', description:'', amount:'', vendor:''}); setExpModal('new'); }}
+              style={{padding:'8px 18px', background:'var(--blue)', color:'#fff', borderRadius:8, fontSize:13, fontWeight:700, border:'none', cursor:'pointer'}}>
+              + Add Expense
+            </button>
+          </div>
+
+          {/* Summary bar */}
+          {expenses.length > 0 && (
+            <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
+              {['Fuel','Tools','Materials','Insurance','Marketing','Office','Other'].map(cat => {
+                const total = expenses.filter(e=>e.category===cat).reduce((s,e)=>s+parseFloat(e.amount||0),0);
+                if (!total) return null;
+                return (
+                  <div key={cat} style={{background:'var(--surface)', border:'1px solid var(--border)',
+                    borderRadius:8, padding:'8px 14px', fontSize:12}}>
+                    <span style={{color:'var(--muted)'}}>{cat} </span>
+                    <span style={{fontWeight:700, fontFamily:'var(--font-mono)', color:'var(--text)'}}>{fmt$(total)}</span>
+                  </div>
+                );
+              })}
+              <div style={{background:'var(--surface)', border:'1px solid var(--amber)',
+                borderRadius:8, padding:'8px 14px', fontSize:12, marginLeft:'auto'}}>
+                <span style={{color:'var(--muted)'}}>Total </span>
+                <span style={{fontWeight:800, fontFamily:'var(--font-mono)', color:'var(--amber)'}}>
+                  {fmt$(expenses.reduce((s,e)=>s+parseFloat(e.amount||0),0))}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Table */}
+          {expLoading ? (
+            <div style={{display:'flex', justifyContent:'center', padding:40}}>
+              <div style={{width:24, height:24, border:'2px solid var(--border)', borderTopColor:'var(--blue)', borderRadius:'50%', animation:'spin 1s linear infinite'}}/>
+            </div>
+          ) : (
+            <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden'}}>
+              <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                <thead>
+                  <tr style={{background:'var(--surface2)'}}>
+                    {['Date','Category','Description','Vendor','Amount',''].map(h=>(
+                      <th key={h} style={{padding:'9px 14px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em'}}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {expenses.length === 0 && (
+                    <tr><td colSpan={6} style={{padding:40, textAlign:'center', color:'var(--muted)'}}>
+                      No expenses recorded yet. Click "+ Add Expense" to get started.
+                    </td></tr>
+                  )}
+                  {expenses.map((exp, i) => (
+                    <tr key={exp.id} style={{borderBottom:'1px solid var(--border)',
+                      background:i%2===0?'transparent':'var(--surface2)44'}}>
+                      <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', color:'var(--muted)', fontSize:12}}>
+                        {new Date((exp.date||'').slice(0,10) + 'T00:00:00').toLocaleDateString()}
+                      </td>
+                      <td style={{padding:'10px 14px'}}>
+                        <span style={{background:'var(--surface2)', border:'1px solid var(--border)',
+                          borderRadius:5, padding:'2px 8px', fontSize:11, fontWeight:600}}>
+                          {exp.category}
+                        </span>
+                      </td>
+                      <td style={{padding:'10px 14px', color:'var(--text)'}}>{exp.description || '—'}</td>
+                      <td style={{padding:'10px 14px', color:'var(--muted)'}}>{exp.vendor || '—'}</td>
+                      <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--text)'}}>
+                        {fmt$(exp.amount)}
+                      </td>
+                      <td style={{padding:'10px 14px'}}>
+                        <div style={{display:'flex', gap:6}}>
+                          <button onClick={()=>{ setExpForm({date:exp.date?.slice(0,10), category:exp.category, description:exp.description||'', amount:String(exp.amount), vendor:exp.vendor||''}); setExpModal(exp); }}
+                            style={{padding:'3px 10px', border:'1px solid var(--border)', borderRadius:5, fontSize:11, cursor:'pointer', background:'transparent', color:'var(--muted)'}}>
+                            Edit
+                          </button>
+                          <button onClick={()=>deleteExpense(exp.id)}
+                            style={{padding:'3px 10px', border:'1px solid var(--reddim)', borderRadius:5, fontSize:11, cursor:'pointer', background:'transparent', color:'var(--red)'}}>
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Add/Edit modal */}
+          {expModal !== null && (
+            <div style={{position:'fixed', inset:0, background:'#00000066', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center'}}
+              onClick={e => { if(e.target===e.currentTarget) setExpModal(null); }}>
+              <div style={{background:'var(--surface)', borderRadius:14, padding:28, width:420, display:'flex', flexDirection:'column', gap:16, boxShadow:'0 20px 60px #00000033'}}>
+                <div style={{fontSize:16, fontWeight:800}}>{expModal==='new' ? '+ Add Expense' : 'Edit Expense'}</div>
+                {[
+                  { key:'date',        label:'Date',        type:'date' },
+                  { key:'vendor',      label:'Vendor',      type:'text', placeholder:'e.g. Home Depot' },
+                  { key:'description', label:'Description', type:'text', placeholder:'e.g. Copper fittings' },
+                  { key:'amount',      label:'Amount ($)',  type:'number', placeholder:'0.00' },
+                ].map(f => (
+                  <label key={f.key} style={{display:'flex', flexDirection:'column', gap:5}}>
+                    <span style={{fontSize:11, color:'var(--muted)', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em'}}>{f.label}</span>
+                    <input type={f.type} value={expForm[f.key]} placeholder={f.placeholder||''}
+                      onChange={e => setExpForm(p=>({...p,[f.key]:e.target.value}))}
+                      style={{padding:'9px 12px', border:'1px solid var(--border)', borderRadius:8, fontSize:13, background:'var(--surface2)'}}/>
+                  </label>
+                ))}
+                <label style={{display:'flex', flexDirection:'column', gap:5}}>
+                  <span style={{fontSize:11, color:'var(--muted)', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em'}}>Category</span>
+                  <select value={expForm.category} onChange={e=>setExpForm(p=>({...p,category:e.target.value}))}
+                    style={{padding:'9px 12px', border:'1px solid var(--border)', borderRadius:8, fontSize:13, background:'var(--surface2)'}}>
+                    {EXP_CATS.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </label>
+                <div style={{display:'flex', gap:10, marginTop:4}}>
+                  <button onClick={()=>setExpModal(null)} style={{flex:1, padding:'10px', border:'1px solid var(--border)', borderRadius:8, fontSize:13, cursor:'pointer', background:'transparent'}}>
+                    Cancel
+                  </button>
+                  <button onClick={saveExpense} style={{flex:2, padding:'10px', background:'var(--blue)', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer'}}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── P&L tab ───────────────────────────────────────────── */}
+      {tab === 'pl' && (
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+          {/* Controls */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'16px 20px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
+              <div style={{fontSize:13, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em'}}>Period</div>
+              <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13}}>
+                From <input type="date" value={plFrom} onChange={e=>setPlFrom(e.target.value)}
+                  style={{padding:'5px 10px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)'}}/>
+              </label>
+              <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13}}>
+                To <input type="date" value={plTo} onChange={e=>setPlTo(e.target.value)}
+                  style={{padding:'5px 10px', border:'1px solid var(--border)', borderRadius:7, fontSize:13, background:'var(--surface2)'}}/>
+              </label>
+              <button onClick={loadPL} disabled={plLoading}
+                style={{padding:'7px 18px', background:'var(--blue)', color:'#fff', borderRadius:8, fontSize:13, fontWeight:700, border:'none', cursor:'pointer', opacity:plLoading?0.6:1}}>
+                {plLoading ? 'Loading...' : 'Generate P&L'}
+              </button>
+            </div>
+          </div>
+
+          {pl && (
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+              {/* Income statement */}
+              <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px'}}>
+                <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:20}}>
+                  Profit & Loss — {new Date(pl.from+'T12:00').toLocaleDateString()} to {new Date(pl.to+'T12:00').toLocaleDateString()}
+                </div>
+                {[
+                  { label: 'Gross Revenue',           value: pl.revenue,              indent:0, bold:true,  color:'var(--text)' },
+                  { label: '  Sales Tax',             value: -pl.tax,                 indent:1, bold:false, color:'var(--muted)', isSubtract:true },
+                  { label: 'Net Revenue',             value: pl.net_revenue,          indent:0, bold:true,  color:'var(--blue)', border:true },
+                  { label: '  Materials (Inventory)', value: -pl.cogs,                indent:1, bold:false, color:'var(--muted)', isSubtract:true },
+                  { label: '  Subcontractors',        value: -(pl.subcontractor_cost||0), indent:1, bold:false, color:'var(--muted)', isSubtract:true },
+                  { label: 'Gross Profit',            value: pl.gross_profit,         indent:0, bold:true,  color: pl.gross_profit >= 0 ? 'var(--green2)' : 'var(--red)', border:true },
+                  { label: '  Operating Expenses',    value: -pl.expenses_total,      indent:1, bold:false, color:'var(--muted)', isSubtract:true },
+                  { label: 'Net Profit',              value: pl.net_profit,           indent:0, bold:true,  color: pl.net_profit >= 0 ? 'var(--green2)' : 'var(--red)', border:true, big:true },
+                ].map((row, i) => (
+                  <div key={i} style={{display:'flex', alignItems:'center', gap:10,
+                    padding: row.big ? '14px 0 4px' : '8px 0',
+                    borderTop: row.border ? '1px solid var(--border)' : 'none',
+                    marginLeft: row.indent * 12}}>
+                    <div style={{flex:1, fontSize: row.big ? 15 : 13, fontWeight: row.bold ? 700 : 400, color:'var(--text)'}}>{row.label}</div>
+                    <div style={{fontFamily:'var(--font-mono)', fontSize: row.big ? 17 : 13, fontWeight: row.bold ? 800 : 500, color:row.color}}>
+                      {row.isSubtract && parseFloat(row.value) !== 0 ? '(' : ''}{fmt$(Math.abs(row.value))}{row.isSubtract && parseFloat(row.value) !== 0 ? ')' : ''}
+                    </div>
+                  </div>
+                ))}
+                <div style={{marginTop:16, padding:'12px 14px',
+                  background: pl.net_profit >= 0 ? '#dcfce7' : '#fee2e2',
+                  border:`1px solid ${pl.net_profit >= 0 ? '#86efac' : '#fca5a5'}`,
+                  borderRadius:8, display:'flex', alignItems:'center', gap:10}}>
+                  <span style={{fontSize:20}}>{pl.net_profit >= 0 ? '✅' : '⚠️'}</span>
+                  <div>
+                    <div style={{fontSize:13, fontWeight:700, color: pl.net_profit >= 0 ? '#166534' : '#991b1b'}}>
+                      {pl.net_profit >= 0 ? 'Profitable' : 'Operating at a loss'}
+                    </div>
+                    <div style={{fontSize:11, color:'var(--muted)'}}>Net margin: {pl.margin_pct}%</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Expense breakdown */}
+              <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px'}}>
+                <div style={{fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:16}}>
+                  Expenses by Category
+                </div>
+                {pl.expenses_by_cat.length === 0 ? (
+                  <div style={{color:'var(--muted)', fontSize:13, padding:'20px 0'}}>No expenses recorded for this period.</div>
+                ) : (
+                  <>
+                    {pl.expenses_by_cat.map((e, i) => {
+                      const pct = pl.expenses_total > 0 ? (e.amount / pl.expenses_total * 100) : 0;
+                      return (
+                        <div key={i} style={{marginBottom:10}}>
+                          <div style={{display:'flex', justifyContent:'space-between', marginBottom:4, fontSize:13}}>
+                            <span>{e.category}</span>
+                            <span style={{fontFamily:'var(--font-mono)', fontWeight:700}}>{fmt$(e.amount)}
+                              <span style={{fontSize:10, color:'var(--muted)', marginLeft:6}}>({pct.toFixed(0)}%)</span>
+                            </span>
+                          </div>
+                          <div style={{height:6, background:'var(--surface2)', borderRadius:3}}>
+                            <div style={{height:6, width:`${pct}%`, background:'#f97316', borderRadius:3, transition:'width .4s'}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{display:'flex', justifyContent:'space-between', paddingTop:12, marginTop:4, borderTop:'1px solid var(--border)'}}>
+                      <div style={{fontSize:13, fontWeight:600}}>Total Operating Expenses</div>
+                      <div style={{fontFamily:'var(--font-mono)', fontSize:14, fontWeight:800, color:'#f97316'}}>{fmt$(pl.expenses_total)}</div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!pl && !plLoading && (
+            <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:12, padding:60,
+              background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, color:'var(--muted)'}}>
+              <span style={{fontSize:36}}>📋</span>
+              <div style={{fontSize:14, fontWeight:600}}>Select a date range and click Generate P&L</div>
+              <div style={{fontSize:12, textAlign:'center', maxWidth:360}}>
+                Shows revenue, cost of goods, operating expenses, and net profit for the period.
+                Add expenses in the Expenses tab to get an accurate P&L.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── QuickBooks tab ────────────────────────────────────── */}
+      {tab === 'qb' && (
+        <div style={{display:'flex', flexDirection:'column', gap:16, maxWidth:600}}>
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'24px'}}>
+            <div style={{display:'flex', alignItems:'center', gap:16, marginBottom:20}}>
+              <div style={{width:48, height:48, background:'#1a3050', border:'1px solid #2a5080',
+                borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22}}>
+                📊
+              </div>
+              <div>
+                <div style={{fontFamily:'var(--font-head)', fontSize:18, fontWeight:800}}>QuickBooks Online</div>
+                <div style={{fontSize:13, color:'var(--muted)'}}>Sync invoices and customers with QuickBooks Online.</div>
+              </div>
+            </div>
+
+            {/* Status */}
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16,
+              padding:'14px 18px', background:'var(--surface2)', borderRadius:10}}>
+              <div>
+                <div style={{fontSize:12, color:'var(--muted)', marginBottom:4}}>Connection Status</div>
+                {qbLoading ? (
+                  <div style={{fontSize:13, color:'var(--muted)'}}>Checking...</div>
+                ) : (
+                  <div style={{display:'flex', alignItems:'center', gap:8}}>
+                    <div style={{width:8, height:8, borderRadius:'50%',
+                      background: qbStatus?.connected ? '#22c55e' : '#ef4444'}}/>
+                    <span style={{fontSize:13, fontWeight:600, color: qbStatus?.connected ? '#22c55e' : '#ef4444'}}>
+                      {qbStatus?.connected ? 'Connected' : 'Not connected'}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {!qbLoading && (
+                <button onClick={() => { window.location.href = '/api/qb/connect'; }}
+                  style={{padding:'8px 18px', background: qbStatus?.connected ? 'var(--surface)' : 'var(--blue)',
+                    color: qbStatus?.connected ? 'var(--muted)' : '#fff',
+                    border: `1px solid ${qbStatus?.connected ? 'var(--border)' : 'var(--blue)'}`,
+                    borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer'}}>
+                  {qbStatus?.connected ? 'Reconnect' : 'Connect QuickBooks'}
+                </button>
+              )}
+            </div>
+
+            {/* Sync */}
+            {qbStatus?.connected && (
+              <>
+                <div style={{fontSize:13, fontWeight:700, marginBottom:12}}>Bulk Sync</div>
+                <div style={{display:'flex', alignItems:'center', justifyContent:'space-between',
+                  padding:'12px 16px', background:'var(--surface2)', borderRadius:10, marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:13, fontWeight:600}}>Sync Paid Invoices — Last 90 Days</div>
+                    <div style={{fontSize:11, color:'var(--muted)', marginTop:2}}>Push all recently paid invoices to QuickBooks as Sales Receipts</div>
+                  </div>
+                  <button onClick={handleQbSyncAll} disabled={qbSyncing}
+                    style={{padding:'7px 16px', background:'var(--blue)', color:'#fff', borderRadius:7,
+                      fontSize:12, fontWeight:700, border:'none', cursor:'pointer', flexShrink:0, opacity:qbSyncing?0.6:1}}>
+                    {qbSyncing ? 'Syncing...' : 'Sync Now'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {qbMsg && (
+              <div style={{padding:'10px 14px', borderRadius:8, fontSize:13,
+                background: qbMsg.startsWith('✅') ? '#dcfce7' : '#fee2e2',
+                border:`1px solid ${qbMsg.startsWith('✅') ? '#86efac' : '#fca5a5'}`,
+                color: qbMsg.startsWith('✅') ? '#166534' : '#991b1b', marginTop:8}}>
+                {qbMsg}
+              </div>
+            )}
+
+            <div style={{marginTop:16, padding:'12px 16px', background:'#1D70B711', border:'1px solid #1D70B722',
+              borderRadius:8, fontSize:12, color:'var(--muted)'}}>
+              💡 Per-invoice and per-customer sync is available from Invoices and Customers pages. Configure OAuth credentials in your .env file (QB_CLIENT_ID, QB_CLIENT_SECRET, QB_REDIRECT_URI).
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -4749,10 +9607,249 @@ function CreateCustomerModal({ onClose, onCreated }) {
 }
 
 // ─── CUSTOMERS PAGE ───────────────────────────────────────────
+function CustomerDetailPanel({ customerId, onClose, onSaved }) {
+  const [cust, setCust] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [jobs, setJobs] = useState([]);
+  // Address autocomplete
+  const [mapsKey, setMapsKey] = useState('');
+  const [svUrl, setSvUrl] = useState('');
+  const [addrPredictions, setAddrPredictions] = useState([]);
+  const [showAddrDrop, setShowAddrDrop] = useState(false);
+  const [addrDropRect, setAddrDropRect] = useState(null);
+  const addrDebounce = useRef(null);
+  const addrInputRef = useRef(null);
+
+  useEffect(() => {
+    api.get('/company/maps-key').then(r=>{ if(r?.key) setMapsKey(r.key); }).catch(()=>{});
+  }, []);
+
+  useEffect(() => {
+    if (!customerId) return;
+    api.getCustomer(customerId).then(c => {
+      setCust(c);
+      const addr = (c.addresses||[])[0];
+      setEdit({
+        first_name: c.first_name||'', last_name: c.last_name||'',
+        email: c.email||'', phone: c.phone||'', phone2: c.phone2||'',
+        notes: c.notes||'', marketing_src: c.marketing_src||'',
+        addr_street: addr?.street||'', addr_city: addr?.city||'',
+        addr_state: addr?.state||'TX', addr_zip: addr?.zip||'',
+        addr_lat: addr?.lat||null, addr_lng: addr?.lng||null,
+      });
+      if (addr?.lat && addr?.lng) {
+        api.get('/company/maps-key').then(r=>{
+          if(r?.key) setSvUrl(`https://maps.googleapis.com/maps/api/streetview?size=560x200&location=${addr.lat},${addr.lng}&key=${r.key}&fov=90&pitch=5&source=outdoor`);
+        }).catch(()=>{});
+      }
+    });
+    api.getJobs({ customer_id: customerId }).then(setJobs).catch(()=>{});
+  }, [customerId]);
+
+  const handleAddrInput = (val) => {
+    setEdit(x=>({...x, addr_street:val, addr_lat:null, addr_lng:null}));
+    setSvUrl('');
+    clearTimeout(addrDebounce.current);
+    if (!val || val.length < 3) { setAddrPredictions([]); setShowAddrDrop(false); return; }
+    if (addrInputRef.current) {
+      const r = addrInputRef.current.getBoundingClientRect();
+      setAddrDropRect({top: r.bottom + 4, left: r.left, width: r.width});
+    }
+    addrDebounce.current = setTimeout(async () => {
+      try {
+        const res = await api.placesAutocomplete(val);
+        if (res.predictions?.length) { setAddrPredictions(res.predictions); setShowAddrDrop(true); }
+        else { setAddrPredictions([]); setShowAddrDrop(false); }
+      } catch(e) { setAddrPredictions([]); setShowAddrDrop(false); }
+    }, 250);
+  };
+
+  const selectAddrPrediction = async (p) => {
+    setShowAddrDrop(false); setAddrPredictions([]);
+    setEdit(x=>({...x, addr_street: p.structured_formatting.main_text}));
+    try {
+      const place = await api.placeDetails(p.place_id);
+      const c = place.address_components||[];
+      const get   = t => c.find(x=>x.types.includes(t))?.long_name  || '';
+      const getSh  = t => c.find(x=>x.types.includes(t))?.short_name || '';
+      const street = `${get('street_number')} ${get('route')}`.trim();
+      const city   = get('locality') || get('sublocality_level_1');
+      const state  = getSh('administrative_area_level_1');
+      const zip    = get('postal_code');
+      const lat    = place.geometry?.location?.lat;
+      const lng    = place.geometry?.location?.lng;
+      setEdit(x=>({...x, addr_street:street||x.addr_street, addr_city:city, addr_state:state, addr_zip:zip, addr_lat:lat, addr_lng:lng}));
+      if (lat && lng && mapsKey)
+        setSvUrl(`https://maps.googleapis.com/maps/api/streetview?size=560x200&location=${lat},${lng}&key=${mapsKey}&fov=90&pitch=5&source=outdoor`);
+    } catch(e) { console.error('Place details failed', e); }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        first_name: edit.first_name, last_name: edit.last_name,
+        email: edit.email, phone: edit.phone, phone2: edit.phone2,
+        notes: edit.notes, marketing_src: edit.marketing_src,
+      };
+      if (edit.addr_street) {
+        payload.address = {
+          street: edit.addr_street, city: edit.addr_city,
+          state: edit.addr_state, zip: edit.addr_zip,
+          lat: edit.addr_lat, lng: edit.addr_lng,
+        };
+      }
+      await api.patch(`/customers/${customerId}`, payload);
+      setSavedFlash(true); setTimeout(()=>setSavedFlash(false), 2000);
+      onSaved?.();
+    } catch(e) { toast.error('Save failed', e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (!cust) return <div style={{width:400,display:"flex",justifyContent:"center",alignItems:"center",padding:40}}><Spinner/></div>;
+
+  const F = ({label, field, type='text', rows}) => (
+    <div style={{marginBottom:12}}>
+      <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",marginBottom:4,letterSpacing:".05em"}}>{label}</div>
+      {rows
+        ? <textarea value={edit[field]} onChange={e=>setEdit(x=>({...x,[field]:e.target.value}))} rows={rows}
+            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,padding:"8px 10px",color:"var(--text)",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
+        : <input type={type} value={edit[field]} onChange={e=>setEdit(x=>({...x,[field]:e.target.value}))}
+            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,padding:"8px 10px",color:"var(--text)",fontSize:13,boxSizing:"border-box"}}/>
+      }
+    </div>
+  );
+
+  const inp = {width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:8,padding:"8px 10px",color:"var(--text)",fontSize:13,boxSizing:"border-box"};
+  const lbl = {fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",marginBottom:4,letterSpacing:".05em",display:"block"};
+
+  return (
+    <div style={{width:420,minWidth:420,background:"var(--surface)",borderLeft:"1px solid var(--border)",display:"flex",flexDirection:"column",overflowY:"auto",animation:"slideRight .2s ease"}} className="scrollbar-thin">
+      {/* Header */}
+      <div style={{padding:"14px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"var(--font-head)",fontSize:15,fontWeight:700}}>{cust.first_name} {cust.last_name}</div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{cust.phone||"No phone"}</div>
+        </div>
+        <button onClick={onClose} style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:7,padding:"5px 8px",color:"var(--muted)",cursor:"pointer"}}>
+          <Icon n="x" size={14} color="var(--muted)"/>
+        </button>
+      </div>
+
+      <div style={{flex:1,padding:"16px 18px",display:"flex",flexDirection:"column",gap:0}}>
+        {/* Contact info */}
+        <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--amber)",letterSpacing:".08em",marginBottom:12,fontWeight:600}}>CONTACT INFO</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+          <F label="FIRST NAME" field="first_name"/>
+          <F label="LAST NAME"  field="last_name"/>
+        </div>
+        <F label="EMAIL"    field="email"  type="email"/>
+        <F label="PHONE"    field="phone"  type="tel"/>
+        <F label="PHONE 2"  field="phone2" type="tel"/>
+        <F label="SOURCE"   field="marketing_src"/>
+        <F label="NOTES"    field="notes"  rows={3}/>
+
+        {/* Address */}
+        {edit && (
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--amber)",letterSpacing:".08em",marginBottom:10,fontWeight:600}}>SERVICE ADDRESS</div>
+
+            {/* Street autocomplete */}
+            <div style={{marginBottom:8,position:"relative"}}>
+              <label style={lbl}>
+                STREET{!mapsKey && <span style={{color:"var(--amber)",marginLeft:6,fontStyle:"normal"}}>(add Maps key in Settings for autocomplete)</span>}
+              </label>
+              <input
+                ref={addrInputRef}
+                value={edit.addr_street}
+                onChange={e=>handleAddrInput(e.target.value)}
+                onBlur={()=>setTimeout(()=>setShowAddrDrop(false),200)}
+                onFocus={()=>{ if(addrPredictions.length>0){ if(addrInputRef.current){const r=addrInputRef.current.getBoundingClientRect();setAddrDropRect({top:r.bottom+4,left:r.left,width:r.width});} setShowAddrDrop(true); } }}
+                style={inp}
+                placeholder={mapsKey?"Start typing address…":"123 Main St"}
+                autoComplete="off"
+              />
+              {showAddrDrop && addrPredictions.length>0 && addrDropRect && (
+                <div style={{position:"fixed",top:addrDropRect.top,left:addrDropRect.left,width:addrDropRect.width,zIndex:99999,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:9,boxShadow:"0 8px 28px rgba(0,0,0,.6)",overflow:"hidden"}}>
+                  {addrPredictions.map((p,i)=>(
+                    <div key={p.place_id} onMouseDown={()=>selectAddrPrediction(p)}
+                      style={{padding:"9px 12px",cursor:"pointer",borderBottom:i<addrPredictions.length-1?"1px solid var(--border)":"none",display:"flex",alignItems:"center",gap:8,transition:"background .1s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <span style={{fontSize:13,flexShrink:0,opacity:.7}}>📍</span>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.structured_formatting.main_text}</div>
+                        <div style={{fontSize:10,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.structured_formatting.secondary_text}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* City / State / Zip */}
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <label style={lbl}>CITY</label>
+                <input value={edit.addr_city} onChange={e=>setEdit(x=>({...x,addr_city:e.target.value}))} style={inp} placeholder="Houston"/>
+              </div>
+              <div>
+                <label style={lbl}>STATE</label>
+                <input value={edit.addr_state} onChange={e=>setEdit(x=>({...x,addr_state:e.target.value}))} style={inp} placeholder="TX" maxLength={2}/>
+              </div>
+              <div>
+                <label style={lbl}>ZIP</label>
+                <input value={edit.addr_zip} onChange={e=>setEdit(x=>({...x,addr_zip:e.target.value}))} style={inp} placeholder="77001"/>
+              </div>
+            </div>
+
+            {/* Street View */}
+            {svUrl && (
+              <div style={{borderRadius:10,overflow:"hidden",border:"1px solid var(--border2)",position:"relative",marginTop:4}}>
+                <img src={svUrl} alt="Street View" style={{width:"100%",display:"block",maxHeight:180,objectFit:"cover"}} onError={()=>setSvUrl('')}/>
+                <div style={{position:"absolute",bottom:5,right:7,fontSize:9,fontFamily:"var(--font-mono)",color:"rgba(255,255,255,.45)"}}>© Google Street View</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Save */}
+        <button onClick={save} disabled={saving}
+          style={{width:"100%",padding:"11px",borderRadius:9,border:"none",fontWeight:700,fontSize:13,cursor:saving?"not-allowed":"pointer",
+            background:savedFlash?"var(--greendim)":saving?"var(--surface2)":"var(--green)",
+            color:savedFlash?"var(--green)":saving?"var(--muted)":"#fff",marginBottom:18}}>
+          {savedFlash?"✓ Saved!":saving?"Saving…":"Save Changes"}
+        </button>
+
+        {/* Job history */}
+        {jobs.length > 0 && (
+          <div>
+            <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:8}}>JOB HISTORY ({jobs.length})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {jobs.slice(0,8).map(j=>(
+                <div key={j.id} style={{background:"var(--surface2)",borderRadius:8,padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12}}>
+                  <div>
+                    <span style={{fontFamily:"var(--font-mono)",color:"var(--amber)",fontSize:11}}>#{j.job_number}</span>
+                    <span style={{color:"var(--muted)",marginLeft:8}}>{j.job_type||"Service Call"}</span>
+                  </div>
+                  <Pill status={j.status}/>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CustomersPage() {
   const [q, setQ] = useState("");
   const [results, setResults] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
   const {data:all, loading, reload} = useApi(() => api.getCustomers());
 
   const search = async () => {
@@ -4764,48 +9861,63 @@ function CustomersPage() {
   const displayed = results || all || [];
 
   return (
-    <div style={{animation:"fadeUp .4s ease"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-        <div style={{fontFamily:"var(--font-head)",fontSize:22,fontWeight:800,flex:1}}>Customers</div>
-        <button onClick={()=>setShowCreate(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",background:"var(--amberdim)",border:"1px solid var(--amber)",borderRadius:8,color:"var(--amber)",fontSize:12,fontWeight:600}}>
-          <Icon n="plus" size={14} color="#e8a84a"/> New Customer
-        </button>
-      </div>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Search by name, phone, email..." style={{flex:1,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:8,padding:"9px 14px",fontSize:13,color:"var(--text)"}}/>
-        <button onClick={search} style={{padding:"9px 20px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13}}>Search</button>
-        {results && <button onClick={()=>{setResults(null);setQ("");}} style={{padding:"9px 14px",background:"transparent",border:"1px solid var(--border)",borderRadius:8,color:"var(--muted)",fontSize:12}}>Clear</button>}
-      </div>
-      {loading ? <div style={{display:"flex",justifyContent:"center",padding:40}}><Spinner/></div> : (
-        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-          <table style={{width:"100%",borderCollapse:"collapse"}}>
-            <thead>
-              <tr style={{background:"var(--surface2)",borderBottom:"1px solid var(--border2)"}}>
-                {["Name","Phone","Email","Tags","Source"].map(h=>(
-                  <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".06em",fontWeight:500}}>{h.toUpperCase()}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map(c=>(
-                <tr key={c.id} style={{borderBottom:"1px solid var(--border)"}}
-                  onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{padding:"10px 14px",fontSize:13,fontWeight:500}}>{c.last_name}, {c.first_name}</td>
-                  <td style={{padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,color:"var(--muted)"}}>{c.phone||"—"}</td>
-                  <td style={{padding:"10px 14px",fontSize:12,color:"var(--muted)"}}>{c.email||"—"}</td>
-                  <td style={{padding:"10px 14px"}}>
-                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                      {(c.tags||[]).map(t=><span key={t} style={{background:"var(--surface3)",border:"1px solid var(--border2)",borderRadius:3,padding:"1px 7px",fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)"}}>{t}</span>)}
-                    </div>
-                  </td>
-                  <td style={{padding:"10px 14px",fontSize:11,color:"var(--muted)"}}>{c.marketing_src||"—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div style={{animation:"fadeUp .4s ease",display:"flex",gap:0,height:"calc(100vh - 94px)",overflow:"hidden"}}>
+      {/* Left — list */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <div style={{fontFamily:"var(--font-head)",fontSize:22,fontWeight:800,flex:1}}>Customers</div>
+          <button onClick={()=>setShowCreate(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",background:"var(--amberdim)",border:"1px solid var(--amber)",borderRadius:8,color:"var(--amber)",fontSize:12,fontWeight:600}}>
+            <Icon n="plus" size={14} color="#e8a84a"/> New Customer
+          </button>
         </div>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Search by name, phone, email, or address..." style={{flex:1,background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:8,padding:"9px 14px",fontSize:13,color:"var(--text)"}}/>
+          <button onClick={search} style={{padding:"9px 20px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13}}>Search</button>
+          {results && <button onClick={()=>{setResults(null);setQ("");}} style={{padding:"9px 14px",background:"transparent",border:"1px solid var(--border)",borderRadius:8,color:"var(--muted)",fontSize:12}}>Clear</button>}
+        </div>
+        {loading ? <div style={{display:"flex",justifyContent:"center",padding:40}}><Spinner/></div> : (
+          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,overflow:"auto",flex:1}} className="scrollbar-thin">
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead style={{position:"sticky",top:0,zIndex:1}}>
+                <tr style={{background:"var(--surface2)",borderBottom:"1px solid var(--border2)"}}>
+                  {["Name","Phone","Email","Tags","Source"].map(h=>(
+                    <th key={h} style={{padding:"10px 14px",textAlign:"left",fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".06em",fontWeight:500}}>{h.toUpperCase()}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {displayed.map(c=>(
+                  <tr key={c.id}
+                    onClick={()=>setSelectedId(c.id===selectedId?null:c.id)}
+                    style={{borderBottom:"1px solid var(--border)",cursor:"pointer",background:c.id===selectedId?"var(--amberdim)":"transparent"}}
+                    onMouseEnter={e=>{ if(c.id!==selectedId) e.currentTarget.style.background="var(--surface2)"; }}
+                    onMouseLeave={e=>{ if(c.id!==selectedId) e.currentTarget.style.background="transparent"; }}>
+                    <td style={{padding:"10px 14px",fontSize:13,fontWeight:500,color:c.id===selectedId?"var(--amber)":"var(--text)"}}>{c.last_name}, {c.first_name}</td>
+                    <td style={{padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,color:"var(--muted)"}}>{c.phone||"—"}</td>
+                    <td style={{padding:"10px 14px",fontSize:12,color:"var(--muted)"}}>{c.email||"—"}</td>
+                    <td style={{padding:"10px 14px"}}>
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        {(c.tags||[]).map(t=><span key={t} style={{background:"var(--surface3)",border:"1px solid var(--border2)",borderRadius:3,padding:"1px 7px",fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)"}}>{t}</span>)}
+                      </div>
+                    </td>
+                    <td style={{padding:"10px 14px",fontSize:11,color:"var(--muted)"}}>{c.marketing_src||"—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Right — detail panel */}
+      {selectedId && (
+        <CustomerDetailPanel
+          customerId={selectedId}
+          onClose={()=>setSelectedId(null)}
+          onSaved={()=>reload()}
+        />
       )}
+
       {showCreate && (
         <CreateCustomerModal
           onClose={()=>setShowCreate(false)}
@@ -4817,8 +9929,1536 @@ function CustomersPage() {
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────
+// ─── DISPATCH JOB DETAIL MODAL ────────────────────────────────
+// ─── JOB PURCHASE ORDER MODAL ─────────────────────────────────
+const BLANK_ITEM = () => ({ description: '', sku: '', qty: '1', unit_cost: '' });
+
+const SUB_BLANK = { name:'', phone:'', address:'', poc_name:'', poc_email:'', trade:'', license:'', account_number:'' };
+
+function JobPOModal({ jobId, jobNumber, onClose }) {
+  const [pos, setPOs]             = useState([]);
+  const [loading, setLoad]        = useState(true);
+  const [supplyHouses, setSH]     = useState([]);
+  const [subcontractors, setSubs] = useState([]);
+  const [view, setView]           = useState('list'); // 'list' | 'create'
+
+  // Form state
+  const [vendor, setVendor]       = useState('');
+  const [customVendor, setCustomV]= useState('');
+  const [poType, setPOType]       = useState('supply'); // 'supply' | 'subcontractor'
+  const [fulfillment, setFulfill] = useState('pickup');
+  const [dateNeeded, setDateNeed] = useState('');
+  const [lineItems, setLineItems] = useState([BLANK_ITEM()]);
+  const [notes, setNotes]         = useState('');
+  const [creating, setCreating]   = useState(false);
+
+  // New-subcontractor inline form
+  const [showNewSub, setShowNewSub] = useState(false);
+  const [newSubForm, setNewSubForm] = useState(SUB_BLANK);
+  const [savingSub, setSavingSub]   = useState(false);
+
+  const loadPOs = useCallback(async () => {
+    setLoad(true);
+    try { setPOs(await api.getJobPOs(jobId)); }
+    catch(e) { console.error(e); }
+    finally { setLoad(false); }
+  }, [jobId]);
+
+  useEffect(() => {
+    loadPOs();
+    api.getSupplyHouses().then(h => setSH(h || [])).catch(() => {});
+    api.getSubcontractors().then(s => setSubs(s || [])).catch(() => {});
+  }, [loadPOs]);
+
+  const resetForm = () => {
+    setVendor(''); setCustomV(''); setFulfill('pickup'); setPOType('supply');
+    setDateNeed(''); setLineItems([BLANK_ITEM()]); setNotes('');
+    setShowNewSub(false); setNewSubForm(SUB_BLANK);
+  };
+
+  const saveNewSub = async () => {
+    if (!newSubForm.name.trim()) return;
+    setSavingSub(true);
+    try {
+      const current = await api.getSubcontractors().catch(() => []);
+      const updated = [...(current||[]), { ...newSubForm, id: Date.now() }];
+      await api.saveSubcontractors(updated);
+      setSubs(updated);
+      setVendor(newSubForm.name.trim());
+      setShowNewSub(false);
+      setNewSubForm(SUB_BLANK);
+    } catch(e) { alert('Failed to save subcontractor: ' + e.message); }
+    finally { setSavingSub(false); }
+  };
+
+  const createPO = async () => {
+    if (creating) return;
+    const finalVendor = vendor === '__custom__' ? customVendor.trim() : vendor;
+    if (!finalVendor) return;
+    const validItems = lineItems.filter(i => i.description.trim());
+    setCreating(true);
+    try {
+      await api.createJobPO(jobId, {
+        vendor: finalVendor,
+        po_type: poType,
+        fulfillment_type: fulfillment,
+        date_needed: dateNeeded || null,
+        notes: notes.trim() || null,
+        items: validItems.map(i => ({
+          description: i.description.trim(),
+          sku: i.sku.trim() || null,
+          qty: parseInt(i.qty) || 1,
+          unit_cost: parseFloat(i.unit_cost) || 0,
+        })),
+      });
+      resetForm(); setView('list'); loadPOs();
+    } catch(e) { console.error(e); }
+    finally { setCreating(false); }
+  };
+
+  const updateStatus = async (po, status) => {
+    try {
+      const updated = await api.updateJobPO(jobId, po.id, { status });
+      setPOs(prev => prev.map(p => p.id === updated.id ? updated : p));
+    } catch(e) { console.error(e); }
+  };
+
+  const updateLineItem = (i, field, val) =>
+    setLineItems(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
+
+  const addLine = () => setLineItems(prev => [...prev, BLANK_ITEM()]);
+
+  const removeLine = (i) =>
+    setLineItems(prev => prev.length === 1 ? [BLANK_ITEM()] : prev.filter((_, idx) => idx !== i));
+
+  const lineTotal = lineItems.reduce((sum, r) =>
+    sum + (parseFloat(r.unit_cost) || 0) * (parseInt(r.qty) || 0), 0);
+
+  const STATUS_FLOW   = ['draft','ordered','received'];
+  const STATUS_META   = {
+    draft:    { label:'DRAFT',    color:'var(--amber)', bg:'var(--amberdim)' },
+    ordered:  { label:'ORDERED',  color:'var(--blue)',  bg:'var(--greendim)' },
+    received: { label:'RECEIVED', color:'#22c55e',      bg:'#dcfce7'        },
+  };
+
+  const inp = { background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:8, padding:'9px 12px', fontSize:13, color:'var(--text)', width:'100%', boxSizing:'border-box' };
+  const lbl = { fontSize:9, fontFamily:'var(--font-mono)', color:'var(--muted)', letterSpacing:'.07em', display:'block', marginBottom:5 };
+
+  return (
+    <div onClick={e=>{ if (e.target===e.currentTarget) onClose(); }}
+      style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.65)',zIndex:2100,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'var(--surface)',borderRadius:16,width:760,maxWidth:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 24px 80px rgba(0,0,0,.55)',overflow:'hidden',animation:'fadeUp .2s ease'}}>
+
+        {/* Header */}
+        <div style={{padding:'16px 24px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:'var(--font-head)',fontSize:17,fontWeight:800}}>📋 Purchase Orders</div>
+            <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>Job #{jobNumber||'—'}</div>
+          </div>
+          {view === 'list' ? (
+            <button onClick={()=>setView('create')}
+              style={{padding:'7px 16px',borderRadius:8,border:'1px solid var(--amber)',background:'var(--amberdim)',color:'var(--amber)',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+              + New PO
+            </button>
+          ) : (
+            <button onClick={()=>{ resetForm(); setView('list'); }}
+              style={{padding:'7px 14px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface2)',color:'var(--muted)',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+              ← Back
+            </button>
+          )}
+          <button onClick={onClose}
+            style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 14px',color:'var(--muted)',cursor:'pointer',fontSize:13,fontWeight:600}}>
+            ✕ Close
+          </button>
+        </div>
+
+        {view === 'create' ? (
+          /* ── CREATE FORM ───────────────────────────────────── */
+          <div style={{flex:1,overflowY:'auto',padding:'20px 24px',display:'flex',flexDirection:'column',gap:16}}>
+            {/* PO Type toggle */}
+            <div>
+              <label style={lbl}>PO TYPE</label>
+              <div style={{display:'flex',gap:0,borderRadius:8,overflow:'hidden',border:'1px solid var(--border2)',width:'fit-content'}}>
+                {[['supply','🏪 Supply House (PO-)'],['subcontractor','🔧 Subcontractor (SC-)']].map(([val,label]) => (
+                  <button key={val} onClick={()=>{setPOType(val);setVendor('');setCustomV('');}}
+                    style={{padding:'9px 20px',border:'none',background:poType===val?'var(--amberdim)':'var(--surface2)',color:poType===val?'var(--amber)':'var(--muted)',fontSize:12,fontWeight:poType===val?700:400,cursor:'pointer',transition:'all .15s',borderRight:val==='supply'?'1px solid var(--border2)':'none'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+              {/* Vendor selector — changes based on PO type */}
+              <div>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:5}}>
+                  <label style={{...lbl,marginBottom:0}}>{poType === 'subcontractor' ? 'SUBCONTRACTOR' : 'SUPPLY HOUSE'}</label>
+                  {poType === 'subcontractor' && !showNewSub && (
+                    <button onClick={()=>{setShowNewSub(true);setVendor('');}}
+                      style={{fontSize:10,padding:'2px 9px',borderRadius:5,border:'1px solid var(--amber)',background:'var(--amberdim)',color:'var(--amber)',cursor:'pointer',fontWeight:700}}>
+                      + New Sub
+                    </button>
+                  )}
+                </div>
+                {!showNewSub && (
+                  <>
+                    <select value={vendor} onChange={e=>setVendor(e.target.value)} style={inp}>
+                      <option value="">— Select {poType === 'subcontractor' ? 'subcontractor' : 'supply house'} —</option>
+                      {(poType === 'subcontractor' ? subcontractors : supplyHouses).map(h => (
+                        <option key={h.id||h.name} value={h.name}>{h.name}{h.trade ? ` · ${h.trade}` : ''}{h.account_number ? ` (Acct: ${h.account_number})` : ''}</option>
+                      ))}
+                      {poType !== 'subcontractor' && <option value="__custom__">Other (type in)…</option>}
+                    </select>
+                    {vendor === '__custom__' && (
+                      <input value={customVendor} onChange={e=>setCustomV(e.target.value)}
+                        placeholder="Vendor name…" style={{...inp, marginTop:8}}/>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Date needed */}
+              <div>
+                <label style={lbl}>DATE NEEDED</label>
+                <input type="date" value={dateNeeded} onChange={e=>setDateNeed(e.target.value)} style={inp}/>
+              </div>
+            </div>
+
+            {/* New Subcontractor inline form */}
+            {showNewSub && (
+              <div style={{background:'var(--surface2)',border:'1px solid var(--amber)',borderRadius:12,padding:16}}>
+                <div style={{fontFamily:'var(--font-head)',fontSize:14,fontWeight:800,marginBottom:12,color:'var(--amber)'}}>New Subcontractor</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                  {[
+                    ['NAME *','name','Company name',true],
+                    ['TRADE / SPECIALTY','trade','Electrical, HVAC…',false],
+                    ['PHONE','phone','(555) 000-0000',false],
+                    ['ADDRESS','address','123 Main St, City, TX',false],
+                    ['POINT OF CONTACT','poc_name','Jane Smith',false],
+                    ['CONTACT EMAIL','poc_email','jane@sub.com',false],
+                    ['LICENSE #','license','LIC-000000',false],
+                    ['ACCOUNT NUMBER','account_number','ACC-12345',false],
+                  ].map(([label, field, placeholder, required]) => (
+                    <div key={field}>
+                      <label style={lbl}>{label}</label>
+                      <input value={newSubForm[field]||''} onChange={e=>setNewSubForm(f=>({...f,[field]:e.target.value}))}
+                        placeholder={placeholder} style={inp}/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:8,marginTop:12}}>
+                  <button onClick={saveNewSub} disabled={savingSub || !newSubForm.name.trim()}
+                    style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid var(--amber)',background:'var(--amberdim)',color:'var(--amber)',fontSize:13,fontWeight:700,cursor:'pointer',opacity:(!newSubForm.name.trim()||savingSub)?0.5:1}}>
+                    {savingSub ? 'Saving…' : '✓ Save & Select'}
+                  </button>
+                  <button onClick={()=>{setShowNewSub(false);setNewSubForm(SUB_BLANK);}}
+                    style={{padding:'9px 16px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Fulfillment — supply house only */}
+            {poType === 'supply' && (
+              <div>
+                <label style={lbl}>FULFILLMENT</label>
+                <div style={{display:'flex',gap:0,borderRadius:8,overflow:'hidden',border:'1px solid var(--border2)',width:'fit-content'}}>
+                  {[['pickup','🏪 Pickup'],['delivery','🚚 Delivery']].map(([val,lbl2]) => (
+                    <button key={val} onClick={()=>setFulfill(val)}
+                      style={{padding:'9px 24px',border:'none',background:fulfillment===val?'var(--blue)':'var(--surface2)',color:fulfillment===val?'#fff':'var(--muted)',fontSize:13,fontWeight:fulfillment===val?700:400,cursor:'pointer',transition:'all .15s'}}>
+                      {lbl2}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Line items */}
+            <div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                <label style={{...lbl,marginBottom:0}}>LINE ITEMS</label>
+                <button onClick={addLine}
+                  style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid var(--border2)',background:'var(--surface2)',color:'var(--muted)',cursor:'pointer',fontWeight:600}}>
+                  + Add Item
+                </button>
+              </div>
+              <div style={{background:'var(--surface2)',borderRadius:10,border:'1px solid var(--border)',overflow:'hidden'}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 90px 60px 90px 80px 32px',gap:0,padding:'8px 12px',borderBottom:'1px solid var(--border)',background:'var(--surface3)'}}>
+                  {['DESCRIPTION','SKU','QTY','UNIT COST','TOTAL',''].map((h,i) => (
+                    <div key={i} style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',textAlign:i>=2?'right':'left',paddingRight:i<5?8:0}}>{h}</div>
+                  ))}
+                </div>
+                {lineItems.map((row, i) => {
+                  const total = (parseFloat(row.unit_cost)||0) * (parseInt(row.qty)||0);
+                  return (
+                    <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 90px 60px 90px 80px 32px',gap:0,padding:'6px 12px',borderBottom:i<lineItems.length-1?'1px solid var(--border)':'none',alignItems:'center'}}>
+                      <input value={row.description} onChange={e=>updateLineItem(i,'description',e.target.value)}
+                        placeholder="Description…" style={{background:'transparent',border:'none',fontSize:12,color:'var(--text)',padding:'4px 8px 4px 0',outline:'none',width:'100%'}}/>
+                      <input value={row.sku} onChange={e=>updateLineItem(i,'sku',e.target.value)}
+                        placeholder="SKU…" style={{background:'transparent',border:'none',fontSize:12,color:'var(--muted)',padding:'4px 8px',outline:'none',textAlign:'right',width:'100%'}}/>
+                      <input type="number" min="1" value={row.qty} onChange={e=>updateLineItem(i,'qty',e.target.value)}
+                        style={{background:'transparent',border:'none',fontSize:12,color:'var(--text)',padding:'4px 8px',outline:'none',textAlign:'right',width:'100%'}}/>
+                      <div style={{display:'flex',alignItems:'center',paddingRight:4}}>
+                        <span style={{fontSize:11,color:'var(--muted)',marginRight:2}}>$</span>
+                        <input type="number" min="0" step="0.01" value={row.unit_cost} onChange={e=>updateLineItem(i,'unit_cost',e.target.value)}
+                          placeholder="0.00" style={{background:'transparent',border:'none',fontSize:12,color:'var(--text)',padding:'4px 0',outline:'none',textAlign:'right',width:'100%'}}/>
+                      </div>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--text)',textAlign:'right',paddingRight:8}}>
+                        {total > 0 ? `$${total.toFixed(2)}` : '—'}
+                      </div>
+                      <button onClick={()=>removeLine(i)}
+                        style={{background:'none',border:'none',color:'var(--dim)',fontSize:16,cursor:'pointer',padding:'2px 4px',lineHeight:1,textAlign:'center'}}>×</button>
+                    </div>
+                  );
+                })}
+                <div style={{display:'flex',justifyContent:'flex-end',padding:'8px 12px',borderTop:'2px solid var(--border)',gap:16}}>
+                  <span style={{fontSize:12,color:'var(--muted)',fontWeight:600}}>TOTAL</span>
+                  <span style={{fontSize:14,fontWeight:800,color:'var(--text)',fontFamily:'var(--font-mono)',minWidth:80,textAlign:'right'}}>
+                    ${lineTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label style={lbl}>NOTES</label>
+              <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3}
+                placeholder="Special instructions, delivery address, contact info…"
+                style={{...inp, resize:'vertical', fontFamily:'inherit', lineHeight:1.6}}/>
+            </div>
+
+            {/* Submit */}
+            <div style={{display:'flex',gap:8,paddingBottom:8}}>
+              <button onClick={()=>{ resetForm(); setView('list'); }}
+                style={{flex:1,padding:'12px',borderRadius:9,border:'1px solid var(--border)',background:'var(--surface2)',color:'var(--muted)',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                Cancel
+              </button>
+              <button onClick={createPO} disabled={creating||!(vendor==='__custom__'?customVendor.trim():vendor)}
+                style={{flex:3,padding:'12px',borderRadius:9,border:'none',background:'var(--blue)',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',opacity:(creating||!(vendor==='__custom__'?customVendor.trim():vendor))?0.5:1}}>
+                {creating ? 'Creating PO…' : '✓ Create Purchase Order'}
+              </button>
+            </div>
+          </div>
+
+        ) : (
+          /* ── PO LIST ───────────────────────────────────────── */
+          <div style={{flex:1,overflowY:'auto',padding:'16px 24px',display:'flex',flexDirection:'column',gap:12}}>
+            {loading ? (
+              <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>
+            ) : pos.length === 0 ? (
+              <div style={{textAlign:'center',padding:48,color:'var(--muted)',fontSize:13}}>
+                <div style={{fontSize:40,marginBottom:12}}>📋</div>
+                No purchase orders yet.<br/>
+                <span style={{fontSize:12}}>Click "+ New PO" to create one.</span>
+              </div>
+            ) : pos.map(po => {
+              const sm = STATUS_META[po.status] || STATUS_META.draft;
+              const curIdx = STATUS_FLOW.indexOf(po.status);
+              const nextStatus = STATUS_FLOW[curIdx+1] || null;
+              const nextSm = nextStatus ? STATUS_META[nextStatus] : null;
+              const poTotal = (po.items||[]).reduce((s,i) => s + parseFloat(i.unit_cost||0)*parseInt(i.qty||1), 0);
+              return (
+                <div key={po.id} style={{background:'var(--surface)',borderRadius:12,border:'1px solid var(--border)',overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.06)'}}>
+
+                  {/* PO Header */}
+                  <div style={{display:'flex',alignItems:'flex-start',gap:12,padding:'14px 16px',borderBottom:'1px solid var(--border)',background:'var(--surface2)'}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                        <span style={{fontFamily:'var(--font-head)',fontSize:14,fontWeight:800}}>{po.po_type==='subcontractor'?'SC':'PO'}-{String(po.po_number).padStart(6,'0')}</span>
+                        <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:4,background:sm.bg,color:sm.color,border:`1px solid ${sm.color}44`}}>
+                          {sm.label}
+                        </span>
+                        {po.po_type !== 'subcontractor' && (
+                          <span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'var(--surface3)',border:'1px solid var(--border2)',color:'var(--muted)',fontWeight:600}}>
+                            {po.fulfillment_type === 'delivery' ? '🚚 Delivery' : '🏪 Pickup'}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{fontSize:13,fontWeight:700,color:'var(--text)',marginTop:4}}>{po.vendor||'—'}</div>
+                      <div style={{display:'flex',gap:14,marginTop:4}}>
+                        {po.date_needed && (
+                          <div style={{fontSize:11,color:'var(--muted)',display:'flex',alignItems:'center',gap:4}}>
+                            📅 Needed: <strong style={{color:'var(--text)'}}>{new Date(po.date_needed+'T12:00:00').toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'})}</strong>
+                          </div>
+                        )}
+                        <div style={{fontSize:11,color:'var(--dim)',fontFamily:'var(--font-mono)'}}>
+                          Created {new Date(po.created_at).toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'})}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      <div style={{fontSize:20,fontWeight:800,color:'var(--text)',fontFamily:'var(--font-mono)'}}>
+                        ${poTotal.toFixed(2)}
+                      </div>
+                      <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{po.items?.length||0} item{po.items?.length!==1?'s':''}</div>
+                    </div>
+                  </div>
+
+                  {/* Line items table */}
+                  {po.items && po.items.length > 0 && (
+                    <div style={{padding:'0 16px'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:'1px solid var(--border)'}}>
+                            <th style={{padding:'8px 4px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:600}}>DESCRIPTION</th>
+                            <th style={{padding:'8px 4px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:600}}>SKU</th>
+                            <th style={{padding:'8px 4px',textAlign:'right',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:600}}>QTY</th>
+                            <th style={{padding:'8px 4px',textAlign:'right',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:600}}>UNIT COST</th>
+                            <th style={{padding:'8px 4px',textAlign:'right',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:600}}>TOTAL</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {po.items.map((item,i) => (
+                            <tr key={item.id||i} style={{borderBottom:i<po.items.length-1?'1px solid var(--border)':'none'}}>
+                              <td style={{padding:'9px 4px',color:'var(--text)',fontWeight:500}}>{item.description}</td>
+                              <td style={{padding:'9px 4px',color:'var(--muted)',fontFamily:'var(--font-mono)',fontSize:11}}>{item.sku||'—'}</td>
+                              <td style={{padding:'9px 4px',textAlign:'right',color:'var(--text)'}}>{item.qty}</td>
+                              <td style={{padding:'9px 4px',textAlign:'right',color:'var(--muted)',fontFamily:'var(--font-mono)'}}>${parseFloat(item.unit_cost||0).toFixed(2)}</td>
+                              <td style={{padding:'9px 4px',textAlign:'right',fontWeight:700,color:'var(--text)',fontFamily:'var(--font-mono)'}}>${(parseFloat(item.unit_cost||0)*parseInt(item.qty||1)).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{borderTop:'2px solid var(--border2)'}}>
+                            <td colSpan={4} style={{padding:'10px 4px',fontSize:11,fontWeight:800,color:'var(--text)',fontFamily:'var(--font-mono)',letterSpacing:'.05em'}}>TOTAL</td>
+                            <td style={{padding:'10px 4px',textAlign:'right',fontSize:15,fontWeight:800,color:'var(--text)',fontFamily:'var(--font-mono)'}}>${poTotal.toFixed(2)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Notes */}
+                  {po.notes && (
+                    <div style={{margin:'0 16px 12px',padding:'8px 12px',background:'var(--surface2)',borderRadius:6,borderLeft:'3px solid var(--border2)',fontSize:12,color:'var(--muted)',lineHeight:1.6}}>
+                      {po.notes}
+                    </div>
+                  )}
+
+                  {/* Footer: advance status — subcontractor POs skip fulfillment flow */}
+                  {po.po_type !== 'subcontractor' && nextStatus && nextSm && (
+                    <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'flex-end'}}>
+                      <button onClick={()=>updateStatus(po, nextStatus)}
+                        style={{padding:'8px 18px',borderRadius:8,border:`1px solid ${nextSm.color}55`,background:nextSm.bg,color:nextSm.color,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                        Mark as {nextStatus.charAt(0).toUpperCase()+nextStatus.slice(1)} →
+                      </button>
+                    </div>
+                  )}
+                  {po.po_type === 'subcontractor' && po.status === 'draft' && (
+                    <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'flex-end'}}>
+                      <button onClick={()=>updateStatus(po, 'received')}
+                        style={{padding:'8px 18px',borderRadius:8,border:'1px solid #22c55e55',background:'#dcfce7',color:'#22c55e',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                        Mark as Completed →
+                      </button>
+                    </div>
+                  )}
+                  {po.status === 'received' && (
+                    <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'flex-end'}}>
+                      <span style={{fontSize:11,color:'#22c55e',fontWeight:700,display:'flex',alignItems:'center',gap:5}}>
+                        ✓ {po.po_type === 'subcontractor' ? 'Services completed' : 'All materials received'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DispatchJobModal({ job: initialJob, techs, onClose, onUpdated, onReturnTrip }) {
+  const [job, setJob] = useState(initialJob);
+  const today = new Date().toISOString().split('T')[0];
+  const [reschedule, setReschedule] = useState(() => {
+    const s = initialJob.scheduled_start ? new Date(initialJob.scheduled_start) : null;
+    const e = initialJob.scheduled_end   ? new Date(initialJob.scheduled_end)   : null;
+    return {
+      date:          s ? s.toISOString().split('T')[0]  : today,
+      start_time:    s ? s.toTimeString().slice(0,5)     : '09:00',
+      end_time:      e ? e.toTimeString().slice(0,5)     : '11:00',
+      tech_id:       initialJob.technician_id || '',
+      arrival_window: initialJob.arrival_window || '',
+    };
+  });
+  const [saving, setSaving]         = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [arrivalWindows, setArrivalWindows] = useState([]);
+  const [notesEdit, setNotesEdit]   = useState(initialJob.notes || '');
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [showPOModal, setShowPOModal] = useState(false);
+  const [dismissingAlert, setDismissingAlert] = useState(false);
+
+  useEffect(() => {
+    api.getArrivalWindows().then(w => setArrivalWindows(w || [])).catch(() => {});
+  }, []);
+
+  // Real-time sync: if the tech updates status or sends a dispatch alert from mobile,
+  // this open modal updates instantly without needing a refresh
+  useEffect(() => {
+    const ws = connectGpsWebSocket(msg => {
+      if (String(msg.job_id) !== String(initialJob.id)) return;
+      if (msg.type === 'job_status') {
+        setJob(prev => {
+          const updated = { ...prev, status: msg.status };
+          onUpdated(updated);
+          return updated;
+        });
+      }
+      if (msg.type === 'dispatch_alert') {
+        setJob(prev => {
+          const updated = { ...prev, dispatch_alert: msg.dispatch_alert || null };
+          onUpdated(updated);
+          return updated;
+        });
+      }
+    });
+    return () => ws?.close();
+  }, [initialJob.id]);
+
+  // When the parent re-renders with a new dispatch_alert (e.g. from activeAlerts sync),
+  // push the update into our local job state. Only ADD alerts here; clearing happens
+  // through the WS handler or the dismiss button explicitly.
+  useEffect(() => {
+    if (initialJob.dispatch_alert && initialJob.dispatch_alert !== job.dispatch_alert) {
+      setJob(prev => ({ ...prev, dispatch_alert: initialJob.dispatch_alert }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialJob.dispatch_alert]);
+
+  const SC = { on_site:'#e8a84a', en_route:'#4a9eff', completed:'#5daf7c', scheduled:'#a78bfa', unassigned:'#f56565', cancelled:'var(--dim)', ready_to_call:'#6366f1' };
+  const sc = SC[job.status] || 'var(--muted)';
+
+  const saveReschedule = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const newStart = new Date(`${reschedule.date}T${reschedule.start_time}:00`);
+      const newEnd   = new Date(`${reschedule.date}T${reschedule.end_time}:00`);
+      const techObj  = techs.find(t => t.id === reschedule.tech_id);
+      const updates  = {
+        scheduled_start:  newStart.toISOString(),
+        scheduled_end:    newEnd.toISOString(),
+        technician_id:    reschedule.tech_id || null,
+        arrival_window:   reschedule.arrival_window || null,
+        status: reschedule.tech_id ? (job.status === 'unassigned' ? 'scheduled' : job.status) : 'unassigned',
+      };
+      await api.updateJob(job.id, updates);
+      const merged = { ...job, ...updates,
+        technician_name:  techObj ? `${techObj.first_name} ${techObj.last_name}` : job.technician_name,
+        technician_color: techObj?.color || job.technician_color,
+      };
+      setJob(merged); onUpdated(merged);
+      setSavedFlash(true); setTimeout(() => setSavedFlash(false), 2500);
+    } catch(err) { console.error(err); } finally { setSaving(false); }
+  };
+
+  const updateStatus = async (s) => {
+    try {
+      await api.updateJob(job.id, { status: s });
+      const merged = { ...job, status: s };
+      setJob(merged); onUpdated(merged);
+    } catch(err) { console.error(err); }
+  };
+
+  const quickDate = (d) => {
+    const dt = new Date(today + 'T12:00:00');
+    dt.setDate(dt.getDate() + d);
+    setReschedule(r => ({ ...r, date: dt.toISOString().split('T')[0] }));
+  };
+
+  const saveNotes = async () => {
+    if (notesSaving) return;
+    setNotesSaving(true);
+    try {
+      await api.updateJob(job.id, { notes: notesEdit });
+      const merged = { ...job, notes: notesEdit };
+      setJob(merged); onUpdated(merged);
+      setNotesSaved(true); setTimeout(() => setNotesSaved(false), 2500);
+    } catch(err) { console.error(err); } finally { setNotesSaving(false); }
+  };
+
+  const cancelJob = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await api.updateJob(job.id, { status: 'cancelled' });
+      const merged = { ...job, status: 'cancelled' };
+      setJob(merged); onUpdated(merged);
+      setCancelConfirm(false);
+    } catch(err) { console.error(err); } finally { setCancelling(false); }
+  };
+
+  const startFmt = job.scheduled_start ? new Date(job.scheduled_start).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : null;
+  const endFmt   = job.scheduled_end   ? new Date(job.scheduled_end).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})   : null;
+  const dateFmt  = job.scheduled_start ? new Date(job.scheduled_start).toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'}) : null;
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+
+      {/* PO Modal — stacked above this modal */}
+      {showPOModal && (
+        <JobPOModal jobId={job.id} jobNumber={job.job_number} onClose={()=>setShowPOModal(false)}/>
+      )}
+
+      <div style={{background:'var(--surface)',borderRadius:16,width:820,maxWidth:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 24px 80px rgba(0,0,0,.5)',overflow:'hidden',animation:'fadeUp .2s ease'}}>
+
+        {/* Header */}
+        <div style={{padding:'16px 24px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12,flexShrink:0,background:'var(--surface)'}}>
+          <div style={{flex:1}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+              <span style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800}}>Job #{job.job_number||'—'}</span>
+              {job.visit_number > 1 && <span style={{fontSize:10,background:'#f9731622',border:'1px solid #f97316',borderRadius:4,padding:'2px 7px',color:'#f97316',fontWeight:700}}>VISIT {job.visit_number}</span>}
+              {job.project_id && <span style={{fontSize:10,background:'#6366f122',border:'1px solid #6366f1',borderRadius:4,padding:'2px 7px',color:'#6366f1',fontWeight:700}}>PROJECT</span>}
+              <span style={{fontSize:10,background:sc+'22',border:`1px solid ${sc}55`,borderRadius:4,padding:'2px 7px',color:sc,fontWeight:700,letterSpacing:'.05em'}}>{(job.status||'').replace('_',' ').toUpperCase()}</span>
+              {job.return_trip_needed && <span style={{fontSize:10,background:'#f9731622',border:'1px solid #f97316',borderRadius:4,padding:'2px 7px',color:'#f97316',fontWeight:700}}>↩ RTN</span>}
+              {job.dispatch_alert && <span style={{fontSize:10,background:'#f5656522',border:'1px solid #f56565',borderRadius:4,padding:'2px 7px',color:'#f56565',fontWeight:700,animation:'pulse2 1.5s infinite'}}>🚨 ALERT</span>}
+              {job.job_type === 'Follow Up Call' && <span style={{fontSize:10,background:'#6366f122',border:'1px solid #6366f1',borderRadius:4,padding:'2px 7px',color:'#6366f1',fontWeight:700}}>📞 FOLLOW UP</span>}
+            </div>
+            <div style={{fontSize:13,color:'var(--muted)',marginTop:3}}>{job.customer_name}</div>
+          </div>
+          <button onClick={()=>setShowPOModal(true)}
+            style={{display:'flex',alignItems:'center',gap:5,padding:'7px 14px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:8,color:'var(--amber)',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+            📋 Need PO
+          </button>
+          <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 14px',color:'var(--muted)',cursor:'pointer',fontSize:13,fontWeight:600}}>✕ Close</button>
+        </div>
+
+        {/* Two-column body */}
+        <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 320px',minHeight:0,overflow:'hidden'}}>
+
+          {/* LEFT — details */}
+          <div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:14,borderRight:'1px solid var(--border)',overflowY:'auto'}} className="scrollbar-thin">
+
+            {/* Scheduled */}
+            {dateFmt && (
+              <div style={{background:'var(--surface2)',borderRadius:10,padding:14}}>
+                <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:6}}>SCHEDULED</div>
+                <div style={{fontSize:15,fontWeight:700}}>{dateFmt}</div>
+                {startFmt && <div style={{fontSize:13,color:'var(--muted)',marginTop:2}}>{startFmt}{endFmt ? ` – ${endFmt}` : ''}</div>}
+                {job.arrival_window && <div style={{fontSize:11,color:'var(--muted)',marginTop:3}}>Window: {job.arrival_window}</div>}
+              </div>
+            )}
+
+            {/* Customer / job info */}
+            <div style={{background:'var(--surface2)',borderRadius:10,padding:14,display:'flex',flexDirection:'column',gap:7}}>
+              <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:2}}>JOB INFO</div>
+              {[
+                ['Phone',   job.customer_phone || '—'],
+                ['Address', job.address || '—'],
+                ['Type',    job.job_type || '—'],
+                ['Tech',    job.technician_name || 'Unassigned'],
+              ].map(([k,v]) => (
+                <div key={k} style={{display:'flex',justifyContent:'space-between',fontSize:12,gap:8}}>
+                  <span style={{color:'var(--muted)',minWidth:54,flexShrink:0}}>{k}</span>
+                  <span style={{color:'var(--text)',textAlign:'right',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v}</span>
+                </div>
+              ))}
+              {job.description && (
+                <div style={{marginTop:6,paddingTop:8,borderTop:'1px solid var(--border)',fontSize:12,color:'var(--muted)',lineHeight:1.6}}>
+                  {job.description.slice(0,300)}{job.description.length > 300 ? '…' : ''}
+                </div>
+              )}
+            </div>
+
+            {/* Timeline markers */}
+            {(job.en_route_at || job.on_site_at || job.completed_at) && (
+              <div>
+                <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:6}}>TIMELINE</div>
+                <div style={{background:'var(--surface2)',borderRadius:10,padding:12,display:'flex',flexDirection:'column',gap:8}}>
+                  {[
+                    {field:'en_route_at',  color:'#0891b2', label:'En Route'},
+                    {field:'on_site_at',   color:'#16a34a', label:'On Site'},
+                    {field:'completed_at', color:'#6366f1', label:'Completed'},
+                  ].filter(m => job[m.field]).map(m => (
+                    <div key={m.field} style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:8,height:8,borderRadius:'50%',background:m.color,flexShrink:0}}/>
+                      <span style={{fontSize:11,color:m.color,fontWeight:600,minWidth:76}}>{m.label}</span>
+                      <span style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)'}}>
+                        {new Date(job[m.field]).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── RETURN TRIP BANNER ── clickable to open scheduler */}
+            {job.return_trip_needed && (
+              <div onClick={() => onReturnTrip(job)}
+                style={{background:'#f9731611',border:'2px solid #f9731666',borderRadius:10,padding:16,display:'flex',alignItems:'center',gap:12,cursor:'pointer',transition:'background .15s'}}
+                onMouseEnter={e=>e.currentTarget.style.background='#f9731622'}
+                onMouseLeave={e=>e.currentTarget.style.background='#f9731611'}>
+                <span style={{fontSize:26}}>🔄</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:800,color:'#f97316'}}>Return Trip Needed</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>Click to schedule a follow-up appointment</div>
+                </div>
+                <div style={{fontSize:12,background:'#f97316',color:'#fff',borderRadius:8,padding:'8px 16px',fontWeight:700,flexShrink:0,boxShadow:'0 2px 8px #f9731644'}}>
+                  Schedule →
+                </div>
+              </div>
+            )}
+
+            {/* Notes — editable */}
+            <div style={{background:'var(--surface2)',borderRadius:8,padding:12,borderLeft:'3px solid var(--amber)'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.05em'}}>NOTES</div>
+                <button onClick={saveNotes} disabled={notesSaving || notesEdit === job.notes}
+                  style={{fontSize:10,padding:'3px 9px',borderRadius:5,border:`1px solid ${notesSaved?'var(--green)':'var(--amber)'}`,background:notesSaved?'var(--greendim)':'var(--amberdim)',color:notesSaved?'var(--green)':'var(--amber)',cursor:(notesSaving||notesEdit===job.notes)?'default':'pointer',fontWeight:600,opacity:(notesSaving||notesEdit===job.notes)?0.5:1,transition:'all .15s'}}>
+                  {notesSaved ? '✓ Saved' : notesSaving ? 'Saving…' : 'Save Notes'}
+                </button>
+              </div>
+              <textarea value={notesEdit} onChange={e => setNotesEdit(e.target.value)}
+                rows={4} placeholder="Add notes about this job…"
+                style={{width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:6,padding:'8px 10px',color:'var(--text)',fontSize:12,lineHeight:1.6,resize:'vertical',boxSizing:'border-box',fontFamily:'inherit'}}/>
+            </div>
+
+            {/* Estimate approved */}
+            {job.estimate_approved && (
+              <div style={{background:'#10b98111',border:'1.5px solid #10b98155',borderRadius:10,padding:14,display:'flex',alignItems:'center',gap:12}}>
+                <span style={{fontSize:22}}>✅</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:700,color:'#10b981'}}>Estimate Approved — Ready to Schedule</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>Customer signed the estimate. Book the follow-up appointment.</div>
+                </div>
+                <button onClick={() => onReturnTrip(job)}
+                  style={{fontSize:12,padding:'7px 14px',background:'#10b98122',border:'1.5px solid #10b981',borderRadius:8,color:'#10b981',cursor:'pointer',whiteSpace:'nowrap',fontWeight:700}}>
+                  📅 Schedule
+                </button>
+              </div>
+            )}
+
+            {/* Restock needed */}
+            {job.restock_needed && (
+              <div style={{background:'#f5656511',border:'1px solid #f5656544',borderRadius:8,padding:12,display:'flex',alignItems:'center',gap:10}}>
+                <span style={{fontSize:18}}>⚠</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:700,color:'#f56565'}}>Restock Needed</div>
+                  <div style={{fontSize:11,color:'var(--muted)'}}>Truck stock is low after this job</div>
+                </div>
+                <button onClick={async()=>{ await api.updateJob(job.id,{restock_needed:false}); const m={...job,restock_needed:false}; setJob(m); onUpdated(m); }}
+                  style={{fontSize:11,padding:'5px 10px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,color:'var(--muted)',cursor:'pointer',whiteSpace:'nowrap'}}>Mark Restocked</button>
+              </div>
+            )}
+
+            {/* ── DISPATCH ALERT BANNER — above Parts Used ── */}
+            {job.dispatch_alert && (
+              <div style={{background:'#f5656511',border:'2px solid #f56565',borderRadius:10,padding:14,display:'flex',alignItems:'flex-start',gap:12,animation:'glow 2s infinite'}}>
+                <span style={{fontSize:22,flexShrink:0}}>🚨</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,fontFamily:'var(--font-mono)',fontWeight:800,color:'#f56565',letterSpacing:'.06em',marginBottom:4}}>DISPATCH ALERT</div>
+                  <div style={{fontSize:13,color:'var(--text)',lineHeight:1.6}}>{job.dispatch_alert}</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (dismissingAlert) return;
+                    setDismissingAlert(true);
+                    try {
+                      await api.updateJob(job.id, { dispatch_alert: null });
+                      const m = { ...job, dispatch_alert: null };
+                      setJob(m); onUpdated(m);
+                    } catch(e) { console.error(e); }
+                    finally { setDismissingAlert(false); }
+                  }}
+                  disabled={dismissingAlert}
+                  style={{flexShrink:0,padding:'6px 12px',borderRadius:8,border:'1px solid #f5656544',background:'var(--surface)',color:'#f56565',fontSize:11,fontWeight:700,cursor:'pointer'}}>
+                  {dismissingAlert ? '…' : '✓ Dismiss'}
+                </button>
+              </div>
+            )}
+
+            <PartsUsedPanel job={job}/>
+            <JobPOsSummaryPanel jobId={job.id} onOpenPOModal={()=>setShowPOModal(true)}/>
+            {job.status === 'completed' && <ProfitabilityPanel jobId={job.id}/>}
+          </div>
+
+          {/* RIGHT — actions */}
+          <div style={{padding:'20px',display:'flex',flexDirection:'column',gap:16,overflowY:'auto'}} className="scrollbar-thin">
+
+            {/* Status */}
+            {window.innerWidth <= 768 ? (
+              /* ── MOBILE: forward-only progress flow ── */
+              (() => {
+                const isFollowUp = job.job_type === 'Follow Up Call';
+                const FLOW = isFollowUp
+                  ? ['scheduled','ready_to_call','completed']
+                  : ['scheduled','en_route','on_site','completed'];
+                const curIdx = FLOW.indexOf(job.status);
+                const nextStatus = FLOW[curIdx + 1] ?? null;
+                const labels = {scheduled:'Scheduled',en_route:'En Route',on_site:'On Site',completed: job.return_trip_needed ? 'Done for Now' : 'Completed',ready_to_call:'Ready to Call'};
+                const tsField = {en_route:'en_route_at',on_site:'on_site_at',completed:'completed_at'};
+                return (
+                  <div>
+                    <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:10}}>JOB STATUS</div>
+                    {/* Progress track */}
+                    <div style={{display:'flex',alignItems:'center',gap:0,marginBottom:16}}>
+                      {FLOW.map((s,i) => {
+                        const done = i <= curIdx;
+                        const c = SC[s] || '#94a3b8';
+                        const ts = tsField[s] ? job[tsField[s]] : null;
+                        return (
+                          <Fragment key={s}>
+                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,flex:1}}>
+                              <div style={{width:24,height:24,borderRadius:'50%',background:done?c:`${c}22`,border:`2px solid ${done?c:`${c}44`}`,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s'}}>
+                                {done && <div style={{width:9,height:9,borderRadius:'50%',background:'#fff'}}/>}
+                              </div>
+                              <div style={{fontSize:8,fontFamily:'var(--font-mono)',color:done?c:'var(--muted)',fontWeight:done?700:400,letterSpacing:'.04em',textAlign:'center',lineHeight:1.3}}>{labels[s].toUpperCase()}</div>
+                              {ts && <div style={{fontSize:8,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</div>}
+                            </div>
+                            {i < FLOW.length-1 && (
+                              <div style={{flex:1,height:2,background:i<curIdx?SC[FLOW[i+1]]||'#94a3b8':'var(--border)',marginBottom:20,transition:'background .3s'}}/>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </div>
+                    {nextStatus && (
+                      <button onClick={() => updateStatus(nextStatus)}
+                        style={{width:'100%',padding:'13px',background:`${SC[nextStatus]}22`,border:`1.5px solid ${SC[nextStatus]}`,borderRadius:10,color:SC[nextStatus],fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,transition:'all .15s'}}
+                        onMouseEnter={e=>{e.currentTarget.style.background=`${SC[nextStatus]}38`;}}
+                        onMouseLeave={e=>{e.currentTarget.style.background=`${SC[nextStatus]}22`;}}>
+                        <div style={{width:8,height:8,borderRadius:'50%',background:SC[nextStatus]}}/>
+                        Mark as {labels[nextStatus]}
+                      </button>
+                    )}
+                    {job.status === 'on_site' && job.return_trip_needed && (
+                      <button onClick={() => updateStatus('completed')}
+                        style={{width:'100%',marginTop:6,padding:'11px',background:'#f9731622',border:'1.5px solid #f97316',borderRadius:10,color:'#f97316',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+                        ↩ Complete + Return Trip Needed
+                      </button>
+                    )}
+                    {job.status === 'completed' && (
+                      <div style={{marginTop:8,padding:'10px',background:'var(--greendim)',border:'1px solid var(--green)44',borderRadius:8,fontSize:12,color:'var(--green)',fontWeight:600,textAlign:'center'}}>
+                        ✓ Job complete
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            ) : (
+              /* ── DESKTOP: free selection, office staff can move any direction ── */
+              (() => {
+                const isFollowUp = job.job_type === 'Follow Up Call';
+                const statusList = isFollowUp
+                  ? ['scheduled','ready_to_call','completed']
+                  : ['scheduled','en_route','on_site','completed'];
+                const cols = isFollowUp ? '1fr 1fr 1fr' : '1fr 1fr';
+                return (
+                  <div>
+                    <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:8}}>UPDATE STATUS</div>
+                    <div style={{display:'grid',gridTemplateColumns:cols,gap:6}}>
+                      {statusList.map(s => {
+                        const c = SC[s] || 'var(--muted)';
+                        const active = job.status === s;
+                        const isDoneForNow = s === 'completed' && job.return_trip_needed;
+                        const label = isDoneForNow ? '🔄 DONE FOR NOW' : s.replace(/_/g,' ').toUpperCase();
+                        return (
+                          <button key={s} onClick={() => updateStatus(s)}
+                            style={{padding:'9px 6px',background:active?`${c}22`:'var(--surface2)',border:`1.5px solid ${active?c:c+'33'}`,borderRadius:8,color:active?c:'var(--muted)',fontSize:10,fontWeight:active?700:400,cursor:'pointer',display:'flex',alignItems:'center',gap:5,transition:'all .15s'}}>
+                            <div style={{width:6,height:6,borderRadius:'50%',background:active?c:c+'66',flexShrink:0}}/>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()
+            )}
+
+            {/* Reschedule */}
+            <div>
+              <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:8}}>RESCHEDULE</div>
+              <div style={{display:'flex',gap:5,flexWrap:'wrap',marginBottom:10}}>
+                {[['Today',0],['Tomorrow',1],['+2d',2],['Next Wk',7]].map(([lbl,d]) => {
+                  const dt = new Date(today+'T12:00:00'); dt.setDate(dt.getDate()+d);
+                  const target = dt.toISOString().split('T')[0];
+                  const active = reschedule.date === target;
+                  return (
+                    <button key={lbl} onClick={() => quickDate(d)}
+                      style={{padding:'4px 9px',borderRadius:6,fontSize:10,fontWeight:active?700:400,cursor:'pointer',border:`1px solid ${active?'var(--amber)':'var(--border)'}`,background:active?'var(--amberdim)':'var(--surface2)',color:active?'var(--amber)':'var(--muted)'}}>
+                      {lbl}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <div>
+                  <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>DATE</label>
+                  <input type="date" value={reschedule.date} onChange={e=>setReschedule(r=>({...r,date:e.target.value}))}
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'8px 10px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}/>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+                  {[['START','start_time'],['END','end_time']].map(([lbl,key]) => (
+                    <div key={key}>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>{lbl}</label>
+                      <input type="time" value={reschedule[key]} onChange={e=>setReschedule(r=>({...r,[key]:e.target.value}))}
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'8px 6px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}/>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>TECHNICIAN</label>
+                  <select value={reschedule.tech_id} onChange={e=>setReschedule(r=>({...r,tech_id:e.target.value}))}
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'8px 10px',color:reschedule.tech_id?'var(--text)':'var(--muted)',fontSize:12,boxSizing:'border-box'}}>
+                    <option value="">— Unassigned —</option>
+                    {techs.map(t => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
+                  </select>
+                </div>
+                {arrivalWindows.length > 0 && (
+                  <div>
+                    <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3,letterSpacing:'.05em'}}>ARRIVAL WINDOW</label>
+                    <select value={reschedule.arrival_window} onChange={e=>setReschedule(r=>({...r,arrival_window:e.target.value}))}
+                      style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'8px 10px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}>
+                      <option value="">— No window —</option>
+                      {arrivalWindows.map(w => <option key={w} value={w}>{w}</option>)}
+                    </select>
+                  </div>
+                )}
+                <button onClick={saveReschedule} disabled={saving}
+                  style={{width:'100%',padding:'11px',borderRadius:9,border:'none',fontWeight:700,fontSize:13,cursor:saving?'not-allowed':'pointer',marginTop:4,
+                    background:savedFlash?'var(--greendim)':saving?'var(--surface2)':'var(--green)',
+                    color:savedFlash?'var(--green)':saving?'var(--muted)':'#fff'}}>
+                  {savedFlash ? '✓ Saved!' : saving ? 'Saving…' : 'Save Changes'}
+                </button>
+                {reschedule.date !== initialJob.scheduled_start?.slice(0,10) && reschedule.date && (
+                  <div style={{fontSize:10,color:'var(--muted)',textAlign:'center',fontFamily:'var(--font-mono)'}}>
+                    Job will move off today's board after saving
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Cancel Call */}
+            {job.status !== 'cancelled' && job.status !== 'completed' && (
+              <div style={{marginTop:'auto',paddingTop:8,borderTop:'1px solid var(--border)'}}>
+                {cancelConfirm ? (
+                  <div style={{background:'#f5656511',border:'1px solid #f5656544',borderRadius:10,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+                    <div style={{fontSize:12,fontWeight:700,color:'#f56565'}}>Cancel this job?</div>
+                    <div style={{fontSize:11,color:'var(--muted)',lineHeight:1.5}}>This cannot be undone. The job will be marked cancelled and removed from the active board.</div>
+                    <div style={{display:'flex',gap:8}}>
+                      <button onClick={() => setCancelConfirm(false)}
+                        style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface2)',color:'var(--muted)',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                        Keep Job
+                      </button>
+                      <button onClick={cancelJob} disabled={cancelling}
+                        style={{flex:1,padding:'9px',borderRadius:8,border:'none',background:'#f56565',color:'#fff',fontSize:12,fontWeight:700,cursor:cancelling?'not-allowed':'pointer',opacity:cancelling?0.7:1}}>
+                        {cancelling ? 'Cancelling…' : 'Yes, Cancel'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setCancelConfirm(true)}
+                    style={{width:'100%',padding:'10px',borderRadius:9,border:'1px solid #f5656544',background:'#f5656508',color:'#f56565',fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background='#f5656518';e.currentTarget.style.borderColor='#f5656588';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background='#f5656508';e.currentTarget.style.borderColor='#f5656544';}}>
+                    ✕ Cancel This Call
+                  </button>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RETURN TRIP SCHEDULER MODAL ──────────────────────────────
+function ReturnTripSchedulerModal({ parentJob, techs, onClose, onCreated }) {
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })();
+  const [form, setForm] = useState({
+    date:           tomorrow,
+    start_time:     '09:00',
+    end_time:       '11:00',
+    tech_id:        parentJob.technician_id || '',
+    arrival_window: '',
+    notes:          '',
+  });
+  const [arrivalWindows, setArrivalWindows] = useState([]);
+  const [saving, setSaving]   = useState(false);
+  const [created, setCreated] = useState(false);
+
+  useEffect(() => {
+    api.getArrivalWindows().then(w => setArrivalWindows(w || [])).catch(() => {});
+  }, []);
+
+  const handleSubmit = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api.createReturnTrip(parentJob.id, {
+        scheduled_start: new Date(`${form.date}T${form.start_time}:00`).toISOString(),
+        scheduled_end:   new Date(`${form.date}T${form.end_time}:00`).toISOString(),
+        technician_id:   form.tech_id   || null,
+        arrival_window:  form.arrival_window || null,
+        notes:           form.notes     || null,
+      });
+      // Auto-dismiss the estimate_approved alert — the appointment was just scheduled
+      if (parentJob.estimate_approved) {
+        await api.updateJob(parentJob.id, { estimate_approved: false });
+      }
+      setCreated(true);
+      setTimeout(() => onCreated(), 1400);
+    } catch(err) { console.error(err); setSaving(false); }
+  };
+
+  return (
+    <div onClick={e=>{ if (e.target===e.currentTarget) onClose(); }}
+      style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.72)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'var(--surface)',borderRadius:16,width:500,maxWidth:'100%',maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 28px 90px rgba(0,0,0,.55)',overflow:'hidden',animation:'fadeUp .2s ease'}}>
+
+        {/* Header */}
+        <div style={{padding:'18px 24px',borderBottom:'1px solid var(--border)',background:'#f9731610',flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <span style={{fontSize:26}}>🔄</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:'var(--font-head)',fontSize:17,fontWeight:800,color:'#f97316'}}>Schedule Return Trip</div>
+              <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>Job #{parentJob.job_number} · {parentJob.customer_name}</div>
+            </div>
+            <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'5px 11px',color:'var(--muted)',cursor:'pointer',fontSize:12}}>✕</button>
+          </div>
+        </div>
+
+        {/* Body */}
+        {created ? (
+          <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:48,gap:14}}>
+            <div style={{fontSize:48}}>✅</div>
+            <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800,color:'var(--text)'}}>Return Trip Scheduled!</div>
+            <div style={{fontSize:13,color:'var(--muted)',textAlign:'center',maxWidth:280}}>The follow-up appointment has been added to the dispatch board.</div>
+          </div>
+        ) : (
+          <div style={{flex:1,overflowY:'auto',padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}} className="scrollbar-thin">
+
+            {/* Parent job context card */}
+            <div style={{background:'#f9731608',border:'1px solid #f9731633',borderRadius:10,padding:14}}>
+              <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'#f97316',marginBottom:5,letterSpacing:'.06em'}}>FOLLOW-UP FOR</div>
+              <div style={{fontSize:14,fontWeight:700,color:'var(--text)'}}>{parentJob.job_type || 'Service Call'} · {parentJob.customer_name}</div>
+              {parentJob.address && <div style={{fontSize:12,color:'var(--muted)',marginTop:3}}>{parentJob.address}</div>}
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:3,fontFamily:'var(--font-mono)'}}>Job #{parentJob.job_number} → Visit {(parentJob.visit_number||1)+1}</div>
+            </div>
+
+            {/* Date */}
+            <div>
+              <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>DATE</label>
+              <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}
+                style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'10px 12px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+            </div>
+
+            {/* Times */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {[['START TIME','start_time'],['END TIME','end_time']].map(([lbl,key]) => (
+                <div key={key}>
+                  <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>{lbl}</label>
+                  <input type="time" value={form[key]} onChange={e=>setForm(f=>({...f,[key]:e.target.value}))}
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'10px 10px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+                </div>
+              ))}
+            </div>
+
+            {/* Technician */}
+            <div>
+              <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>TECHNICIAN</label>
+              <select value={form.tech_id} onChange={e=>setForm(f=>({...f,tech_id:e.target.value}))}
+                style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'10px 12px',color:form.tech_id?'var(--text)':'var(--muted)',fontSize:13,boxSizing:'border-box'}}>
+                <option value="">— Unassigned —</option>
+                {techs.map(t => <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}
+              </select>
+            </div>
+
+            {/* Arrival window */}
+            {arrivalWindows.length > 0 && (
+              <div>
+                <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>ARRIVAL WINDOW</label>
+                <select value={form.arrival_window} onChange={e=>setForm(f=>({...f,arrival_window:e.target.value}))}
+                  style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'10px 12px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}>
+                  <option value="">— No window —</option>
+                  {arrivalWindows.map(w => <option key={w} value={w}>{w}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Notes */}
+            <div>
+              <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>NOTES (OPTIONAL)</label>
+              <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}
+                placeholder="What needs to be done on the return visit?"
+                rows={3}
+                style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',fontFamily:'var(--font-body)'}}/>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        {!created && (
+          <div style={{padding:'16px 24px',borderTop:'1px solid var(--border)',display:'flex',gap:10,flexShrink:0}}>
+            <button onClick={onClose} style={{flex:1,padding:'11px',border:'1px solid var(--border)',borderRadius:9,background:'var(--surface2)',color:'var(--muted)',cursor:'pointer',fontSize:13,fontWeight:500}}>
+              Cancel
+            </button>
+            <button onClick={handleSubmit} disabled={saving}
+              style={{flex:2,padding:'11px',border:'none',borderRadius:9,background:saving?'var(--surface2)':'#f97316',color:saving?'var(--muted)':'#fff',cursor:saving?'not-allowed':'pointer',fontSize:13,fontWeight:700,boxShadow:saving?'none':'0 2px 8px #f9731644'}}>
+              {saving ? 'Scheduling…' : '🔄 Schedule Return Trip'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── NEW JOB MODAL (Dispatch) — full booking screen replica ───
+function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
+  // Customer lookup state
+  const [rawSearch, setRawSearch]     = useState('');
+  const [lookup, setLookup]           = useState(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [newCust, setNewCust]         = useState(null);
+  const [custSaved, setCustSaved]     = useState(null);
+  const activeCustomer = custSaved || lookup?.customer || null;
+
+  // Booking form state
+  const [callMode, setCallMode]       = useState('service');
+  const [issue, setIssue]             = useState('');
+  const [followUpNotes, setFollowUpNotes] = useState('');
+  const [jobNotes, setJobNotes]       = useState('');
+  const [selections, setSelections]   = useState({});
+  const [textAnswers, setTextAnswers] = useState({});
+  const [jobType, setJobType]         = useState('');
+  const [jobTypesList, setJobTypesList] = useState([]);
+  const [arrivalWin, setArrivalWin]   = useState('');
+  const [arrivalWindows, setArrivalWindows] = useState([]);
+  const [jobDate, setJobDate]         = useState(defaultDate || new Date().toISOString().split('T')[0]);
+  const [questions, setQuestions]     = useState([]);
+  const [jobDone, setJobDone]         = useState(null);
+  const [jobCreating, setJobCreating] = useState(false);
+
+  const searchTimer = useRef(null);
+
+  useEffect(() => {
+    api.getJobTypes().then(setJobTypesList).catch(()=>{});
+    api.getArrivalWindows().then(w=>setArrivalWindows(w||[])).catch(()=>{});
+    api.getPhoneSettings().then(s=>setQuestions(s?.questionnaire||[])).catch(()=>{});
+  }, []);
+
+  // Debounced lookup — phone number → phoneLookup, name → customer search
+  useEffect(() => {
+    const q = rawSearch.trim();
+    if (q.length < 2) { setLookup(null); setNewCust(null); setCustSaved(null); return; }
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(async () => {
+      setLookupLoading(true);
+      try {
+        const digits = q.replace(/\D/g,'');
+        if (digits.length >= 10) {
+          // phone lookup — returns {customer, jobs, ...}
+          const data = await api.phoneLookup(q);
+          setLookup(data);
+          if (!data.customer) setNewCust({first_name:'',last_name:'',phone:q,email:'',street:'',city:'',state:'TX',zip:'',marketing_src:''});
+        } else {
+          // name search
+          const res = await api.getCustomers({ q });
+          const list = Array.isArray(res) ? res : (res?.customers || []);
+          setLookup({ results: list, customer: list.length === 1 ? list[0] : null });
+          if (list.length === 1) setLookup({ customer: list[0], jobs: [] });
+        }
+      } catch { setLookup(null); }
+      finally { setLookupLoading(false); }
+    }, 320);
+    return () => clearTimeout(searchTimer.current);
+  }, [rawSearch]);
+
+  const saveNewCustomer = async () => {
+    try {
+      const payload = {
+        first_name: newCust.first_name,
+        last_name:  newCust.last_name,
+        phone:      newCust.phone,
+        email:      newCust.email,
+        marketing_src: newCust.marketing_src || null,
+      };
+      if (newCust.street) {
+        payload.address = {
+          street: newCust.street, city: newCust.city, state: newCust.state, zip: newCust.zip,
+          lat: newCust.lat, lng: newCust.lng,
+        };
+      }
+      const c = await api.createCustomer(payload);
+      setCustSaved(c); setNewCust(null);
+    } catch(e) { toast.error('Error', e.message); }
+  };
+
+  const createJob = async () => {
+    if (!activeCustomer) return;
+    setJobCreating(true);
+    try {
+      const isFollowUp = callMode === 'followup';
+      let desc = '';
+      if (isFollowUp) {
+        const parts = ['CALL TYPE: Follow Up Call'];
+        if (followUpNotes.trim()) parts.push(`PURPOSE: ${followUpNotes.trim()}`);
+        if (jobNotes.trim()) parts.push(`NOTES: ${jobNotes.trim()}`);
+        desc = parts.join('\n\n');
+      } else {
+        const qAnswers = buildTreeDescription(questions, selections, textAnswers, '');
+        const parts = [];
+        if (issue.trim()) parts.push(`ISSUE: ${issue.trim()}`);
+        if (qAnswers.trim()) parts.push(qAnswers.trim());
+        if (jobNotes.trim()) parts.push(`NOTES: ${jobNotes.trim()}`);
+        desc = parts.join('\n\n');
+      }
+      const addrId = activeCustomer.addresses?.[0]?.id || null;
+      const job = await api.createJob({
+        customer_id:     activeCustomer.id,
+        address_id:      addrId,
+        job_type:        isFollowUp ? 'Follow Up Call' : (jobType || 'Service Call'),
+        description:     desc,
+        arrival_window:  isFollowUp ? null : (arrivalWin || null),
+        scheduled_start: jobDate ? jobDate + 'T00:00:00' : null,
+        source:          'dispatch',
+        status:          'unassigned',
+      });
+      setJobDone(job);
+      onCreated(job);
+    } catch(e) { toast.error('Job Error', e.message); }
+    finally { setJobCreating(false); }
+  };
+
+  const custName = activeCustomer
+    ? (activeCustomer.business_name && activeCustomer.customer_type==='commercial'
+        ? activeCustomer.business_name
+        : `${activeCustomer.first_name} ${activeCustomer.last_name}`)
+    : '';
+
+  // Name search results list (when not a phone lookup)
+  const nameResults = lookup?.results || [];
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div style={{background:'var(--bg)',borderRadius:16,width:'100%',maxWidth:960,height:'88vh',display:'flex',flexDirection:'column',boxShadow:'0 28px 80px rgba(0,0,0,.4)',animation:'fadeUp .2s ease',overflow:'hidden'}}>
+
+        {/* Header */}
+        <div style={{padding:'14px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12,flexShrink:0,background:'var(--surface)'}}>
+          <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800,flex:1}}>📋 New Job</div>
+          <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 14px',color:'var(--muted)',fontSize:12,fontWeight:600,cursor:'pointer'}}>✕ Close</button>
+        </div>
+
+        {/* Two-column body */}
+        <div style={{flex:1,display:'flex',gap:0,minHeight:0,overflow:'hidden'}}>
+
+          {/* LEFT — customer lookup */}
+          <div style={{flex:'0 0 48%',borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:10,overflowY:'auto',padding:16}} className="scrollbar-thin">
+
+            {/* Search input */}
+            <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:14}}>
+              <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',marginBottom:6,letterSpacing:'.06em'}}>SEARCH CUSTOMER {lookupLoading&&'· Searching…'}</div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input value={rawSearch} onChange={e=>setRawSearch(e.target.value)}
+                  placeholder="Name, phone, or address…" autoFocus
+                  style={{flex:1,background:'var(--surface2)',border:'2px solid var(--border2)',borderRadius:10,padding:'9px 13px',color:'var(--text)',fontSize:15,fontFamily:'var(--font-mono)',letterSpacing:'.02em'}}/>
+                {lookupLoading && <Spinner/>}
+              </div>
+              {rawSearch.length > 0 && rawSearch.length < 2 && (
+                <div style={{fontSize:10,color:'var(--muted)',marginTop:5}}>Type at least 2 characters to search…</div>
+              )}
+            </div>
+
+            {/* Name search results list */}
+            {nameResults.length > 1 && !activeCustomer && (
+              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+                <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',padding:'8px 14px',letterSpacing:'.06em',borderBottom:'1px solid var(--border)'}}>SELECT CUSTOMER</div>
+                {nameResults.map(c=>(
+                  <div key={c.id}
+                    onClick={()=>{ setLookup({customer:c, jobs:[]}); }}
+                    style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',transition:'background .1s'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <div style={{fontSize:20}}>{c.customer_type==='commercial'?'🏢':'👤'}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700}}>{c.customer_type==='commercial'&&c.business_name?c.business_name:`${c.first_name} ${c.last_name}`}</div>
+                      {c.phone&&<div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{formatPhone(c.phone)}</div>}
+                      {c.addresses?.[0]&&<div style={{fontSize:11,color:'var(--muted)'}}>{c.addresses[0].street}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Customer found card */}
+            {activeCustomer && (
+              <div style={{background:'var(--surface)',border:'1px solid #5daf7c44',borderRadius:12,overflow:'hidden'}}>
+                <div style={{background:'#5daf7c12',borderBottom:'1px solid #5daf7c33',padding:'12px 16px',display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{width:42,height:42,borderRadius:'50%',background:'#5daf7c22',border:'2px solid #5daf7c44',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>
+                    {activeCustomer.customer_type==='commercial'?'🏢':'👤'}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,color:'#5daf7c'}}>{custName}</div>
+                    <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{activeCustomer.phone&&formatPhone(activeCustomer.phone)}</div>
+                  </div>
+                  <button onClick={()=>{setLookup(null);setNewCust(null);setCustSaved(null);setRawSearch('');}}
+                    style={{fontSize:11,padding:'3px 8px',background:'transparent',border:'1px solid var(--border)',borderRadius:6,color:'var(--muted)',cursor:'pointer'}}>✕ Change</button>
+                </div>
+                <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:8}}>
+                  {activeCustomer.addresses?.[0]&&(
+                    <div>
+                      <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:2}}>ADDRESS</div>
+                      <div style={{fontSize:12,color:'var(--text)'}}>{activeCustomer.addresses[0].street}</div>
+                      <div style={{fontSize:11,color:'var(--muted)'}}>{activeCustomer.addresses[0].city}{activeCustomer.addresses[0].state?`, ${activeCustomer.addresses[0].state}`:''}</div>
+                    </div>
+                  )}
+                  {(activeCustomer.job_count > 0 || lookup?.jobs?.length > 0) && (
+                    <div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>
+                      {activeCustomer.job_count||lookup?.jobs?.length||0} previous job{(activeCustomer.job_count||0)!==1?'s':''}
+                    </div>
+                  )}
+                  {lookup?.jobs?.length > 0 && (
+                    <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:4}}>
+                      {lookup.jobs.slice(0,4).map(j=>(
+                        <div key={j.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',background:'var(--surface2)',borderRadius:7,fontSize:11}}>
+                          <span style={{fontFamily:'var(--font-mono)',color:'var(--muted)',flexShrink:0}}>#{j.job_number}</span>
+                          <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{j.job_type||'Job'}</span>
+                          <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:j.status==='completed'?'#5daf7c22':'#4a9eff22',color:j.status==='completed'?'#5daf7c':'#4a9eff'}}>{j.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* New customer form */}
+            {lookup&&!lookup.customer&&newCust&&!custSaved&&(
+              <div style={{background:'var(--surface)',border:'1px solid #e8a84a44',borderRadius:12,padding:16}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+                  <div style={{width:36,height:36,borderRadius:'50%',background:'#e8a84a22',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17}}>🆕</div>
+                  <div><div style={{fontSize:14,fontWeight:800,color:'#e8a84a'}}>New Customer</div><div style={{fontSize:11,color:'var(--muted)'}}>Not on file</div></div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                  {[['first_name','First *'],['last_name','Last *'],['phone','Phone'],['email','Email']].map(([k,l])=>(
+                    <div key={k}>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:3}}>{l}</label>
+                      <input value={newCust[k]} onChange={e=>setNewCust(c=>({...c,[k]:e.target.value}))}
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:8}}>
+                  <AddressAutocomplete
+                    value={newCust.street}
+                    onChange={v => setNewCust(c => ({...c, street:v}))}
+                    onSelect={addr => setNewCust(c => ({...c,
+                      street: addr.street || c.street,
+                      city:   addr.city   || c.city,
+                      state:  addr.state  || c.state,
+                      zip:    addr.zip    || c.zip,
+                      lat:    addr.lat,
+                      lng:    addr.lng,
+                    }))}
+                    placeholder="Start typing address…"
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12,boxSizing:'border-box'}}
+                  />
+                  <input value={newCust.city} onChange={e=>setNewCust(c=>({...c,city:e.target.value}))} placeholder="City"
+                    style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                </div>
+                {(newCust.state || newCust.zip) && (
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10}}>
+                    <input value={newCust.state || ''} onChange={e=>setNewCust(c=>({...c,state:e.target.value}))} placeholder="State"
+                      style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                    <input value={newCust.zip || ''} onChange={e=>setNewCust(c=>({...c,zip:e.target.value}))} placeholder="ZIP"
+                      style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'6px 9px',color:'var(--text)',fontSize:12}}/>
+                  </div>
+                )}
+                <button onClick={saveNewCustomer} disabled={!newCust.first_name||!newCust.last_name}
+                  style={{background:'#e8a84a22',border:'1px solid #e8a84a',borderRadius:8,padding:'7px 18px',color:'#e8a84a',fontSize:13,fontWeight:600,cursor:'pointer',opacity:(!newCust.first_name||!newCust.last_name)?0.5:1}}>
+                  Save Customer →
+                </button>
+              </div>
+            )}
+
+            {rawSearch.length >= 2 && !lookupLoading && !lookup && (
+              <div style={{fontSize:12,color:'var(--muted)',textAlign:'center',padding:16}}>No customers found for "{rawSearch}"</div>
+            )}
+          </div>
+
+          {/* RIGHT — booking form */}
+          <div style={{flex:1,display:'flex',flexDirection:'column',background:'var(--surface)',minWidth:0}}>
+
+            {/* Customer bar */}
+            {activeCustomer && !jobDone && (
+              <div style={{background:'#5daf7c0d',borderBottom:'1px solid #5daf7c22',padding:'9px 16px',display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+                <div style={{width:30,height:30,borderRadius:'50%',background:'#5daf7c22',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>
+                  {activeCustomer.customer_type==='commercial'?'🏢':'👤'}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:'#5daf7c',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{custName}</div>
+                  {activeCustomer.phone&&<div style={{fontSize:11,color:'var(--muted)'}}>{formatPhone(activeCustomer.phone)}</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Call type toggle */}
+            {!jobDone && (
+              <div style={{display:'flex',gap:0,background:'var(--surface2)',borderRadius:10,padding:4,margin:'12px 16px 0',flexShrink:0,border:'1px solid var(--border)'}}>
+                {[['service','🔧 Service Call'],['followup','📞 Follow Up Call']].map(([mode,label])=>(
+                  <button key={mode} onClick={()=>setCallMode(mode)}
+                    style={{flex:1,padding:'8px 10px',borderRadius:7,border:'none',cursor:'pointer',fontSize:12,fontWeight:callMode===mode?700:500,transition:'all .15s',
+                      background:callMode===mode?(mode==='followup'?'#6366f1':'var(--green)'):'transparent',
+                      color:callMode===mode?'#fff':'var(--muted)'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div style={{flex:1,overflowY:'auto',padding:'14px 16px',display:'flex',flexDirection:'column',gap:14}} className="scrollbar-thin">
+
+              {/* Job created */}
+              {jobDone && (
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flex:1,textAlign:'center',gap:12}}>
+                  <div style={{fontSize:48}}>✅</div>
+                  <div style={{fontWeight:700,fontSize:18,color:'#5daf7c'}}>Job #{jobDone.job_number} Created!</div>
+                  <div style={{fontSize:13,color:'var(--muted)'}}>Added to the dispatch board.</div>
+                  <button onClick={onClose} style={{background:'#5daf7c22',border:'1px solid #5daf7c',borderRadius:10,padding:'10px 28px',color:'#5daf7c',fontSize:14,fontWeight:700,cursor:'pointer',marginTop:8}}>Done</button>
+                </div>
+              )}
+
+              {!jobDone && callMode === 'followup' && (
+                <>
+                  <div style={{background:'#6366f111',border:'1px solid #6366f133',borderRadius:10,padding:14}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                      <span style={{fontSize:18}}>📞</span>
+                      <div style={{fontSize:13,fontWeight:700,color:'#6366f1'}}>Follow Up Call</div>
+                    </div>
+                    <div style={{fontSize:11,color:'var(--muted)'}}>Phone call to follow up on an estimate. No invoices will be created.</div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'#6366f1',letterSpacing:'.07em',display:'block',marginBottom:6,fontWeight:600}}>PURPOSE OF CALL</label>
+                    <textarea value={followUpNotes} onChange={e=>setFollowUpNotes(e.target.value)} rows={3}
+                      placeholder="e.g. Following up on Estimate #142 for water heater replacement…"
+                      style={{width:'100%',background:'var(--surface2)',border:'2px solid #6366f133',borderRadius:9,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',lineHeight:1.5}}
+                      onFocus={e=>e.target.style.borderColor='#6366f1'}
+                      onBlur={e=>e.target.style.borderColor='#6366f133'}/>
+                  </div>
+                  <div style={{borderTop:'1px solid var(--border)',paddingTop:14}}>
+                    <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:10}}>SCHEDULE</div>
+                    <div style={{marginBottom:10}}>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>DATE</label>
+                      <input type="date" value={jobDate} onChange={e=>setJobDate(e.target.value)}
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+                    </div>
+                    <div>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>ADDITIONAL NOTES</label>
+                      <textarea value={jobNotes} onChange={e=>setJobNotes(e.target.value)} rows={2}
+                        placeholder="Notes for the tech making the call…"
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:12,resize:'vertical',boxSizing:'border-box'}}/>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {!jobDone && callMode === 'service' && (
+                <>
+                  <div>
+                    <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.07em',display:'block',marginBottom:6,fontWeight:600}}>ISSUE — WHAT IS THE CUSTOMER REPORTING?</label>
+                    <textarea value={issue} onChange={e=>setIssue(e.target.value)} rows={3}
+                      placeholder="Describe the problem in the customer's words…"
+                      style={{width:'100%',background:'var(--surface2)',border:'2px solid var(--amberdim)',borderRadius:9,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',lineHeight:1.5}}
+                      onFocus={e=>e.target.style.borderColor='var(--amber)'}
+                      onBlur={e=>e.target.style.borderColor='var(--amberdim)'}/>
+                  </div>
+
+                  {questions.length > 0 && (
+                    <div>
+                      <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+                        QUESTIONNAIRE
+                        {Object.keys(selections).length>0&&<span style={{fontSize:9,background:'#5daf7c22',color:'#5daf7c',borderRadius:3,padding:'1px 6px',border:'1px solid #5daf7c33'}}>{Object.keys(selections).length} answered</span>}
+                      </div>
+                      <BranchRenderer questions={questions} selections={selections} textAnswers={textAnswers}
+                        onBranch={(qid,oid)=>setSelections(s=>({...s,[qid]:oid}))}
+                        onText={(qid,v)=>setTextAnswers(a=>({...a,[qid]:v}))}/>
+                    </div>
+                  )}
+
+                  <div style={{borderTop:'1px solid var(--border)',paddingTop:14}}>
+                    <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',marginBottom:10}}>JOB DETAILS</div>
+
+                    <div style={{marginBottom:10}}>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>JOB TYPE</label>
+                      <select value={jobType} onChange={e=>setJobType(e.target.value)}
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:jobType?'var(--text)':'var(--muted)',fontSize:13,boxSizing:'border-box'}}>
+                        <option value="">— Select job type —</option>
+                        {(jobTypesList||[]).map(t=><option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+
+                    <div style={{marginBottom:10}}>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>SCHEDULED DATE</label>
+                      <input type="date" value={jobDate} onChange={e=>setJobDate(e.target.value)}
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:13,boxSizing:'border-box'}}/>
+                    </div>
+
+                    {arrivalWindows.length > 0 && (
+                      <div style={{marginBottom:10}}>
+                        <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:6,letterSpacing:'.05em'}}>ARRIVAL WINDOW</label>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                          {arrivalWindows.map(w=>(
+                            <button key={w} onClick={()=>setArrivalWin(w===arrivalWin?'':w)}
+                              style={{padding:'6px 12px',borderRadius:7,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .15s',
+                                border:`1px solid ${w===arrivalWin?'var(--green)':'var(--border2)'}`,
+                                background:w===arrivalWin?'var(--greendim)':'var(--surface2)',
+                                color:w===arrivalWin?'var(--green)':'var(--muted)'}}>
+                              {w}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4,letterSpacing:'.05em'}}>ADDITIONAL NOTES</label>
+                      <textarea value={jobNotes} onChange={e=>setJobNotes(e.target.value)} rows={2}
+                        placeholder="Notes for the dispatcher or technician…"
+                        style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,padding:'7px 9px',color:'var(--text)',fontSize:12,resize:'vertical',boxSizing:'border-box'}}/>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer create button */}
+            {!jobDone && (
+              <div style={{padding:'12px 16px',borderTop:'1px solid var(--border)',flexShrink:0,background:'var(--surface)'}}>
+                <button onClick={createJob} disabled={!activeCustomer||jobCreating}
+                  style={{width:'100%',
+                    background:activeCustomer?(callMode==='followup'?'#6366f1':'#5daf7c'):'var(--surface2)',
+                    border:`1px solid ${activeCustomer?(callMode==='followup'?'#6366f1':'#5daf7c'):'var(--border)'}`,
+                    borderRadius:10,padding:'12px',color:activeCustomer?'#fff':'var(--muted)',
+                    fontSize:14,fontWeight:800,cursor:activeCustomer?'pointer':'not-allowed',
+                    transition:'all .2s',opacity:!activeCustomer?0.45:1}}>
+                  {jobCreating?'Creating…':callMode==='followup'?'📞 Create Follow Up Call':'🗂 Create Job Ticket'}
+                </button>
+                {!activeCustomer && <div style={{fontSize:11,color:'var(--muted)',textAlign:'center',marginTop:6}}>Search for a customer on the left first</div>}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── DISPATCH BOARD ───────────────────────────────────────────
-function DispatchPage() {
+function DispatchPage({ activeAlerts = {} }) {
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = useState(today);
   const [jobs, setJobs] = useState([]);
@@ -4828,22 +11468,22 @@ function DispatchPage() {
   const [dragOffset, setDragOffset] = useState(0);
   const [dragOver, setDragOver] = useState(null);  // tech id
   const [dragPreviewX, setDragPreviewX] = useState(null); // px in timeline
-  const [selected, setSelected] = useState(null);
-  const [reschedule, setReschedule] = useState(null); // {date,start_time,end_time,tech_id}
-  const [saving, setSaving] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [selected, setSelected] = useState(null);        // job shown in detail modal
+  const [returnTripParent, setReturnTripParent] = useState(null); // job to schedule return for
   const [showNewJob, setShowNewJob] = useState(false);
+  const [cancelledOpen, setCancelledOpen] = useState(false);
   const scrollRef = useRef(null);
 
   const HOUR_W = 80;
-  const ROW_H = 72;
-  const TECH_W = 160;
+  const ROW_H = 76;
+  const TECH_W = 175;
   const START_H = 7;
   const END_H = 20;
   const HOURS = Array.from({length: END_H - START_H}, (_, i) => START_H + i);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setCancelledOpen(false); // collapse cancelled tray when navigating to a new day
     try {
       const [j, t] = await Promise.all([api.getJobs({date}), api.getTechnicians()]);
       setJobs(j || []);
@@ -4853,6 +11493,62 @@ function DispatchPage() {
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Keep a stable ref to load() so WS handler can call it without stale closures
+  const loadRef = useRef(load);
+  useEffect(() => { loadRef.current = load; }, [load]);
+
+  // Sync activeAlerts prop → jobs state so the card always shows the correct ring.
+  // CRITICAL: only ADD alerts here, never clear them. Clearing comes from the WS
+  // dispatch_alert handler which calls loadRef.current() to refresh from DB.
+  // Otherwise we'd wipe an alert set in the DB just because activeAlerts hasn't seen it yet.
+  useEffect(() => {
+    const findAlert = (id, parentId, projectId) => activeAlerts[id]
+      || activeAlerts[String(id)]
+      || (parentId && (activeAlerts[parentId] || activeAlerts[String(parentId)]))
+      || Object.values(activeAlerts).find(a => String(a.job_id) === String(id))
+      || (parentId && Object.values(activeAlerts).find(a => String(a.job_id) === String(parentId)))
+      || (projectId && Object.values(activeAlerts).find(a => a.project_id && String(a.project_id) === String(projectId)))
+      || (id && Object.values(activeAlerts).find(a => a.parent_job_id && String(a.parent_job_id) === String(id)));
+    setJobs(prev => {
+      let changed = false;
+      const next = prev.map(j => {
+        const alertInfo = findAlert(j.id, j.parent_job_id, j.project_id);
+        if (alertInfo?.dispatch_alert && j.dispatch_alert !== alertInfo.dispatch_alert) {
+          changed = true;
+          return { ...j, dispatch_alert: alertInfo.dispatch_alert };
+        }
+        return j;
+      });
+      return changed ? next : prev;
+    });
+    setSelected(prev => {
+      if (!prev) return prev;
+      const alertInfo = findAlert(prev.id, prev.parent_job_id, prev.project_id);
+      if (alertInfo?.dispatch_alert && prev.dispatch_alert !== alertInfo.dispatch_alert) {
+        return { ...prev, dispatch_alert: alertInfo.dispatch_alert };
+      }
+      return prev;
+    });
+  }, [activeAlerts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Real-time job status from mobile — instant dispatch board updates
+  useEffect(() => {
+    const ws = connectGpsWebSocket(msg => {
+      if(msg.type === "job_status") {
+        setJobs(prev => prev.map(j =>
+          String(j.id) === String(msg.job_id) ? { ...j, status: msg.status } : j
+        ));
+        setSelected(prev => prev && String(prev.id) === String(msg.job_id) ? { ...prev, status: msg.status } : prev);
+      }
+      if(msg.type === "dispatch_alert") {
+        // Reload from DB to guarantee fresh data (covers any ID type mismatch edge cases)
+        loadRef.current();
+        setSelected(prev => prev && String(prev.id) === String(msg.job_id) ? { ...prev, dispatch_alert: msg.dispatch_alert || null } : prev);
+      }
+    });
+    return () => ws?.close();
+  }, []);
 
   const timeToX = (timeStr) => {
     if (!timeStr) return 0;
@@ -4883,7 +11579,8 @@ function DispatchPage() {
 
   const statusColor = {
     on_site:"#e8a84a", en_route:"#4a9eff", completed:"#5daf7c",
-    scheduled:"#a78bfa", unassigned:"#f56565", cancelled:"var(--dim)"
+    scheduled:"#a78bfa", unassigned:"#f56565", cancelled:"var(--dim)",
+    ready_to_call:"#6366f1"
   };
 
   const handleDragStart = (job, e) => {
@@ -4940,7 +11637,8 @@ function DispatchPage() {
     return (now.getHours() + now.getMinutes() / 60 - START_H) * HOUR_W;
   })();
 
-  const unassigned = jobs.filter(j => !j.technician_id || j.status === "unassigned");
+  const unassigned  = jobs.filter(j => j.status === "unassigned");
+  const cancelled   = jobs.filter(j => j.status === "cancelled");
   const isToday = date === today;
 
   const shiftDate = (days) => {
@@ -4951,64 +11649,17 @@ function DispatchPage() {
 
   const friendlyDate = new Date(date + "T12:00:00").toLocaleDateString([], {weekday:"short", month:"short", day:"numeric"});
 
-  // Open a job in the detail panel and pre-populate reschedule fields
-  const openJob = (job) => {
-    setSelected(job);
-    const s = job.scheduled_start ? new Date(job.scheduled_start) : null;
-    const e2 = job.scheduled_end ? new Date(job.scheduled_end) : null;
-    setReschedule({
-      date: s ? s.toISOString().split('T')[0] : date,
-      start_time: s ? s.toTimeString().slice(0,5) : '09:00',
-      end_time: e2 ? e2.toTimeString().slice(0,5) : '11:00',
-      tech_id: job.technician_id || '',
-    });
-  };
+  const openJob = (job) => setSelected(job);
 
-  const saveReschedule = async () => {
-    if (!selected || !reschedule || saving) return;
-    setSaving(true);
-    try {
-      const newStart = new Date(`${reschedule.date}T${reschedule.start_time}:00`);
-      const newEnd   = new Date(`${reschedule.date}T${reschedule.end_time}:00`);
-      const techObj  = techs.find(t => t.id === reschedule.tech_id);
-      const updates  = {
-        scheduled_start: newStart.toISOString(),
-        scheduled_end:   newEnd.toISOString(),
-        technician_id:   reschedule.tech_id || null,
-        status: reschedule.tech_id
-          ? (selected.status === 'unassigned' ? 'scheduled' : selected.status)
-          : 'unassigned',
-      };
-      await api.updateJob(selected.id, updates);
-      // If job moved to a different day, remove it from current view
-      if (reschedule.date !== date) {
-        setJobs(prev => prev.filter(j => j.id !== selected.id));
-        setSelected(null); setReschedule(null);
-      } else {
-        const merged = {...selected, ...updates,
-          technician_name: techObj ? `${techObj.first_name} ${techObj.last_name}` : selected.technician_name,
-          technician_color: techObj?.color || selected.technician_color,
-        };
-        setJobs(prev => prev.map(j => j.id === selected.id ? merged : j));
-        setSelected(merged);
-        setSavedFlash(true); setTimeout(()=>setSavedFlash(false), 2000);
-      }
-    } catch(err) { toast.error('Save Failed', err.message); }
-    finally { setSaving(false); }
-  };
-
-  const updateStatus = async (s) => {
-    await api.updateJob(selected.id, {status:s});
-    const merged = {...selected, status:s};
-    setJobs(prev=>prev.map(j=>j.id===selected.id?{...j,status:s}:j));
-    setSelected(merged);
-  };
-
-  // Quick date shortcuts
-  const quickDate = (daysFromToday) => {
-    const d = new Date(today + "T12:00:00");
-    d.setDate(d.getDate() + daysFromToday);
-    setReschedule(r => ({...r, date: d.toISOString().split('T')[0]}));
+  // Modal callbacks
+  const handleJobUpdated = (updatedJob) => {
+    setJobs(prev => prev.map(j => j.id === updatedJob.id ? { ...j, ...updatedJob } : j));
+    setSelected(updatedJob);
+    // If rescheduled to a different day, remove from board
+    if (updatedJob.scheduled_start && !updatedJob.scheduled_start.startsWith(date)) {
+      setJobs(prev => prev.filter(j => j.id !== updatedJob.id));
+      setSelected(null);
+    }
   };
 
   // Preview time label during drag
@@ -5022,10 +11673,18 @@ function DispatchPage() {
     return `${h12}:${String(mm).padStart(2,'0')}${ampm}`;
   })() : null;
 
-  const sidebarW = selected ? 380 : 0;
-
   return (
-    <div style={{animation:"fadeUp .4s ease",display:"flex",flexDirection:"column",height:"calc(100vh - 94px)",overflow:"hidden"}}>
+    <div style={{animation:"fadeUp .4s ease",display:"flex",flexDirection:"column",height:"calc(100vh - 134px)",overflow:"hidden"}}>
+
+      {/* New Job Modal */}
+      {showNewJob && (
+        <NewJobModal
+          defaultDate={date}
+          techs={techs}
+          onClose={()=>setShowNewJob(false)}
+          onCreated={(job)=>{ setJobs(prev=>[...prev, job]); setShowNewJob(false); }}
+        />
+      )}
 
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexShrink:0}}>
@@ -5048,12 +11707,13 @@ function DispatchPage() {
       {/* Summary pills */}
       <div style={{display:"flex",gap:8,marginBottom:12,flexShrink:0}}>
         {[
-          {label:"Total",    val:jobs.length,                                    color:"var(--muted)"},
-          {label:"On Site",  val:jobs.filter(j=>j.status==="on_site").length,    color:"#e8a84a"},
-          {label:"En Route", val:jobs.filter(j=>j.status==="en_route").length,   color:"#4a9eff"},
-          {label:"Scheduled",val:jobs.filter(j=>j.status==="scheduled").length,  color:"#a78bfa"},
-          {label:"Completed",val:jobs.filter(j=>j.status==="completed").length,  color:"#5daf7c"},
-          {label:"Unassigned",val:unassigned.length,                             color:"#f56565"},
+          {label:"Total",     val:jobs.filter(j=>j.status!=="cancelled").length,  color:"var(--muted)"},
+          {label:"On Site",   val:jobs.filter(j=>j.status==="on_site").length,    color:"#e8a84a"},
+          {label:"En Route",  val:jobs.filter(j=>j.status==="en_route").length,   color:"#4a9eff"},
+          {label:"Scheduled", val:jobs.filter(j=>j.status==="scheduled").length,  color:"#a78bfa"},
+          {label:"Completed", val:jobs.filter(j=>j.status==="completed").length,  color:"#5daf7c"},
+          {label:"Unassigned",val:unassigned.length,                              color:"#f56565"},
+          ...(cancelled.length>0?[{label:"Cancelled",val:cancelled.length,color:"#9ca3af"}]:[]),
         ].map(p=>(
           <div key={p.label} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",background:"var(--surface)",border:`1px solid ${p.color}33`,borderRadius:20}}>
             <div style={{width:6,height:6,borderRadius:"50%",background:p.color}}/>
@@ -5078,13 +11738,13 @@ function DispatchPage() {
           {/* Gantt */}
           <div style={{flex:1,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",display:"flex",flexDirection:"column"}}>
 
-            {/* Time header — synced scroll */}
-            <div style={{display:"flex",borderBottom:"1px solid var(--border2)",flexShrink:0,overflow:"hidden"}}>
-              <div style={{width:TECH_W,minWidth:TECH_W,padding:"8px 14px",fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",borderRight:"1px solid var(--border2)",flexShrink:0}}>TECHNICIAN</div>
+            {/* Time header */}
+            <div style={{display:"flex",borderBottom:"1px solid var(--border2)",flexShrink:0,overflow:"hidden",background:"var(--surface2)"}}>
+              <div style={{width:TECH_W,minWidth:TECH_W,padding:"8px 14px",fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",borderRight:"1px solid var(--border2)",flexShrink:0,letterSpacing:".07em"}}>TECHNICIAN</div>
               <div style={{flex:1,overflowX:"hidden"}}>
                 <div style={{display:"flex",width:HOURS.length*HOUR_W}}>
                   {HOURS.map(h=>(
-                    <div key={h} style={{width:HOUR_W,minWidth:HOUR_W,padding:"8px 0",fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",borderRight:"1px solid var(--border)",textAlign:"center"}}>
+                    <div key={h} style={{width:HOUR_W,minWidth:HOUR_W,padding:"8px 0",fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",borderRight:"1px solid var(--border)",textAlign:"center",letterSpacing:".03em"}}>
                       {h===12?"12pm":h>12?`${h-12}pm`:`${h}am`}
                     </div>
                   ))}
@@ -5097,30 +11757,65 @@ function DispatchPage() {
               {loading
                 ? <div style={{display:"flex",justifyContent:"center",alignItems:"center",padding:40}}><Spinner/></div>
                 : techs.map((tech) => {
-                    const techJobs = jobs.filter(j => j.technician_id === tech.id);
+                    const techJobs = jobs.filter(j => j.technician_id === tech.id && j.status !== 'cancelled');
+                    // ── Lane assignment: prevent overlapping job blocks ──────
+                    const sorted = [...techJobs].sort((a,b)=>new Date(a.scheduled_start||0)-new Date(b.scheduled_start||0));
+                    const laneEnds = []; // laneEnds[i] = ms timestamp when lane i becomes free
+                    const laneAssigned = sorted.map(job => {
+                      const start = job.scheduled_start ? new Date(job.scheduled_start).getTime() : 0;
+                      const end   = job.scheduled_end   ? new Date(job.scheduled_end).getTime()   : start + 7200000;
+                      let lane = laneEnds.findIndex(e => e <= start);
+                      if (lane === -1) lane = laneEnds.length;
+                      laneEnds[lane] = end;
+                      return { ...job, _lane: lane };
+                    });
+                    const numLanes = Math.max(1, laneEnds.length);
+                    const rowHeight = ROW_H * numLanes;
+                    // ────────────────────────────────────────────────────────
                     const isDragTarget = dragOver === tech.id;
                     return (
                       <div key={tech.id}
-                        style={{display:"flex",borderBottom:"1px solid var(--border)",minHeight:ROW_H,background:isDragTarget?`${tech.color}10`:"transparent",transition:"background .1s",position:"relative"}}
+                        style={{display:"flex",borderBottom:"1px solid var(--border)",minHeight:rowHeight,background:isDragTarget?`${tech.color}12`:techs.indexOf(tech)%2===0?"var(--surface)":"var(--surface2)",transition:"background .1s",position:"relative"}}
                         onDragOver={e=>handleDragOver(tech.id,e)}
                         onDragLeave={()=>{setDragOver(null);setDragPreviewX(null);}}
                         onDrop={e=>handleDrop(tech.id,e)}>
 
                         {/* Tech label */}
-                        <div style={{width:TECH_W,minWidth:TECH_W,padding:"10px 14px",borderRight:"1px solid var(--border2)",display:"flex",alignItems:"center",gap:8,flexShrink:0,cursor:"default"}}>
-                          <div style={{width:30,height:30,borderRadius:"50%",background:tech.color+"22",border:`1.5px solid ${tech.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:tech.color,fontFamily:"var(--font-mono)",flexShrink:0}}>
+                        <div style={{width:TECH_W,minWidth:TECH_W,padding:"10px 14px",borderRight:"1px solid var(--border2)",display:"flex",alignItems:"flex-start",gap:9,flexShrink:0,cursor:"default"}}>
+                          <div style={{width:34,height:34,borderRadius:"50%",background:tech.color+"22",border:`2px solid ${tech.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:tech.color,fontFamily:"var(--font-mono)",flexShrink:0,marginTop:2}}>
                             {tech.initials}
                           </div>
-                          <div style={{minWidth:0}}>
-                            <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tech.first_name}</div>
-                            <div style={{fontSize:10,color:"var(--muted)"}}>{techJobs.length} job{techJobs.length!==1?"s":""}</div>
+                          <div style={{minWidth:0,flex:1}}>
+                            <div style={{fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3}}>{tech.first_name} {tech.last_name}</div>
+                            {(() => {
+                              const activeJob = techJobs.find(j=>j.status==='on_site');
+                              const enRoute   = techJobs.find(j=>j.status==='en_route');
+                              const status = activeJob ? 'On Site' : enRoute ? 'Dispatched' : techJobs.length ? `${techJobs.filter(j=>j.status==='completed').length}/${techJobs.length} done` : 'Idle';
+                              const dot = activeJob ? '#e8a84a' : enRoute ? '#4a9eff' : 'var(--muted)';
+                              return (
+                                <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3}}>
+                                  <div style={{width:5,height:5,borderRadius:"50%",background:dot,flexShrink:0}}/>
+                                  <span style={{fontSize:10,color:"var(--muted)"}}>{status}</span>
+                                </div>
+                              );
+                            })()}
+                            <div style={{fontSize:9,color:"var(--muted)",marginTop:2,fontFamily:"var(--font-mono)"}}>{techJobs.length} job{techJobs.length!==1?"s":""}</div>
                           </div>
                         </div>
 
                         {/* Timeline */}
                         <div style={{flex:1,position:"relative",minWidth:HOURS.length*HOUR_W}}>
+                          {/* Lane dividers when multi-lane */}
+                          {numLanes>1&&Array.from({length:numLanes-1},(_,li)=>(
+                            <div key={li} style={{position:"absolute",left:0,right:0,top:(li+1)*ROW_H,height:1,background:"var(--border)",opacity:.35,pointerEvents:"none"}}/>
+                          ))}
+
+                          {/* Hour grid lines + half-hour ticks */}
                           {HOURS.map((h,i)=>(
-                            <div key={h} style={{position:"absolute",left:i*HOUR_W,top:0,bottom:0,width:1,background:"var(--border)",opacity:.4}}/>
+                            <Fragment key={h}>
+                              <div style={{position:"absolute",left:i*HOUR_W,top:0,bottom:0,width:1,background:"var(--border)",opacity:.5}}/>
+                              <div style={{position:"absolute",left:i*HOUR_W+HOUR_W/2,top:"30%",bottom:0,width:1,background:"var(--border)",opacity:.2}}/>
+                            </Fragment>
                           ))}
 
                           {/* NOW line */}
@@ -5139,41 +11834,140 @@ function DispatchPage() {
                             </div>
                           )}
 
-                          {/* Job blocks */}
-                          {techJobs.map(job=>{
+                          {/* Status tick marks — bottom-anchored, hover shows timestamp */}
+                          {laneAssigned.flatMap(job => {
+                            const ticks = [
+                              { field:'en_route_at',  color:'#4a9eff', label:'En Route' },
+                              { field:'on_site_at',   color:'#e8a84a', label:'On Site'  },
+                              { field:'completed_at', color:'#5daf7c', label:'Done'     },
+                            ];
+                            return ticks.flatMap(({ field, color, label }) => {
+                              if (!job[field]) return [];
+                              const mx = timeToX(job[field]);
+                              if (mx < 0 || mx > HOURS.length * HOUR_W) return [];
+                              const laneTop = job._lane * ROW_H;
+                              const timeStr = new Date(job[field]).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+                              return [(
+                                <div key={`${job.id}-${field}`}
+                                  className="tick-marker"
+                                  title={`${label}: ${timeStr}`}
+                                  style={{
+                                    position:'absolute',
+                                    left: mx - 5,
+                                    top: laneTop + ROW_H - 20,
+                                    width: 11,
+                                    height: 20,
+                                    zIndex: 8,
+                                    cursor: 'default',
+                                  }}>
+                                  {/* stem */}
+                                  <div style={{position:'absolute',left:5,top:8,width:1,height:12,background:color,opacity:.7}}/>
+                                  {/* diamond */}
+                                  <div style={{position:'absolute',top:0,left:2,width:7,height:7,background:color,borderRadius:1,transform:'rotate(45deg)',opacity:.85}}/>
+                                  {/* floating tooltip */}
+                                  <div className="tick-tooltip" style={{
+                                    position:'absolute',bottom:'100%',left:'50%',transform:'translateX(-50%)',
+                                    marginBottom:6,background:'rgba(0,0,0,.82)',color:'#fff',
+                                    borderRadius:5,padding:'3px 7px',fontSize:10,fontFamily:'var(--font-mono)',
+                                    whiteSpace:'nowrap',pointerEvents:'none',
+                                    opacity:0,transition:'opacity .15s',
+                                    boxShadow:'0 2px 8px rgba(0,0,0,.3)',
+                                  }}>
+                                    <span style={{color,fontWeight:700}}>{label}</span> {timeStr}
+                                  </div>
+                                </div>
+                              )];
+                            });
+                          })}
+
+                          {/* Job blocks — ServiceTitan-style pills */}
+                          {laneAssigned.map(job=>{
                             const x = timeToX(job.scheduled_start);
                             const w = jobWidth(job);
-                            const color = statusColor[job.status]||"var(--muted)";
+                            // Alert lookup: match the job itself, the parent job, or any sibling
+                            // in the same project. Covers project/multi-visit scenarios where the
+                            // alert was attached to the parent project job rather than the visit shown.
+                            const alertEntry = activeAlerts[job.id]
+                              || activeAlerts[String(job.id)]
+                              || (job.parent_job_id && (activeAlerts[job.parent_job_id] || activeAlerts[String(job.parent_job_id)]))
+                              || Object.values(activeAlerts).find(a => String(a.job_id) === String(job.id))
+                              || (job.parent_job_id && Object.values(activeAlerts).find(a => String(a.job_id) === String(job.parent_job_id)))
+                              || (job.project_id && Object.values(activeAlerts).find(a => a.project_id && String(a.project_id) === String(job.project_id)))
+                              || (job.id && Object.values(activeAlerts).find(a => a.parent_job_id && String(a.parent_job_id) === String(job.id)));
+                            const hasAlert = !!(job.dispatch_alert || alertEntry?.dispatch_alert);
+                            const alertText = job.dispatch_alert || alertEntry?.dispatch_alert || null;
+                            const color = hasAlert ? '#f56565' : job.return_trip_needed ? '#f97316' : (statusColor[job.status]||"#94a3b8");
                             const isSel = selected?.id===job.id;
                             const isDraggingThis = dragging?.id===job.id;
+                            const laneTop = job._lane * ROW_H + 6;
+                            const isCompleted = job.status === 'completed';
+                            const ringColor = isSel ? color : hasAlert ? '#f56565' : job.return_trip_needed ? "#ef444466" : "var(--border)";
+                            const ringWidth = hasAlert ? 2 : 1;
                             return (
                               <div key={job.id}
                                 draggable
                                 onDragStart={e=>handleDragStart(job,e)}
                                 onDragEnd={()=>{setDragging(null);setDragOver(null);setDragPreviewX(null);}}
-                                onClick={e=>{e.stopPropagation();isSel?setSelected(null):openJob(job);}}
+                                onClick={e=>{e.stopPropagation();isSel?setSelected(null):openJob({...job, dispatch_alert: alertText});}}
                                 title={`${job.customer_name} · ${job.job_type||''} · drag to reschedule`}
                                 style={{
-                                  position:"absolute",left:x+3,top:7,
-                                  width:Math.max(w-6,44),height:ROW_H-14,
-                                  background:isSel?`linear-gradient(90deg,${color}44,${color}18)`:`linear-gradient(90deg,${color}55,${color}0d)`,
-                                  border:`1.5px solid ${color}${isSel?"":"55"}`,
-                                  borderRadius:8,padding:"5px 8px",
-                                  cursor:isDraggingThis?"grabbing":"grab",
-                                  overflow:"hidden",zIndex:isSel?20:5,
-                                  opacity:isDraggingThis?0.4:1,
-                                  boxShadow:isSel?`0 0 0 2px ${color},0 4px 16px ${color}33`:"none",
-                                  transition:"box-shadow .15s,opacity .1s",
-                                  userSelect:"none",
+                                  position:"absolute",
+                                  left: x + 2,
+                                  top: laneTop,
+                                  width: Math.max(w - 4, 40),
+                                  height: ROW_H - 12,
+                                  background: isSel ? `${color}18` : "var(--surface)",
+                                  // Use individual border sides to avoid React shorthand/non-shorthand conflict
+                                  borderTopWidth: ringWidth, borderTopStyle: 'solid', borderTopColor: ringColor,
+                                  borderRightWidth: ringWidth, borderRightStyle: 'solid', borderRightColor: ringColor,
+                                  borderBottomWidth: ringWidth, borderBottomStyle: 'solid', borderBottomColor: ringColor,
+                                  borderLeftWidth: 3, borderLeftStyle: 'solid', borderLeftColor: color,
+                                  borderRadius: 6,
+                                  padding: "5px 8px",
+                                  cursor: isDraggingThis ? "grabbing" : "grab",
+                                  overflow: "hidden",
+                                  zIndex: isSel ? 20 : hasAlert ? 8 : 5,
+                                  opacity: isDraggingThis ? 0.35 : isCompleted ? 0.6 : 1,
+                                  // Use outline for the alert glow ring — doesn't conflict with border
+                                  outline: hasAlert ? '2px solid #f56565' : undefined,
+                                  outlineOffset: hasAlert ? '1px' : undefined,
+                                  boxShadow: hasAlert
+                                    ? '0 0 0 4px rgba(245,101,101,0.25), 0 0 12px rgba(245,101,101,0.4)'
+                                    : isSel
+                                      ? `0 0 0 2px ${color}55, 0 4px 14px ${color}22`
+                                      : job.return_trip_needed
+                                        ? "0 0 0 2px #ef444455, 0 1px 3px rgba(0,0,0,.07)"
+                                        : "0 1px 3px rgba(0,0,0,.07)",
+                                  animation: hasAlert ? 'glow 1.5s infinite' : undefined,
+                                  transition: "box-shadow .15s, opacity .1s",
+                                  userSelect: "none",
                                 }}>
-                                <div style={{display:"flex",alignItems:"center",gap:4}}>
-                                  <div style={{fontSize:10,fontWeight:700,color,fontFamily:"var(--font-mono)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.2,flex:1}}>{job.customer_name}</div>
-                                  {job.restock_needed&&<span title="Restock needed" style={{fontSize:9,background:"#f5656522",border:"1px solid #f56565",borderRadius:4,padding:"1px 4px",color:"#f56565",fontWeight:700,flexShrink:0}}>⚠</span>}
+                                {/* Row 1: status dot + customer */}
+                                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                                  <div style={{width:6,height:6,borderRadius:"50%",background:color,flexShrink:0}}/>
+                                  <div style={{fontSize:11,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,lineHeight:1.2}}>
+                                    {job.customer_name}
+                                  </div>
                                 </div>
-                                <div style={{fontSize:9,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{job.job_type}</div>
-                                {w>74&&(
-                                  <div style={{fontSize:9,fontFamily:"var(--font-mono)",color,marginTop:2,opacity:.8}}>
-                                    {job.scheduled_start?new Date(job.scheduled_start).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):""}
+                                {/* Row 2: job type */}
+                                {w > 50 && (
+                                  <div style={{fontSize:10,color:job.job_type==='Follow Up Call'?"#6366f1":"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginLeft:11,marginBottom:3}}>
+                                    {job.job_type==='Follow Up Call'?'📞 Follow Up':job.job_type||"—"}
+                                    {w > 120 && job.scheduled_start && (
+                                      <span style={{marginLeft:5,fontFamily:"var(--font-mono)",fontSize:9,color:color,opacity:.8}}>
+                                        {new Date(job.scheduled_start).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {/* Row 3: compact tags */}
+                                {w > 90 && (
+                                  <div style={{display:"flex",gap:3,marginLeft:11,flexWrap:"nowrap",overflow:"hidden"}}>
+                                    {hasAlert&&<span style={{fontSize:8,background:"#f5656522",color:"#f56565",borderRadius:3,padding:"1px 4px",fontWeight:700,flexShrink:0,border:"1px solid #f5656544",animation:"pulse2 1.5s infinite"}}>🚨 Alert</span>}
+                                    {job.visit_number>1&&<span style={{fontSize:8,background:"#6366f122",color:"#6366f1",borderRadius:3,padding:"1px 4px",fontWeight:700,flexShrink:0,border:"1px solid #6366f144"}}>V{job.visit_number}</span>}
+                                    {job.return_trip_needed&&<span style={{fontSize:8,background:"#f9731622",color:"#f97316",borderRadius:3,padding:"1px 4px",fontWeight:700,flexShrink:0,border:"1px solid #f9731644"}}>Return</span>}
+                                    {job.restock_needed&&<span style={{fontSize:8,background:"#f5656522",color:"#f56565",borderRadius:3,padding:"1px 4px",fontWeight:700,flexShrink:0,border:"1px solid #f5656544"}}>Restock</span>}
+                                    {job.estimate_approved&&<span style={{fontSize:8,background:"#10b98122",color:"#10b981",borderRadius:3,padding:"1px 4px",fontWeight:700,flexShrink:0,border:"1px solid #10b98144"}}>Approved</span>}
                                   </div>
                                 )}
                               </div>
@@ -5211,17 +12005,104 @@ function DispatchPage() {
                       <div style={{fontSize:12,fontWeight:600}}>{job.customer_name}</div>
                       <div style={{fontSize:10,color:"var(--muted)"}}>{job.job_type||"No type"}{job.address?` · ${job.address.split(",")[0]}`:""}</div>
                     </div>
+                    {job.return_trip_needed&&<span title="Return trip needed" style={{fontSize:9,background:"#f9731622",border:"1px solid #f97316",borderRadius:4,padding:"1px 5px",color:"#f97316",fontWeight:700}}>↩ RTN</span>}
                     <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"#f56565",background:"#f5656515",padding:"2px 6px",borderRadius:4,marginLeft:"auto"}}>UNASSIGNED</span>
                   </div>
                 );
               })}
             </div>
           </div>
+
+          {/* Cancelled calls tray — per-day record, collapsible */}
+          {cancelled.length > 0 && (
+            <div style={{background:"var(--surface)",border:"1px solid #9ca3af33",borderRadius:12,flexShrink:0,overflow:"hidden"}}>
+              {/* Header — always visible, click to expand */}
+              <div
+                onClick={()=>setCancelledOpen(o=>!o)}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",cursor:"pointer",userSelect:"none"}}
+                onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
+                onMouseLeave={e=>e.currentTarget.style.background=""}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:"#9ca3af",flexShrink:0}}/>
+                <span style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--dim)",letterSpacing:".07em",flex:1}}>
+                  CANCELLED CALLS ({cancelled.length}) — {new Date(date+"T12:00:00").toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}
+                </span>
+                <span style={{fontSize:11,color:"var(--dim)",transition:"transform .2s",display:"inline-block",transform:cancelledOpen?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+              </div>
+
+              {/* Expanded list */}
+              {cancelledOpen && (
+                <div style={{borderTop:"1px solid var(--border)",padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+                  {cancelled.map(job => {
+                    const isSel = selected?.id === job.id;
+                    const scheduledTime = job.scheduled_start
+                      ? new Date(job.scheduled_start).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})
+                      : null;
+                    return (
+                      <div key={job.id}
+                        onClick={()=>isSel?setSelected(null):openJob(job)}
+                        style={{display:"flex",alignItems:"center",gap:12,padding:"9px 12px",borderRadius:8,border:"1px solid "+(isSel?"#9ca3af88":"#9ca3af22"),background:isSel?"#9ca3af12":"#9ca3af08",cursor:"pointer",transition:"all .12s"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#9ca3af15"}
+                        onMouseLeave={e=>e.currentTarget.style.background=isSel?"#9ca3af12":"#9ca3af08"}>
+                        {/* Cancelled icon */}
+                        <div style={{width:28,height:28,borderRadius:"50%",background:"#9ca3af18",border:"1px solid #9ca3af44",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:12}}>✕</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <span style={{fontSize:13,fontWeight:600,color:"var(--muted)",textDecoration:"line-through"}}>{job.customer_name}</span>
+                            {job.visit_number>1&&<span style={{fontSize:8,background:"#6366f122",color:"#6366f1",borderRadius:3,padding:"1px 4px",fontWeight:700,border:"1px solid #6366f133"}}>V{job.visit_number}</span>}
+                          </div>
+                          <div style={{fontSize:11,color:"var(--dim)",marginTop:2}}>
+                            {job.job_type||"Service Call"}
+                            {job.technician_name && <span style={{color:"var(--dim)"}}> · {job.technician_name}</span>}
+                            {scheduledTime && <span style={{fontFamily:"var(--font-mono)",fontSize:10,color:"var(--dim)"}}> · {scheduledTime}</span>}
+                          </div>
+                          {job.address && <div style={{fontSize:10,color:"var(--dim)",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {job.address}</div>}
+                        </div>
+                        <div style={{flexShrink:0,textAlign:"right"}}>
+                          <div style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#9ca3af18",border:"1px solid #9ca3af33",borderRadius:4,padding:"2px 7px",color:"var(--dim)",fontWeight:600}}>CANCELLED</div>
+                          <div style={{fontSize:9,color:"var(--dim)",marginTop:3}}>click to view</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{fontSize:10,color:"var(--dim)",fontStyle:"italic",paddingTop:4,paddingLeft:4,borderTop:"1px solid var(--border)"}}>
+                    These calls are recorded for reference. Reopen from the job detail if the customer calls back.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* ── JOB DETAIL / RESCHEDULE PANEL ── */}
-        {selected&&(
-          <div style={{width:380,minWidth:380,background:"var(--surface)",borderLeft:"1px solid var(--border)",display:"flex",flexDirection:"column",overflowY:"auto",animation:"slideRight .2s ease"}} className="scrollbar-thin">
+        {/* ── MODALS (portaled via fixed positioning) ── */}
+        {selected&&!returnTripParent&&(() => {
+          // Match the card's project-aware alert lookup
+          const alertEntry = activeAlerts[selected.id]
+            || activeAlerts[String(selected.id)]
+            || (selected.parent_job_id && (activeAlerts[selected.parent_job_id] || activeAlerts[String(selected.parent_job_id)]))
+            || Object.values(activeAlerts).find(a => String(a.job_id) === String(selected.id))
+            || (selected.parent_job_id && Object.values(activeAlerts).find(a => String(a.job_id) === String(selected.parent_job_id)))
+            || (selected.project_id && Object.values(activeAlerts).find(a => a.project_id && String(a.project_id) === String(selected.project_id)))
+            || (selected.id && Object.values(activeAlerts).find(a => a.parent_job_id && String(a.parent_job_id) === String(selected.id)));
+          return (
+            <DispatchJobModal
+              job={{...selected, dispatch_alert: selected.dispatch_alert || alertEntry?.dispatch_alert || null}}
+              techs={techs}
+              onClose={()=>setSelected(null)}
+              onUpdated={handleJobUpdated}
+              onReturnTrip={job=>{setReturnTripParent(job);}}
+            />
+          );
+        })()}
+        {returnTripParent&&(
+          <ReturnTripSchedulerModal
+            parentJob={returnTripParent}
+            techs={techs}
+            onClose={()=>setReturnTripParent(null)}
+            onCreated={()=>{setReturnTripParent(null);setSelected(null);load();}}
+          />
+        )}
+        {/* side panel replaced by DispatchJobModal — begin dead block */}
+        {null&&(<div>
 
             {/* Panel header */}
             <div style={{padding:"14px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -5344,11 +12225,59 @@ function DispatchPage() {
                 </div>
               </div>
 
+              {/* Status timeline */}
+              {(selected.en_route_at||selected.on_site_at||selected.completed_at)&&(
+                <div>
+                  <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:8}}>TIMELINE</div>
+                  <div style={{background:"var(--surface2)",borderRadius:10,padding:12,display:"flex",flexDirection:"column",gap:8}}>
+                    {[
+                      {field:"en_route_at",  color:"#0891b2", icon:"🚚", label:"En Route"},
+                      {field:"on_site_at",   color:"#16a34a", icon:"🔧", label:"On Site"},
+                      {field:"completed_at", color:"#6366f1", icon:"✅", label:"Completed"},
+                    ].filter(m=>selected[m.field]).map(m=>(
+                      <div key={m.field} style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:8,height:8,borderRadius:"50%",background:m.color,flexShrink:0}}/>
+                        <span style={{fontSize:11,color:m.color,fontWeight:600,minWidth:72}}>{m.label}</span>
+                        <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--muted)"}}>
+                          {new Date(selected[m.field]).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Return trip flag */}
+              {selected.return_trip_needed&&(
+                <div style={{background:"#f9731611",border:"1px solid #f9731644",borderRadius:8,padding:12,display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:18}}>🔄</span>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:"#f97316"}}>Return Trip Needed</div>
+                    <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Tech flagged this job for a follow-up visit</div>
+                  </div>
+                </div>
+              )}
+
               {/* Notes */}
               {selected.notes&&(
                 <div style={{background:"var(--surface2)",borderRadius:8,padding:10,borderLeft:"3px solid var(--amber)"}}>
                   <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",marginBottom:4,letterSpacing:".05em"}}>NOTES</div>
                   <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.6}}>{selected.notes}</div>
+                </div>
+              )}
+
+              {/* Estimate approved — needs scheduling */}
+              {selected.estimate_approved&&(
+                <div style={{background:"#10b98111",border:"1.5px solid #10b98155",borderRadius:10,padding:14,display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:22}}>✅</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#10b981"}}>Estimate Approved — Ready to Schedule</div>
+                    <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Customer signed the estimate. Book the follow-up appointment.</div>
+                  </div>
+                  <button onClick={()=>{ setReturnTripParent(selected); }}
+                    style={{fontSize:12,padding:"7px 14px",background:"#10b98122",border:"1.5px solid #10b981",borderRadius:8,color:"#10b981",cursor:"pointer",whiteSpace:"nowrap",fontWeight:700}}>
+                    📅 Schedule
+                  </button>
                 </div>
               )}
 
@@ -5371,6 +12300,9 @@ function DispatchPage() {
                 </div>
               )}
 
+              {/* Parts Used */}
+              <PartsUsedPanel job={selected}/>
+
               {/* Profitability */}
               {selected.status==="completed"&&(
                 <ProfitabilityPanel jobId={selected.id}/>
@@ -5384,11 +12316,208 @@ function DispatchPage() {
   );
 }
 
-function ProfitabilityPanel({jobId}) {
-  const [data, setData] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
+// ── Job POs Summary Panel (inline in dispatch modal) ──────────
+function JobPOsSummaryPanel({ jobId, onOpenPOModal }) {
+  const [pos, setPOs] = useState(null);
 
-  React.useEffect(()=>{
+  useEffect(() => {
+    api.getJobPOs(jobId)
+      .then(data => setPOs(Array.isArray(data) ? data : []))
+      .catch(() => setPOs([]));
+  }, [jobId]);
+
+  if (pos === null) return null; // still loading, show nothing
+  if (pos.length === 0) return null; // no POs yet — don't clutter the modal
+
+  const STATUS_COLOR = {
+    draft:    { color:'var(--amber)',  bg:'var(--amberdim)' },
+    ordered:  { color:'var(--blue)',   bg:'var(--greendim)' },
+    received: { color:'#22c55e',       bg:'#dcfce7'         },
+  };
+
+  return (
+    <div style={{background:'var(--surface2)',borderRadius:10,padding:14}}>
+      <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
+        <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em',fontWeight:600,flex:1}}>PURCHASE ORDERS</div>
+        <button onClick={onOpenPOModal}
+          style={{fontSize:10,padding:'3px 9px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:6,color:'var(--muted)',cursor:'pointer',marginLeft:8}}>
+          Manage
+        </button>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        {pos.map(po => {
+          const sm = STATUS_COLOR[po.status] || STATUS_COLOR.draft;
+          const total = (po.items||[]).reduce((s,i) => s + (parseFloat(i.unit_cost)||0)*(parseInt(i.qty)||1), 0);
+          const prefix = po.po_type === 'subcontractor' ? 'SC' : 'PO';
+          return (
+            <div key={po.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',background:'var(--surface)',borderRadius:7,border:'1px solid var(--border)'}}>
+              <span style={{fontFamily:'var(--font-mono)',fontSize:11,fontWeight:700,color:'var(--text)',minWidth:90}}>
+                {prefix}-{String(po.po_number).padStart(6,'0')}
+              </span>
+              <span style={{flex:1,fontSize:12,color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{po.vendor||'—'}</span>
+              <span style={{fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:4,background:sm.bg,color:sm.color,border:`1px solid ${sm.color}44`,whiteSpace:'nowrap'}}>
+                {(po.status||'draft').toUpperCase()}
+              </span>
+              <span style={{fontSize:11,fontFamily:'var(--font-mono)',fontWeight:600,color:'var(--text)',minWidth:52,textAlign:'right'}}>${total.toFixed(2)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Parts Used Panel + Add-Part Modal ─────────────────────────
+function PartsUsedPanel({ job }) {
+  const [movements, setMovements] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ item_id:'', location_id:'', qty:1 });
+  const [itemSearch, setItemSearch] = useState('');
+  const [flash, setFlash] = useState(false);
+  const [locations, setLocations] = useState([]);
+  const [items, setItems] = useState([]);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.getJobMovements(job.id)
+      .then(setMovements)
+      .catch(() => setMovements([]))
+      .finally(() => setLoading(false));
+  }, [job.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Lazy-load locations + items only when Add Part is opened
+  useEffect(() => {
+    if (!showAdd) return;
+    Promise.all([api.getLocations(), api.getInventory()]).then(([locs, inv]) => {
+      setLocations(Array.isArray(locs) ? locs : []);
+      setItems(Array.isArray(inv) ? inv : []);
+    }).catch(() => {});
+  }, [showAdd]);
+
+  const totalCost = (movements||[]).reduce((s, m) => s + parseFloat(m.line_total || 0), 0);
+
+  const truckLocations = locations.filter(l => l.type === 'truck');
+  const filteredItems  = items.filter(i =>
+    !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()) || (i.sku||'').toLowerCase().includes(itemSearch.toLowerCase())
+  ).slice(0, 40);
+
+  const submitAdd = async () => {
+    if (!form.item_id || !form.location_id || form.qty < 1) return;
+    setAdding(true);
+    try {
+      await api.moveStock({
+        item_id:       form.item_id,
+        from_location: form.location_id,
+        to_location:   null,
+        qty:           parseInt(form.qty),
+        type:          'usage',
+        job_id:        job.id,
+        notes:         'Added from web dispatch',
+      });
+      setForm({ item_id:'', location_id:'', qty:1 });
+      setItemSearch('');
+      setShowAdd(false);
+      setFlash(true); setTimeout(() => setFlash(false), 2000);
+      load();
+    } catch(err) {
+      alert('Failed: ' + err.message);
+    } finally { setAdding(false); }
+  };
+
+  return (
+    <div style={{background:"var(--surface2)",borderRadius:10,padding:14}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--amber)",letterSpacing:".08em",fontWeight:600,flex:1}}>PARTS USED</div>
+        {flash && <span style={{fontSize:10,color:"var(--green)",fontFamily:"var(--font-mono)"}}>✓ Added</span>}
+        <button onClick={() => setShowAdd(v => !v)} style={{fontSize:10,padding:"3px 9px",background:showAdd?"var(--amberdim)":"var(--surface)",border:`1px solid ${showAdd?"var(--amber)":"var(--border)"}`,borderRadius:6,color:showAdd?"var(--amber)":"var(--muted)",cursor:"pointer",marginLeft:8}}>
+          {showAdd ? '✕ Cancel' : '+ Add Part'}
+        </button>
+      </div>
+
+      {/* Add Part form */}
+      {showAdd && (
+        <div style={{background:"var(--surface)",borderRadius:8,padding:10,marginBottom:10,border:"1px solid var(--border)"}}>
+          <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)",marginBottom:6,letterSpacing:".05em"}}>SEARCH ITEM</div>
+          <input
+            placeholder="Name or SKU…"
+            value={itemSearch}
+            onChange={e => { setItemSearch(e.target.value); setForm(f=>({...f,item_id:''})); }}
+            style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:7,padding:"6px 9px",color:"var(--text)",fontSize:12,boxSizing:"border-box",marginBottom:6}}
+          />
+          {itemSearch && !form.item_id && (
+            <div style={{background:"var(--surface2)",borderRadius:7,border:"1px solid var(--border)",maxHeight:120,overflowY:"auto",marginBottom:6}}>
+              {filteredItems.length === 0
+                ? <div style={{padding:"8px 10px",fontSize:11,color:"var(--muted)"}}>No items found</div>
+                : filteredItems.map(it => (
+                  <div key={it.id} onClick={() => { setForm(f=>({...f,item_id:it.id})); setItemSearch(it.name); }}
+                    style={{padding:"7px 10px",fontSize:12,cursor:"pointer",borderBottom:"1px solid var(--border)"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--surface)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <span style={{fontWeight:600}}>{it.name}</span>
+                    <span style={{color:"var(--muted)",fontSize:10,marginLeft:6}}>{it.sku}</span>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:6,marginBottom:8}}>
+            <div>
+              <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)",marginBottom:3,letterSpacing:".05em"}}>FROM TRUCK / LOCATION</div>
+              <select value={form.location_id} onChange={e => setForm(f=>({...f,location_id:e.target.value}))}
+                style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:7,padding:"6px 9px",color:form.location_id?"var(--text)":"var(--muted)",fontSize:12,boxSizing:"border-box"}}>
+                <option value="">— Select —</option>
+                {truckLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)",marginBottom:3,letterSpacing:".05em"}}>QTY</div>
+              <input type="number" min={1} value={form.qty} onChange={e => setForm(f=>({...f,qty:e.target.value}))}
+                style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border2)",borderRadius:7,padding:"6px 9px",color:"var(--text)",fontSize:12,boxSizing:"border-box"}}/>
+            </div>
+          </div>
+          <button onClick={submitAdd} disabled={adding || !form.item_id || !form.location_id}
+            style={{width:"100%",padding:"8px",background:adding||!form.item_id||!form.location_id?"var(--surface2)":"var(--green)",border:"none",borderRadius:7,color:adding||!form.item_id||!form.location_id?"var(--muted)":"#fff",fontWeight:700,fontSize:12,cursor:adding||!form.item_id||!form.location_id?"default":"pointer"}}>
+            {adding ? 'Saving…' : 'Deduct from Truck'}
+          </button>
+        </div>
+      )}
+
+      {/* Parts list */}
+      {loading ? (
+        <div style={{fontSize:11,color:"var(--muted)",textAlign:"center",padding:"8px 0"}}>Loading…</div>
+      ) : (movements||[]).length === 0 ? (
+        <div style={{fontSize:11,color:"var(--muted)",fontStyle:"italic",padding:"4px 0"}}>No parts logged yet</div>
+      ) : (
+        <>
+          {movements.map((m, i) => (
+            <div key={m.id||i} style={{display:"flex",gap:6,padding:"5px 0",borderBottom:"1px solid var(--border)",alignItems:"center"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.item_name}</div>
+                <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{m.from_location_name||"—"} · {m.tech_name||"—"}</div>
+              </div>
+              <span style={{fontSize:11,color:"var(--muted)",fontFamily:"var(--font-mono)",whiteSpace:"nowrap"}}>×{Math.abs(m.qty)}</span>
+              <span style={{fontSize:11,color:"var(--text)",fontFamily:"var(--font-mono)",minWidth:50,textAlign:"right"}}>${Number(m.line_total||0).toFixed(2)}</span>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",paddingTop:6,marginTop:2,fontSize:11,fontWeight:700}}>
+            <span style={{color:"var(--muted)",fontFamily:"var(--font-mono)"}}>TOTAL MATERIALS</span>
+            <span style={{color:"var(--text)",fontFamily:"var(--font-mono)"}}>${totalCost.toFixed(2)}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProfitabilityPanel({jobId}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(()=>{
     setLoading(true);
     fetch(`/api/jobs/${jobId}/material-cost`,{headers:{Authorization:`Bearer ${localStorage.getItem('dps_token')}`}})
       .then(r=>r.json()).then(setData).catch(()=>setData(null)).finally(()=>setLoading(false));
@@ -5399,26 +12528,53 @@ function ProfitabilityPanel({jobId}) {
 
   const margin = data.gross_margin_pct;
   const marginColor = margin==null?"var(--muted)":margin>=40?"var(--green)":margin>=20?"var(--amber)":"#f56565";
+  const fmt = (n) => `$${Number(n||0).toFixed(2)}`;
+  const hasPO = data.po_items?.length > 0;
+  const hasSubs = data.sub_po_items?.length > 0 || (data.total_subcontractor_cost||0) > 0;
+  const hasTruck = data.line_items?.length > 0;
+  const hasInvItems = data.inv_items?.some(ii=>ii.computed_cogs>0);
+
+  const tiles = [
+    { label:"Revenue",    val:fmt(data.revenue),             color:"var(--green)" },
+    { label:"Labor",      val:fmt(data.total_labor_cost),    color:"var(--text)" },
+    { label:"Materials",  val:fmt(data.total_material_cost), color:data.total_po_cost>0?"#f97316":"var(--text)" },
+    ...(hasSubs ? [{ label:"Subcontractors", val:fmt(data.total_subcontractor_cost), color:"#a78bfa" }] : []),
+    { label:"Total Cost", val:fmt(data.total_cost),          color:"#f56565" },
+    { label:"Margin",     val:margin!=null?`${margin}%`:"—", color:marginColor },
+    { label:"$/hr",       val:data.cost_per_hr?`$${data.cost_per_hr}`:"—", color:"var(--muted)" },
+  ];
 
   return (
     <div style={{background:"var(--surface2)",borderRadius:10,padding:14}}>
       <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:10,fontWeight:600}}>PROFITABILITY</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        {[
-          ["Revenue", data.revenue!=null?`$${Number(data.revenue).toFixed(2)}`:"—"],
-          ["Materials", `$${Number(data.total_material_cost).toFixed(2)}`],
-          ["Labor", data.total_labor_cost!=null?`$${Number(data.total_labor_cost).toFixed(2)}`:"—"],
-          ["Margin", margin!=null?`${margin}%`:"—"],
-        ].map(([label,val])=>(
+        {tiles.map(({label,val,color})=>(
           <div key={label} style={{background:"var(--surface)",borderRadius:8,padding:"8px 10px"}}>
             <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)",letterSpacing:".05em",marginBottom:2}}>{label}</div>
-            <div style={{fontSize:15,fontWeight:700,color:label==="Margin"?marginColor:"var(--text)"}}>{val}</div>
+            <div style={{fontSize:15,fontWeight:700,color}}>{val}</div>
           </div>
         ))}
       </div>
-      {data.line_items?.length>0&&(
-        <div style={{borderTop:"1px solid var(--border)",paddingTop:8}}>
-          <div style={{fontSize:9,color:"var(--muted)",letterSpacing:".05em",marginBottom:6}}>LINE ITEMS</div>
+
+      {/* Invoice line items with COGS */}
+      {hasInvItems&&(
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:8,marginBottom:8}}>
+          <div style={{fontSize:9,color:"var(--muted)",letterSpacing:".05em",marginBottom:6,fontWeight:600}}>INVOICE TASKS (COGS)</div>
+          {data.inv_items.filter(ii=>ii.computed_cogs>0).map((ii,i)=>(
+            <div key={i} style={{display:"flex",fontSize:11,gap:6,padding:"3px 0",borderBottom:"1px solid var(--border)"}}>
+              <span style={{flex:1,color:"var(--text)"}}>{ii.description}</span>
+              <span style={{color:"var(--muted)",fontFamily:"var(--font-mono)",fontSize:9,alignSelf:"center"}}>{ii.source==='engine'?'⚙':'✓'}</span>
+              <span style={{color:"#f97316",fontFamily:"var(--font-mono)",minWidth:54,textAlign:"right"}}>{fmt(ii.computed_cogs)}</span>
+            </div>
+          ))}
+          {data.has_engine_match&&<div style={{fontSize:9,color:"var(--muted)",fontStyle:"italic",marginTop:4}}>⚙ = labor estimated from engine · ${Number(data.cost_per_hr||0).toFixed(2)}/hr · materials from PO/inventory</div>}
+        </div>
+      )}
+
+      {/* Parts from truck */}
+      {hasTruck&&(
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:8,marginBottom:hasPO?10:0}}>
+          <div style={{fontSize:9,color:"var(--muted)",letterSpacing:".05em",marginBottom:6,fontWeight:600}}>PARTS FROM TRUCK</div>
           {data.line_items.map((item,i)=>(
             <div key={i} style={{display:"flex",fontSize:11,gap:6,padding:"3px 0",borderBottom:"1px solid var(--border)"}}>
               <span style={{flex:1,color:"var(--text)"}}>{item.name}</span>
@@ -5428,7 +12584,53 @@ function ProfitabilityPanel({jobId}) {
           ))}
         </div>
       )}
-      {data.line_items?.length===0&&<div style={{fontSize:11,color:"var(--muted)",fontStyle:"italic"}}>No parts scanned on this job</div>}
+      {!hasTruck&&!hasPO&&!hasInvItems&&<div style={{fontSize:11,color:"var(--muted)",fontStyle:"italic"}}>No cost data on this job yet</div>}
+
+      {/* PO line items */}
+      {hasPO&&(
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:8}}>
+          <div style={{fontSize:9,color:"#f97316",letterSpacing:".05em",marginBottom:6,fontWeight:600}}>PURCHASE ORDERS</div>
+          {data.po_items.map((item,i)=>{
+            const isFirst = i===0||data.po_items[i-1].supply_house!==item.supply_house;
+            return (
+              <div key={i}>
+                {isFirst&&<div style={{fontSize:9,color:"var(--muted)",fontStyle:"italic",padding:"4px 0 2px"}}>{item.supply_house||'Unknown supplier'}</div>}
+                <div style={{display:"flex",fontSize:11,gap:6,padding:"3px 0",borderBottom:"1px solid var(--border)"}}>
+                  <span style={{flex:1,color:"var(--text)"}}>{item.description}{item.sku?<span style={{color:"var(--muted)",marginLeft:4}}>#{item.sku}</span>:null}</span>
+                  <span style={{color:"var(--muted)",fontFamily:"var(--font-mono)"}}>×{item.qty}</span>
+                  <span style={{color:"var(--text)",fontFamily:"var(--font-mono)",minWidth:54,textAlign:"right"}}>${Number(item.line_total).toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{display:"flex",justifyContent:"flex-end",fontSize:11,fontWeight:700,color:"#f97316",paddingTop:5}}>
+            PO Total: {fmt(data.total_po_cost)}
+          </div>
+        </div>
+      )}
+
+      {/* Subcontractor PO line items — separate from materials */}
+      {hasSubs&&data.sub_po_items?.length>0&&(
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:8,marginTop:8}}>
+          <div style={{fontSize:9,color:"#a78bfa",letterSpacing:".05em",marginBottom:6,fontWeight:600}}>SUBCONTRACTORS</div>
+          {data.sub_po_items.map((item,i)=>{
+            const isFirst = i===0||data.sub_po_items[i-1].supply_house!==item.supply_house;
+            return (
+              <div key={i}>
+                {isFirst&&<div style={{fontSize:9,color:"var(--muted)",fontStyle:"italic",padding:"4px 0 2px"}}>{item.supply_house||'Unknown subcontractor'}</div>}
+                <div style={{display:"flex",fontSize:11,gap:6,padding:"3px 0",borderBottom:"1px solid var(--border)"}}>
+                  <span style={{flex:1,color:"var(--text)"}}>{item.description}{item.sku?<span style={{color:"var(--muted)",marginLeft:4}}>#{item.sku}</span>:null}</span>
+                  <span style={{color:"var(--muted)",fontFamily:"var(--font-mono)"}}>×{item.qty}</span>
+                  <span style={{color:"var(--text)",fontFamily:"var(--font-mono)",minWidth:54,textAlign:"right"}}>${Number(item.line_total).toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{display:"flex",justifyContent:"flex-end",fontSize:11,fontWeight:700,color:"#a78bfa",paddingTop:5}}>
+            Sub Total: {fmt(data.total_subcontractor_cost)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5688,7 +12890,7 @@ function PricebookAdminSection({ user }) {
     {id:'base_labor_rate',label:'Tech Burdened Rate (per hr)'},
     {id:'material_markup',label:'Material Markup (0.35 = 35%)'},
     {id:'overhead_rate',label:'Overhead Rate'},
-    {id:'desired_net_profit',label:'Desired Net Profit'},
+    {id:'desired_net_profit',label:'Desired Gross Profit Margin'},
     {id:'flat_rate_buffer',label:'Flat Rate Buffer'},
     {id:'dispatch_fee',label:'Dispatch / Trip Fee'},
     {id:'emergency_surcharge',label:'Emergency Surcharge'},
@@ -5933,7 +13135,12 @@ function CompanySettingsPage() {
       const res = await api.get('/company/settings');
       const d = res.data || res;
       if (d && d.name !== undefined) setForm(f => ({...f, ...d}));
-      if (d && d.logo_url) setLogoPreview(d.logo_url);
+      // Cache-bust: the logo URL never changes when re-uploading (same filename),
+      // so the browser keeps showing the old cached image. Append updated_at.
+      if (d && d.logo_url) {
+        const bust = d.updated_at ? new Date(d.updated_at).getTime() : Date.now();
+        setLogoPreview(`${d.logo_url}?v=${bust}`);
+      }
     } catch(e) { console.log('No company settings yet'); }
     finally { setLoading(false); }
   };
@@ -5951,11 +13158,28 @@ function CompanySettingsPage() {
     setSaving(true);
     try {
       const data = new FormData();
-      Object.entries(form).forEach(([k,v]) => data.append(k, v));
+      Object.entries(form).forEach(([k, v]) => {
+        // Arrays must be JSON-stringified so FormData doesn't coerce them to "a,b,c"
+        if (Array.isArray(v)) data.append(k, JSON.stringify(v));
+        else data.append(k, v ?? '');
+      });
       if (logo) data.append('logo', logo);
-      await fetch('/api/company/settings', { method:'POST', headers:{ Authorization: 'Bearer ' + localStorage.getItem('dps_token') }, body: data });
+      const res = await fetch('/api/company/settings', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('dps_token') },
+        body: data,
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.statusText); }
       setMsg('Saved successfully'); setTimeout(() => setMsg(''), 3000);
-    } catch(e) { setMsg('Error saving'); } finally { setSaving(false); }
+      // Re-fetch so the cache-busted logo URL replaces the blob preview,
+      // and any other server-normalized fields (like brand colors) sync back.
+      setLogo(null);
+      await loadSettings();
+      // Broadcast to every useCompanyServices() subscriber so pricebook tabs,
+      // materials library, calls page, CSR settings, etc. hide/show services
+      // instantly when the checkboxes on this form change.
+      await refreshCompanyServices();
+    } catch(e) { setMsg('Error: ' + e.message); } finally { setSaving(false); }
   };
 
   const LBL = {display:'block',fontSize:11,color:'var(--muted)',marginBottom:5,fontWeight:600};
@@ -6059,6 +13283,8 @@ function CompanySettingsPage() {
           {key:'service_electrical',  label:'Electrical',  icon:'⚡'},
           {key:'service_restoration', label:'Restoration', icon:'🏗️'},
           {key:'service_renovations', label:'Renovations', icon:'🔨'},
+          {key:'service_pest_control',label:'Pest Control',icon:'🪳'},
+          {key:'service_pools',       label:'Pools',       icon:'🏊'},
         ].map(svc=>{
           const typeKey='svc_types_'+svc.label.toLowerCase();
           const CUST=['Residential Service','Residential New','Commercial Service','Commercial New'];
@@ -6210,7 +13436,7 @@ function CompanySettingsPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const LICENSE_TYPES = ['Apprentice','Tradesman','Journeyman','Master','Apprentice'];
-const TECH_DEPT_TYPES   = ['Plumbing','HVAC','Electrical','Restoration','Renovations','Sales'];
+const TECH_DEPT_TYPES   = ['Plumbing','HVAC','Electrical','Restoration','Renovations','Pest Control','Pools','Sales'];
 const OFFICE_DEPT_TYPES = ['Office','Management','Warehouse','Administrators'];
 
 const ALL_PAY_TYPES_ENABLED = { hourly:true, hourly_commission:true, straight_commission:true, salary:true, running_commission:true };
@@ -6388,7 +13614,7 @@ function EmployeeModal({ emp, isTech, onSave, onClose, roles, enabledPayTypes = 
         <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{padding:'9px 20px',background:'transparent',border:'1px solid var(--border)',borderRadius:8,color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
           <button onClick={()=>onSave(form)} disabled={!form.name} style={{padding:'9px 22px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:8,color:'var(--amber)',fontSize:13,fontWeight:700,cursor:'pointer',opacity:form.name?1:.5}}>
-            {emp ? 'Save Changes' : 'Add Employee'}
+            {emp ? 'Save Changes' : isTech ? 'Add Technician' : 'Add Employee'}
           </button>
         </div>
       </div>
@@ -6427,15 +13653,33 @@ function EmployeeListPage({ filterDept }) {
   };
 
   const save = async (form) => {
-    const method = form.id ? 'PUT' : 'POST';
-    const url    = form.id ? '/api/employees/'+form.id : '/api/employees';
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('dps_token') },
-      body: JSON.stringify(form)
-    });
-    setModal(null);
-    load();
+    try {
+      const token = localStorage.getItem('dps_token');
+      const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+
+      // 1. Save HR record to employees table
+      const method = form.id ? 'PUT' : 'POST';
+      const url    = form.id ? '/api/employees/'+form.id : '/api/employees';
+      const res = await fetch(url, { method, headers, body: JSON.stringify(form) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error (status ' + res.status + ')' }));
+        alert('Save failed: ' + (err.error || JSON.stringify(err)));
+        return;
+      }
+
+      // The employees endpoint now syncs the users record itself (creates the
+      // dispatch entry, sets role, applies the temp password if provided). If
+      // the sync emitted a warning, surface it so the user knows.
+      const saved = await res.json().catch(() => ({}));
+      if (saved._sync_warning) {
+        alert('Saved, but dispatch sync warning: ' + saved._sync_warning);
+      }
+
+      setModal(null);
+      load();
+    } catch(e) {
+      alert('Save failed: ' + e.message);
+    }
   };
 
   const remove = async (id) => {
@@ -6450,7 +13694,11 @@ function EmployeeListPage({ filterDept }) {
 
 
   const filtered = employees.filter(e =>
-    (!filterDept || e.department === filterDept) &&
+    (!filterDept || (
+      filterDept === 'Technicians'
+        ? (TECH_DEPT_TYPES.includes(e.department) || e.department === 'Technicians')
+        : e.department === filterDept
+    )) &&
     (!search || e.name.toLowerCase().includes(search.toLowerCase()) || (e.email||'').toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -6530,6 +13778,49 @@ const ALL_PERMISSIONS = [
   { group:'Settings',    perms:['View Settings','Edit Company Info','Manage Employees','Manage Roles','Manage Integrations','Manage Payroll'] },
 ];
 
+function CategoryCol({ cat, roles, inputVal, onInputChange, onAdd, onEdit, onDelete }) {
+  const catRoles = roles.filter(r => r.category_id === cat.id);
+  return (
+    <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+      <div style={{padding:'12px 16px',background:'var(--surface2)',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8}}>
+        <span style={{fontSize:13,fontWeight:700,color:'var(--amber)',flex:1}}>{cat.label}</span>
+        <span style={{fontSize:11,color:'var(--muted)',background:'var(--surface)',padding:'2px 8px',borderRadius:10,border:'1px solid var(--border)'}}>{catRoles.length}</span>
+      </div>
+      <div style={{flex:1}}>
+        {catRoles.length === 0 && (
+          <div style={{padding:'14px 16px',fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>No roles yet — add one below.</div>
+        )}
+        {catRoles.map(role => (
+          <div key={role.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
+            <span style={{flex:1,fontSize:13,color:'var(--text)',fontWeight:500}}>{role.name}</span>
+            <button onClick={()=>onEdit(role)}
+              style={{padding:'4px 10px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:6,color:'var(--amber)',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0}}>
+              Edit
+            </button>
+            {!role.is_system && (
+              <button onClick={()=>onDelete(role.id)}
+                style={{padding:'4px 8px',background:'transparent',border:'1px solid #f5656544',borderRadius:6,color:'#f56565',fontSize:11,cursor:'pointer',flexShrink:0}}>
+                ✕
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{padding:'10px 12px',borderTop:'1px solid var(--border)',background:'var(--surface2)',display:'flex',gap:6}}>
+        <input value={inputVal}
+          onChange={e=>onInputChange(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&onAdd()}
+          placeholder='New role name...'
+          style={{flex:1,padding:'7px 10px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:7,color:'var(--text)',fontSize:12}}/>
+        <button onClick={onAdd}
+          style={{padding:'7px 12px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:7,color:'var(--amber)',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RolesPermissionsPage() {
   // Office Personnel categories with their seeded role IDs
   const OFFICE_CATS = [
@@ -6594,50 +13885,6 @@ function RolesPermissionsPage() {
 
   const activeCats = deptView === 'office' ? OFFICE_CATS : SERVICE_CATS;
 
-  const CategoryCol = ({ cat }) => {
-    const catRoles = roles.filter(r => r.category_id === cat.id);
-    const inputVal = newRoleInputs[cat.id] || '';
-    return (
-      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-        <div style={{padding:'12px 16px',background:'var(--surface2)',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8}}>
-          <span style={{fontSize:13,fontWeight:700,color:'var(--amber)',flex:1}}>{cat.label}</span>
-          <span style={{fontSize:11,color:'var(--muted)',background:'var(--surface)',padding:'2px 8px',borderRadius:10,border:'1px solid var(--border)'}}>{catRoles.length}</span>
-        </div>
-        <div style={{flex:1}}>
-          {catRoles.length === 0 && (
-            <div style={{padding:'14px 16px',fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>No roles yet — add one below.</div>
-          )}
-          {catRoles.map(role => (
-            <div key={role.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
-              <span style={{flex:1,fontSize:13,color:'var(--text)',fontWeight:500}}>{role.name}</span>
-              <button onClick={()=>setEditingRole({...role,permissions:role.permissions||[]})}
-                style={{padding:'4px 10px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:6,color:'var(--amber)',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0}}>
-                Edit
-              </button>
-              {!role.is_system && (
-                <button onClick={()=>deleteRole(role.id)}
-                  style={{padding:'4px 8px',background:'transparent',border:'1px solid #f5656544',borderRadius:6,color:'#f56565',fontSize:11,cursor:'pointer',flexShrink:0}}>
-                  ✕
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <div style={{padding:'10px 12px',borderTop:'1px solid var(--border)',background:'var(--surface2)',display:'flex',gap:6}}>
-          <input value={inputVal}
-            onChange={e=>setNewRoleInputs(p=>({...p,[cat.id]:e.target.value}))}
-            onKeyDown={e=>e.key==='Enter'&&createRole(cat.id)}
-            placeholder='New role name...'
-            style={{flex:1,padding:'7px 10px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:7,color:'var(--text)',fontSize:12}}/>
-          <button onClick={()=>createRole(cat.id)}
-            style={{padding:'7px 12px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:7,color:'var(--amber)',fontSize:13,fontWeight:700,cursor:'pointer'}}>
-            +
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   if (loading) return <div style={{display:'flex',justifyContent:'center',padding:60}}><Spinner/></div>;
 
   return (
@@ -6659,7 +13906,16 @@ function RolesPermissionsPage() {
 
       {/* Category columns */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(230px,1fr))',gap:16}}>
-        {activeCats.map(cat => <CategoryCol key={cat.id} cat={cat}/>)}
+        {activeCats.map(cat => (
+          <CategoryCol key={cat.id} cat={cat}
+            roles={roles}
+            inputVal={newRoleInputs[cat.id]||''}
+            onInputChange={val=>setNewRoleInputs(p=>({...p,[cat.id]:val}))}
+            onAdd={()=>createRole(cat.id)}
+            onEdit={role=>setEditingRole({...role,permissions:role.permissions||[]})}
+            onDelete={deleteRole}
+          />
+        ))}
       </div>
 
       {/* Permissions edit modal */}
@@ -7251,7 +14507,7 @@ function FlatRatePricebookPage({service, onBack}) {
                 <div>
                   <label style={LBL}>PROFIT MARGIN (%)</label>
                   <input type="number" step="1" min="0" max="99" value={((parseFloat(engineDraft?.profit_margin)||.30)*100).toFixed(0)} onChange={e=>setEngineDraft(d=>({...d,profit_margin:parseFloat(e.target.value)/100}))} style={INP}/>
-                  <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desired net profit as % of revenue. Formula: Labor Rate = (Burdened + Overhead) / (1 - margin).</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Gross profit margin as % of revenue. Formula: Labor Rate = (Burdened + Overhead) / (1 − margin).</div>
                 </div>
                 <div>
                   <label style={LBL}>MATERIAL MARKUP (multiplier)</label>
@@ -7270,7 +14526,7 @@ function FlatRatePricebookPage({service, onBack}) {
                 {[
                   ['Tech Wage',`$${parseFloat(live.burdenedRate||0).toFixed(2)}/hr burdened`,'#5daf7c'],
                   ['Overhead',fmtN(live.overheadPerHr),'#4a9eff'],
-                  ['Profit Margin',`${((parseFloat(engineDraft?.profit_margin)||.30)*100).toFixed(0)}% → ${fmtN(live.profitPerHr)}`,'#a78bfa'],
+                  ['Gross Margin',`${((parseFloat(engineDraft?.profit_margin)||.30)*100).toFixed(0)}% → ${fmtN(live.profitPerHr)}/hr`,'#a78bfa'],
                   ['Labor Rate',fmtN(live.laborRate),'var(--amber)'],
                   ['Material Markup',`${((live.matMarkup-1)*100).toFixed(0)}% over cost`,'#22d3ee'],
                   ['Daily Revenue (8hr)',`$${live.dailyRevenue.toFixed(0)}`,'#5daf7c'],
@@ -7430,121 +14686,844 @@ function FRMaterialsModal({task, allMaterials, onSave, onClose}) {
   );
 }
 
-// ── Materials Library Page ───────────────────────────────────
-function MaterialsLibraryPage() {
-  const {data:materials, loading, reload} = useApi(()=>api.getMaterials());
-  const {data:matCategories} = useApi(()=>api.getMaterialCategories());
-  const [catFilter, setCatFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [modal, setModal] = useState(null); // null | 'new' | item
+// ── Pricebook Engine Settings — Full Page ───────────────────
+const ENGINE_SVCS = [
+  { id:'plumbing',     label:'Plumbing',     icon:'🔧', color:'#3b82f6' },
+  { id:'hvac',         label:'HVAC',          icon:'❄️', color:'#06b6d4' },
+  { id:'electrical',   label:'Electrical',   icon:'⚡', color:'#f59e0b' },
+  { id:'restoration',  label:'Restoration',  icon:'🏠', color:'#10b981' },
+  { id:'renovations',  label:'Renovations',  icon:'🔨', color:'#8b5cf6' },
+  { id:'pest_control', label:'Pest Control', icon:'🪳', color:'#dc2626' },
+  { id:'pools',        label:'Pools',        icon:'🏊', color:'#0ea5e9' },
+];
+
+const ENGINE_DEFAULTS_FE = {
+  wage:28, hrs:1600, fica:7.65, unemp:2.5, wc:8,
+  health:0, vehicle:0, fuel:0, tools:0, uniform:0, phone:0,
+  num_techs:1, oh_hrs:1600, profit:20, misc:8, warranty:3, matmarkup:0,
+  oh_items:[
+    {name:'Office / Rent', monthly:500},{name:'Business Insurance', monthly:300},
+    {name:'Phone / Internet', monthly:150},{name:'Software / CRM', monthly:120},
+    {name:'Advertising / Marketing', monthly:400},{name:'Accounting / Legal', monthly:150},
+    {name:'Office Supplies', monthly:75},{name:'Continuing Education', monthly:50},
+    {name:'Licensing & Permits', monthly:40},{name:'Uniforms / Branding', monthly:60},
+  ],
+};
+
+function PricebookEngineSettings({ user }) {
+  const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',color:'var(--text)',fontSize:13,width:'100%',boxSizing:'border-box'};
+  const LBL = {fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',display:'block',marginBottom:4};
+  const SEC = {fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.12em',marginBottom:10,marginTop:20,paddingBottom:6,borderBottom:'1px solid var(--border)',textTransform:'uppercase'};
+
+  const enabledServices = useCompanyServices();
+  // Which trades actually have real pricebooks wired up. Others show SOON.
+  const LIVE = new Set(['plumbing', 'hvac', 'electrical', 'restoration', 'renovations', 'pest_control', 'pools']);
+
+  const [svc, setSvc] = useState('plumbing');
+  // Snap off any service that gets disabled in Company Information.
+  useEffect(() => {
+    if (enabledServices.length && !enabledServices.includes(svc)) setSvc(enabledServices[0]);
+  }, [enabledServices, svc]);
+  // Sub-book selector — only HVAC has a split (install/service). Plumbing always uses 'service'.
+  const [svcType, setSvcType] = useState('service');
+  // Sub-book layout per service. Plumbing = single, HVAC/Electrical = install+service, Restoration = 3-way.
+  const svcTypesFor = (s) => {
+    if (s === 'restoration')  return ['dryout', 'removal', 'rebuild'];
+    if (s === 'renovations')  return ['kitchen', 'bathroom', 'home'];
+    if (s === 'pest_control') return ['general', 'termite', 'wildlife'];
+    if (s === 'pools')        return ['installation', 'repair', 'maintenance'];
+    if (s === 'plumbing' || s === 'hvac' || s === 'electrical') return ['install', 'service'];
+    return ['service'];
+  };
+  const [draft, setDraft] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [form, setForm] = useState({code:'',name:'',category:'',unit:'EA',national_avg:''});
+  const [saved, setSaved] = useState(false);
 
-  const filtered = (materials||[]).filter(m=>{
-    if(catFilter!=='all'&&m.category!==catFilter) return false;
-    if(search&&!(m.name||'').toLowerCase().includes(search.toLowerCase())&&!(m.code||'').toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
+  useEffect(() => {
+    // If switching to a service that doesn't have the current sub-type, snap to first available.
+    const types = svcTypesFor(svc);
+    if (!types.includes(svcType)) setSvcType(types[0]);
+  }, [svc]);
+
+  useEffect(() => {
+    setDraft(null);
+    setLoading(true);
+    api.pbEngine(svc, svcType)
+      .then(d => setDraft({ ...ENGINE_DEFAULTS_FE, ...d, service: svc, service_type: svcType }))
+      .finally(() => setLoading(false));
+  }, [svc, svcType]);
+
+  const upd = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+  const updOH = (i, field, val) => setDraft(d => {
+    const arr = [...(d.oh_items || [])];
+    arr[i] = { ...arr[i], [field]: val };
+    return { ...d, oh_items: arr };
   });
-
-  const openNew = () => { setForm({code:'',name:'',category:'',unit:'EA',national_avg:''}); setModal('new'); };
-  const openEdit = (m) => { setForm({...m,national_avg:m.national_avg||''}); setModal(m); };
+  const addOH = () => setDraft(d => ({ ...d, oh_items: [...(d.oh_items || []), { name: 'New Item', monthly: 0 }] }));
+  const removeOH = i => setDraft(d => ({ ...d, oh_items: (d.oh_items || []).filter((_, j) => j !== i) }));
 
   const save = async () => {
-    if (!form.name.trim()) return toast.warn('Required', 'Name required');
+    if (!draft) return;
     setSaving(true);
     try {
-      if (modal?.id) await api.updateMaterial(modal.id, form);
-      else await api.createMaterial(form);
-      setModal(null); reload();
-    } catch(e) { toast.error('Error', e.message); } finally { setSaving(false); }
+      const updated = await api.pbSaveEngine({ ...draft, service: svc, service_type: svcType });
+      setDraft({ ...ENGINE_DEFAULTS_FE, ...updated, service: svc, service_type: svcType });
+      setSaved(true);
+      const svcLbl = ENGINE_SVCS.find(s => s.id === svc)?.label || svc;
+      const suffix = svcTypesFor(svc).length > 1 ? ' · ' + (svcType[0].toUpperCase() + svcType.slice(1)) : '';
+      toast.success('Engine saved', `${svcLbl}${suffix} rates updated on the pricebook.`);
+      setTimeout(() => setSaved(false), 3000);
+    } catch(e) { toast.error('Save failed', e.message); }
+    finally { setSaving(false); }
   };
 
-  const deleteMat = async (id) => {
-    if (!confirm('Archive this material?')) return;
-    await api.deleteMaterial(id); reload();
-  };
+  // Live calculation
+  const calc = draft ? calcFlatRate({ materials: [], hours: 0 }, draft) : null;
+  const ohMonthly = draft ? (draft.oh_items || []).reduce((s, it) => s + (+it.monthly || 0), 0) : 0;
+  const fmt = n => '$' + parseFloat(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
+  return (
+    <div style={{ animation: 'fadeUp .4s ease', minHeight: '100%' }}>
+      {/* Page header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontFamily: 'var(--font-head)', fontSize: 22, fontWeight: 800 }}>⚙ Pricing Engine Settings</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+          Configure the labor rate formula for each service line. All flat-rate prices recalculate when you save.
+        </div>
+      </div>
+
+      {/* Service selector — only trades enabled in Settings → Company Information appear. */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {ENGINE_SVCS
+          .filter(s => LIVE.has(s.id) && (enabledServices.length === 0 || enabledServices.includes(s.id)))
+          .map(s => {
+            const active = svc === s.id;
+            return (
+              <button key={s.id} onClick={() => setSvc(s.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 10,
+                  border: `1px solid ${active ? s.color : 'var(--border)'}`,
+                  background: active ? `${s.color}22` : 'var(--surface2)',
+                  color: active ? s.color : 'var(--muted)',
+                  fontWeight: active ? 700 : 400, fontSize: 13,
+                  cursor: 'pointer', transition: 'all .15s' }}>
+                <span style={{ fontSize: 18 }}>{s.icon}</span>
+                <span>{s.label}</span>
+              </button>
+            );
+          })}
+      </div>
+
+      {/* Sub-book pill — hidden; the engine is shared across sub-books per service. */}
+      {false && svcTypesFor(svc).length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 24, alignItems:'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 6, fontFamily:'var(--font-mono)', letterSpacing:'.06em' }}>SUB-BOOK</span>
+          {svcTypesFor(svc).map(t => {
+            const on = svcType === t;
+            const label = t.charAt(0).toUpperCase() + t.slice(1);
+            const SUB_COLORS = {
+              install:'#C55A11', service:'#1E6B3C',
+              dryout:'#2E5FA3',  removal:'#7A4B1A',  rebuild:'#5B2D8E',
+              kitchen:'#C55A11', bathroom:'#1F7A8C', home:'#5B2D8E',
+              general:'#1E6B3C', termite:'#7A4B1A',  wildlife:'#5B2D8E',
+              installation:'#C55A11', repair:'#5B2D8E', maintenance:'#1E6B3C',
+            };
+            const color = SUB_COLORS[t] || '#1E6B3C';
+            return (
+              <button key={t} onClick={() => setSvcType(t)}
+                style={{ padding:'6px 14px', borderRadius:8,
+                  border:`1px solid ${on ? color : 'var(--border)'}`,
+                  background: on ? `${color}22` : 'transparent',
+                  color: on ? color : 'var(--muted)',
+                  fontSize:12, fontWeight: on ? 700 : 500, cursor:'pointer' }}>
+                {label}
+              </button>
+            );
+          })}
+          <span style={{ marginLeft:12, fontSize:11, color:'var(--muted)', fontStyle:'italic' }}>
+            {ENGINE_SVCS.find(s => s.id === svc)?.label} {(() => {
+              if (svcType === 'install')  return 'installs';
+              if (svcType === 'dryout')   return 'dryouts';
+              if (svcType === 'removal')  return 'removals';
+              if (svcType === 'rebuild')  return 'rebuilds';
+              if (svcType === 'kitchen')  return 'kitchen remodels';
+              if (svcType === 'bathroom') return 'bathroom remodels';
+              if (svcType === 'home')     return 'whole-home / additions';
+              if (svcType === 'general')  return 'general-pest treatments';
+              if (svcType === 'termite')  return 'termite work';
+              if (svcType === 'wildlife') return 'rodents & wildlife work';
+              if (svcType === 'installation') return 'pool installations';
+              if (svcType === 'repair')       return 'pool repairs';
+              if (svcType === 'maintenance')  return 'pool maintenance';
+              return 'service calls';
+            })()} price off this engine.
+          </span>
+        </div>
+      )}
+
+      {/* Wired-to callout */}
+      {LIVE.has(svc) && (
+        <div style={{ background:'rgba(30,107,60,0.08)', border:'1px solid rgba(30,107,60,0.35)', borderRadius:8,
+          padding:'8px 14px', marginBottom:20, fontSize:12, color:'#5daf7c', display:'flex', alignItems:'center', gap:8 }}>
+          <span>🔗</span>
+          <span>Linked to the <b>{ENGINE_SVCS.find(s => s.id === svc)?.label}{svcTypesFor(svc).length > 1 ? ' · ' + (svcType[0].toUpperCase()+svcType.slice(1)) : ''}</b> pricebook.
+          Every flat rate on that pricebook recalculates when you save.</span>
+        </div>
+      )}
+
+      {loading && <div style={{ color: 'var(--muted)', fontSize: 13, padding: 32 }}>Loading engine…</div>}
+
+      {!loading && draft && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24, alignItems: 'start' }}>
+
+          {/* ── LEFT: Form ── */}
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 28 }}>
+
+            {/* LABOR BURDEN */}
+            <div style={SEC}>Labor Burden</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 8 }}>
+              <div>
+                <label style={LBL}>TECH HOURLY WAGE ($)</label>
+                <input type="number" min="0" step="0.5" value={draft.wage} onChange={e => upd('wage', e.target.value)} style={INP}/>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Base pay before burden</div>
+              </div>
+              <div>
+                <label style={LBL}>BILLABLE HRS / YEAR</label>
+                <input type="number" min="1" step="10" value={draft.hrs} onChange={e => upd('hrs', e.target.value)} style={INP}/>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Actual revenue-generating hrs</div>
+              </div>
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)' }}>BASE WAGES / YR</div>
+                <div style={{ fontFamily: 'var(--font-head)', fontSize: 18, fontWeight: 800, color: '#22c55e', marginTop: 2 }}>
+                  {fmt(parseFloat(draft.wage || 0) * parseFloat(draft.hrs || 1600))}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 4 }}>
+              {[
+                ['fica',   'FICA %',              'Federal payroll tax — 7.65% standard'],
+                ['unemp',  'Unemployment %',      'State FUTA/SUTA — varies by state'],
+                ['wc',     'Workers Comp %',      'Based on your WC classification code'],
+              ].map(([k, lbl, tip]) => (
+                <div key={k}>
+                  <label style={LBL}>{lbl.toUpperCase()}</label>
+                  <input type="number" min="0" step="0.1" value={draft[k]} onChange={e => upd(k, e.target.value)} style={INP}/>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>{tip}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* TECH FIXED MONTHLY COSTS */}
+            <div style={SEC}>Per-Tech Fixed Monthly Costs</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+              {[
+                ['health',  'Health Insurance ($)'],
+                ['vehicle', 'Vehicle / Truck ($)'],
+                ['fuel',    'Fuel ($)'],
+                ['tools',   'Tools / Equipment ($)'],
+                ['uniform', 'Uniform / PPE ($)'],
+                ['phone',   'Phone / Tablet ($)'],
+              ].map(([k, lbl]) => (
+                <div key={k}>
+                  <label style={LBL}>{lbl.toUpperCase()}</label>
+                  <input type="number" min="0" step="10" value={draft[k]} onChange={e => upd(k, e.target.value)} style={INP}/>
+                </div>
+              ))}
+            </div>
+
+            {/* OVERHEAD */}
+            <div style={SEC}>Company Overhead</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={LBL}>NUMBER OF FIELD TECHS</label>
+                <input type="number" min="1" step="1" value={draft.num_techs} onChange={e => upd('num_techs', e.target.value)} style={INP}/>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Total overhead shared across this many techs</div>
+              </div>
+              <div>
+                <label style={LBL}>OVERHEAD BILLABLE HRS / YEAR</label>
+                <input type="number" min="1" step="10" value={draft.oh_hrs} onChange={e => upd('oh_hrs', e.target.value)} style={INP}/>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Hours used to spread overhead cost</div>
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)', letterSpacing: '.06em' }}>MONTHLY OVERHEAD ITEMS</div>
+                <div style={{ fontSize: 12, color: 'var(--amber)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                  ${ohMonthly.toFixed(0)}/mo · ${(ohMonthly * 12).toFixed(0)}/yr
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 28px', gap: 6, marginBottom: 4 }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>ITEM</div>
+                <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textAlign: 'right' }}>$/MONTH</div>
+                <div/>
+              </div>
+              {(draft.oh_items || []).map((it, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 28px', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                  <input value={it.name} onChange={e => updOH(i, 'name', e.target.value)}
+                    style={{ ...INP, fontSize: 12, padding: '6px 10px' }} placeholder="Overhead item name"/>
+                  <input type="number" min="0" value={it.monthly} onChange={e => updOH(i, 'monthly', parseFloat(e.target.value) || 0)}
+                    style={{ ...INP, fontSize: 12, padding: '6px 10px', textAlign: 'right', color: 'var(--amber)', fontWeight: 700 }}/>
+                  <button onClick={() => removeOH(i)} style={{ background: 'transparent', border: 'none', color: '#f56565', cursor: 'pointer', fontSize: 14, padding: 0 }}>✕</button>
+                </div>
+              ))}
+              <button onClick={addOH} style={{ marginTop: 8, background: 'transparent', border: '1px dashed var(--border)', borderRadius: 6, padding: '6px 12px', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' }}>
+                + Add Overhead Item
+              </button>
+            </div>
+
+            {/* PROFIT & MARKUP */}
+            <div style={SEC}>Gross Profit Margin & Material Markup</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 8 }}>
+              {[
+                ['profit',    'Gross Profit Margin %', 'Revenue − COGS, as % of revenue'],
+                ['misc',      'Misc / Contingency %', 'Buffer for unexpected costs'],
+                ['warranty',  'Warranty Reserve %',   'Set aside for warranty callbacks'],
+                ['matmarkup', 'Extra Mat Markup %',   'Additional % on top of cost×mu'],
+              ].map(([k, lbl, tip]) => (
+                <div key={k}>
+                  <label style={LBL}>{lbl.toUpperCase()}</label>
+                  <input type="number" min="0" step="0.5" value={draft[k]} onChange={e => upd(k, e.target.value)} style={INP}/>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>{tip}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Save */}
+            <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <button onClick={save} disabled={saving}
+                style={{ background: saving ? 'var(--surface2)' : 'var(--amber)', color: saving ? 'var(--muted)' : '#000', border: 'none', borderRadius: 10, padding: '12px 32px', fontFamily: 'var(--font-head)', fontSize: 15, fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>
+                {saving ? 'Saving…' : '✓ Save Engine & Recalculate Prices'}
+              </button>
+              {saved && <span style={{ fontSize: 12, color: '#5daf7c', fontFamily: 'var(--font-mono)' }}>✓ Saved — prices updated</span>}
+            </div>
+          </div>
+
+          {/* ── RIGHT: Live Preview Panel ── */}
+          {calc && (
+            <div style={{ position: 'sticky', top: 16 }}>
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--amber)', letterSpacing: '.1em', marginBottom: 14 }}>LIVE RATE PREVIEW</div>
+                {[
+                  ['Burdened Labor Rate', fmt(calc.burdened) + '/hr', '#22c55e', 'Loaded cost before overhead'],
+                  ['Overhead / hr',       fmt(calc.ohPerHr) + '/hr',  '#a855f7', 'OH spread across all tech-hours'],
+                  ['Total Cost / hr',     fmt(calc.burdened + calc.ohPerHr) + '/hr', 'var(--muted)', ''],
+                  ['Labor Sell Rate',     fmt(calc.laborRate) + '/hr', 'var(--amber)', 'What you charge per labor hour'],
+                  ['Material Markup',     calc.mu.toFixed(3) + '×',    '#38bdf8', `Cost × ${calc.mu.toFixed(3)} = sell price`],
+                ].map(([label, value, color, tip]) => (
+                  <div key={label} style={{ padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
+                      <span style={{ fontFamily: 'var(--font-head)', fontSize: 16, fontWeight: 800, color }}>{value}</span>
+                    </div>
+                    {tip && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{tip}</div>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Formula card */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--amber)', letterSpacing: '.1em', marginBottom: 12 }}>FLAT RATE FORMULA</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 2, fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ color: 'var(--text)' }}>Flat Rate =</div>
+                  <div style={{ paddingLeft: 12 }}>(Hours × <b style={{ color: 'var(--amber)' }}>{fmt(calc.laborRate)}/hr</b>)</div>
+                  <div style={{ paddingLeft: 12 }}>+ (Mat Cost × <b style={{ color: '#38bdf8' }}>{calc.mu.toFixed(3)}</b>)</div>
+                </div>
+              </div>
+
+              {/* Sample task estimates */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 20 }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--amber)', letterSpacing: '.1em', marginBottom: 12 }}>SAMPLE TASK RATES</div>
+                {[
+                  { label: '0.5 hr labor only', hours: 0.5, matCost: 0 },
+                  { label: '1.0 hr + $50 mat',  hours: 1.0, matCost: 50 },
+                  { label: '2.0 hr + $150 mat', hours: 2.0, matCost: 150 },
+                  { label: '4.0 hr + $400 mat', hours: 4.0, matCost: 400 },
+                  { label: '8.0 hr + $800 mat', hours: 8.0, matCost: 800 },
+                ].map(sample => {
+                  const rate = sample.hours * calc.laborRate + sample.matCost * calc.mu;
+                  return (
+                    <div key={sample.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{sample.label}</span>
+                      <span style={{ fontFamily: 'var(--font-head)', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{fmt(rate)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- OLD ENGINE SETTINGS (uses empty fr_engine_settings — replaced above) ---- */
+function _OldPricebookEngineSettings_UNUSED() {
   const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
   const LBL = {fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4};
+
+  const {data:enabledServicesRaw} = useApi(()=>api.getEnabledServices());
+  const enabledServices = (enabledServicesRaw||[]).map(s=>s.toLowerCase());
+
+  const ALL_SVCS = ['plumbing','hvac','electrical','restoration','renovations','pest_control','pools'];
+  const LABELS = SERVICE_LABELS;
+  const activeSvcs = ALL_SVCS.filter(s=>enabledServices.includes(s));
+
+  const [activeService, setActiveService] = useState(null);
+  const [custType, setCustType] = useState('residential');
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState(false);
+
+  // Set default active service once services load
+  useEffect(()=>{
+    if (activeSvcs.length > 0 && !activeService) setActiveService(activeSvcs[0]);
+  }, [activeSvcs.length]);
+
+  // Load engine when service or custType changes
+  useEffect(()=>{
+    if (!activeService) return;
+    api.getFREngineFor(activeService, custType).then(d=>{
+      setDraft(JSON.parse(JSON.stringify(d)));
+    }).catch(()=>{});
+  }, [activeService, custType]);
+
+  const upd = (key, val) => setDraft(d=>({...d, [key]:val}));
+
+  // Fixed costs helpers
+  const updFixed = (i, field, val) => setDraft(d=>{
+    const fc = [...(d.fixed_costs||[])];
+    fc[i] = {...fc[i],[field]:val};
+    return {...d, fixed_costs:fc};
+  });
+  const addFixed = () => setDraft(d=>({...d, fixed_costs:[...(d.fixed_costs||[]),{label:'',amount:''}]}));
+  const removeFixed = (i) => setDraft(d=>{const fc=[...(d.fixed_costs||[])];fc.splice(i,1);return {...d,fixed_costs:fc};});
+
+  // Overhead helpers
+  const updOverhead = (i, field, val) => setDraft(d=>{
+    const oi = [...(d.overhead_items||[])];
+    oi[i] = {...oi[i],[field]:val};
+    return {...d, overhead_items:oi};
+  });
+  const addOverhead = () => setDraft(d=>({...d, overhead_items:[...(d.overhead_items||[]),{label:'',annual_cost:''}]}));
+  const removeOverhead = (i) => setDraft(d=>{const oi=[...(d.overhead_items||[])];oi.splice(i,1);return {...d,overhead_items:oi};});
+
+  const computed = computeFREngine(draft);
+
+  const saveAndRecalc = async () => {
+    if (!activeService || !draft) return;
+    setSaving(true);
+    try {
+      await api.saveFREngine(activeService, custType, draft);
+      await api.recalculateFR({service:activeService, customer_type:custType});
+      setSavedMsg(true);
+      setTimeout(()=>setSavedMsg(false), 2500);
+    } catch(e) { toast.error('Save failed', e.message); } finally { setSaving(false); }
+  };
+
+  const SectionHead = ({label}) => (
+    <div style={{fontFamily:'var(--font-mono)',fontSize:10,color:'var(--muted)',letterSpacing:'.1em',marginBottom:12,marginTop:24,paddingBottom:6,borderBottom:'1px solid var(--border)',textTransform:'uppercase'}}>{label}</div>
+  );
+
+  const pct = v => (parseFloat(v||0)*100).toFixed(1);
+  const fmtDollar = v => '$'+(parseFloat(v)||0).toFixed(2);
 
   return (
     <div style={{animation:'fadeUp .4s ease'}}>
       <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
-        <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800}}>Materials Library</div>
-        <div style={{fontSize:13,color:'var(--muted)',marginLeft:4}}>National average pricing for pricebook tasks</div>
+        <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800}}>Engine Settings</div>
+        <div style={{fontSize:13,color:'var(--muted)',marginLeft:4}}>Configure flat-rate pricing engine per service and customer type</div>
+      </div>
+
+      {/* Service tabs */}
+      {activeSvcs.length === 0 ? (
+        <div style={{color:'var(--muted)',fontSize:13,padding:32}}>No services enabled. Enable services in Company Settings first.</div>
+      ) : (
+        <>
+          <div style={{display:'flex',gap:4,marginBottom:16,flexWrap:'wrap'}}>
+            {activeSvcs.map(s=>(
+              <button key={s} onClick={()=>setActiveService(s)}
+                style={{padding:'7px 18px',borderRadius:8,border:'1px solid var(--border)',background:activeService===s?'var(--amber)':'var(--surface2)',color:activeService===s?'#000':'var(--muted)',fontWeight:activeService===s?700:400,fontSize:13,cursor:'pointer'}}>
+                {LABELS[s]||s}
+              </button>
+            ))}
+          </div>
+
+          {/* Customer type tabs */}
+          <div style={{display:'flex',gap:4,marginBottom:20}}>
+            {['residential','commercial'].map(ct=>(
+              <button key={ct} onClick={()=>setCustType(ct)}
+                style={{padding:'5px 16px',borderRadius:6,border:'1px solid var(--border)',background:custType===ct?'var(--surface2)':'transparent',color:custType===ct?'var(--text)':'var(--muted)',fontFamily:'var(--font-mono)',fontSize:11,fontWeight:custType===ct?700:400,textTransform:'capitalize',cursor:'pointer'}}>
+                {ct.charAt(0).toUpperCase()+ct.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {!draft ? (
+            <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>
+          ) : (
+            <div style={{display:'grid',gridTemplateColumns:'1fr 340px',gap:20,alignItems:'start'}}>
+              {/* Left: form */}
+              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:24}}>
+
+                <SectionHead label="Tech Burden Rate"/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                  <div><label style={LBL}>TECH HOURLY WAGE ($)</label>
+                    <input type="number" step="0.5" value={draft.tech_wage||''} onChange={e=>upd('tech_wage',e.target.value)} style={INP}/>
+                  </div>
+                  <div><label style={LBL}>BILLABLE HOURS / YEAR</label>
+                    <input type="number" step="10" value={draft.billable_hrs_yr||''} onChange={e=>upd('billable_hrs_yr',e.target.value)} style={INP}/>
+                  </div>
+                  <div><label style={LBL}>FICA (%)</label>
+                    <input type="number" step="0.01" value={pct(draft.fica_pct)} onChange={e=>upd('fica_pct',(parseFloat(e.target.value)||0)/100)} style={INP}/>
+                  </div>
+                  <div><label style={LBL}>UNEMPLOYMENT (%)</label>
+                    <input type="number" step="0.01" value={pct(draft.unemployment_pct)} onChange={e=>upd('unemployment_pct',(parseFloat(e.target.value)||0)/100)} style={INP}/>
+                  </div>
+                  <div><label style={LBL}>WORKERS COMP (%)</label>
+                    <input type="number" step="0.01" value={pct(draft.workers_comp_pct)} onChange={e=>upd('workers_comp_pct',(parseFloat(e.target.value)||0)/100)} style={INP}/>
+                  </div>
+                </div>
+
+                <div style={{marginTop:14}}>
+                  <label style={LBL}>MONTHLY FIXED COSTS</label>
+                  {(draft.fixed_costs||[]).map((fc,i)=>(
+                    <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 120px 32px',gap:8,marginBottom:6}}>
+                      <input value={fc.label||''} onChange={e=>updFixed(i,'label',e.target.value)} placeholder="Label" style={{...INP,width:'auto'}}/>
+                      <input type="number" step="1" value={fc.amount||''} onChange={e=>updFixed(i,'amount',e.target.value)} placeholder="$ Amount" style={{...INP,width:'auto'}}/>
+                      <button onClick={()=>removeFixed(i)} style={{background:'none',border:'1px solid var(--border)',borderRadius:6,color:'#f56565',cursor:'pointer',fontSize:14}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={addFixed} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 12px',color:'var(--muted)',fontSize:12,cursor:'pointer',marginTop:2}}>+ Add Row</button>
+                </div>
+
+                <SectionHead label="Overhead"/>
+                <label style={LBL}>OVERHEAD ITEMS (Annual Cost)</label>
+                {(draft.overhead_items||[]).map((oi,i)=>(
+                  <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 120px 32px',gap:8,marginBottom:6}}>
+                    <input value={oi.label||''} onChange={e=>updOverhead(i,'label',e.target.value)} placeholder="Label" style={{...INP,width:'auto'}}/>
+                    <input type="number" step="100" value={oi.annual_cost||''} onChange={e=>updOverhead(i,'annual_cost',e.target.value)} placeholder="$ Annual" style={{...INP,width:'auto'}}/>
+                    <button onClick={()=>removeOverhead(i)} style={{background:'none',border:'1px solid var(--border)',borderRadius:6,color:'#f56565',cursor:'pointer',fontSize:14}}>✕</button>
+                  </div>
+                ))}
+                <button onClick={addOverhead} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 12px',color:'var(--muted)',fontSize:12,cursor:'pointer',marginTop:2}}>+ Add Row</button>
+
+                <SectionHead label="Gross Profit Margin & Markup"/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                  <div><label style={LBL}>GROSS PROFIT MARGIN (%)</label>
+                    <input type="number" step="0.5" min="0" max="99" value={pct(draft.profit_margin)} onChange={e=>upd('profit_margin',(parseFloat(e.target.value)||0)/100)} style={INP}/>
+                  </div>
+                  <div><label style={LBL}>MATERIAL MARKUP (multiplier)</label>
+                    <input type="number" step="0.05" min="1" value={parseFloat(draft.mat_markup||1.5)} onChange={e=>upd('mat_markup',parseFloat(e.target.value)||1.5)} style={INP}/>
+                  </div>
+                </div>
+
+                <div style={{marginTop:24,display:'flex',alignItems:'center',gap:12}}>
+                  <button onClick={saveAndRecalc} disabled={saving}
+                    style={{background:'#5daf7c22',border:'1px solid #5daf7c',borderRadius:8,padding:'10px 24px',color:'#5daf7c',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                    {saving?'Saving…':'Save & Recalculate'}
+                  </button>
+                  {savedMsg && <span style={{fontSize:12,color:'#5daf7c',fontFamily:'var(--font-mono)'}}>✓ Saved & Recalculated</span>}
+                </div>
+              </div>
+
+              {/* Right: live summary */}
+              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:20,position:'sticky',top:24}}>
+                <div style={{fontFamily:'var(--font-head)',fontSize:13,fontWeight:700,marginBottom:16,color:'var(--text)'}}>Live Preview</div>
+                {[
+                  ['Burdened Rate',    fmtDollar(computed.burdenedRate)+'/hr',  'var(--text)'],
+                  ['Overhead / hr',    fmtDollar(computed.overheadPerHr)+'/hr', 'var(--muted)'],
+                  ['Labor Rate',       fmtDollar(computed.laborRate)+'/hr',     'var(--amber)'],
+                  ['Mat Markup',       (parseFloat(draft.mat_markup||1.5)).toFixed(2)+'×', 'var(--text)'],
+                  ['Daily Revenue',    fmtDollar(computed.dailyRevenue)+'/day', '#5daf7c'],
+                ].map(([k,v,color])=>(
+                  <div key={k} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid var(--border)'}}>
+                    <span style={{fontSize:12,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{k}</span>
+                    <span style={{fontSize:14,fontWeight:700,fontFamily:'var(--font-head)',color}}>{v}</span>
+                  </div>
+                ))}
+                <div style={{marginTop:12,padding:10,background:'var(--surface2)',borderRadius:8,fontSize:11,color:'var(--muted)',lineHeight:1.6}}>
+                  Updates live as you type. Click "Save & Recalculate" to apply to all tasks.
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---- end OLD ENGINE SETTINGS ---- */
+
+// ── Materials Library Page ───────────────────────────────────
+// ── Category sort order for materials library
+const MAT_CAT_ORDER = [
+  'Copper Pipe','Copper Fittings','Press Fittings','Push-Fit (SharkBite)',
+  'PEX Pipe & Fittings','CPVC Pipe & Fittings','Brass Fittings',
+  'PVC/DWV Drain','Gas Pipe & Fittings','Valves & Controls',
+  'Water Heaters & Parts','Faucets & Fixtures','Toilets & Parts',
+  'Drains & Traps','Pumps','Water Treatment',
+  'Supply Lines & Connectors','Consumables & Chemicals',
+  'Pipe Supports & Hardware','General',
+];
+const MAT_CAT_ICON = {
+  'Copper Pipe':'🔶','Copper Fittings':'🔶','Press Fittings':'⚙️','Push-Fit (SharkBite)':'🔵',
+  'PEX Pipe & Fittings':'🟠','CPVC Pipe & Fittings':'🟡','Brass Fittings':'🟤',
+  'PVC/DWV Drain':'⚪','Gas Pipe & Fittings':'🔴','Valves & Controls':'🔩',
+  'Water Heaters & Parts':'🔥','Faucets & Fixtures':'🚿','Toilets & Parts':'🚽',
+  'Drains & Traps':'🌀','Pumps':'💧','Water Treatment':'💎',
+  'Supply Lines & Connectors':'🔗','Consumables & Chemicals':'🧴',
+  'Pipe Supports & Hardware':'🔧','General':'📦',
+};
+const SVC_MAT_LABEL = { plumbing:'🔧 Plumbing', hvac:'❄️ HVAC', electrical:'⚡ Electrical' };
+
+function MaterialsLibraryPage() {
+  const enabledServices = useCompanyServices();
+  const [service, setService] = useState('plumbing');
+  // Follow the enabled-services list — if the current service gets turned off, snap to the first that's on.
+  useEffect(() => {
+    if (enabledServices.length && !enabledServices.includes(service)) setService(enabledServices[0]);
+  }, [enabledServices, service]);
+  const [materials, setMaterials] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [expandedCats, setExpandedCats] = useState(null);
+  const [priceEdit, setPriceEdit] = useState({}); // { [id]: {editing,draft,saving,status} }
+  const [modal, setModal] = useState(null);        // null | 'new' | material-obj
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({description:'',unit:'EA',cost:'',category:'General'});
+
+  const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13,width:'100%'};
+  const LBL = {fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4};
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.pbMaterials({service}).then(setMaterials).catch(()=>setMaterials([])).finally(()=>setLoading(false));
+  }, [service]);
+  useEffect(()=>{ load(); }, [load]);
+
+  const grouped = useMemo(() => {
+    const q = search.toLowerCase();
+    const map = {};
+    materials.forEach(m => {
+      const cat = m.category || 'General';
+      if (!map[cat]) map[cat] = [];
+      const match = !q || m.description.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
+      if (match) map[cat].push(m);
+    });
+    // Sort categories by preferred order, then alphabetically
+    const cats = Object.keys(map).filter(c=>map[c].length>0).sort((a,b)=>{
+      const ai = MAT_CAT_ORDER.indexOf(a), bi = MAT_CAT_ORDER.indexOf(b);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return a.localeCompare(b);
+    });
+    return { cats, map };
+  }, [materials, search]);
+
+  useEffect(() => {
+    if (expandedCats === null && grouped.cats.length > 0)
+      setExpandedCats(new Set(grouped.cats.slice(0, 5)));
+  }, [grouped.cats, expandedCats]);
+
+  const toggleCat = (cat) => setExpandedCats(prev => {
+    const next = new Set(prev);
+    if (next.has(cat)) next.delete(cat); else next.add(cat);
+    return next;
+  });
+  const expandAll = () => setExpandedCats(new Set(grouped.cats));
+  const collapseAll = () => setExpandedCats(new Set());
+
+  // Inline price edit
+  const startEdit = (m) => setPriceEdit(p=>({...p,[m.id]:{editing:true,draft:parseFloat(m.cost||0).toFixed(2),saving:false,status:null}}));
+  const cancelEdit = (id) => setPriceEdit(p=>({...p,[id]:{...p[id],editing:false}}));
+  const saveEdit = async (m) => {
+    const st = priceEdit[m.id]; if(!st) return;
+    const v = parseFloat(st.draft);
+    if(isNaN(v)||v<0) return toast.warn('Invalid','Enter a valid price ≥ 0');
+    setPriceEdit(p=>({...p,[m.id]:{...p[m.id],saving:true}}));
+    try {
+      await api.pbUpdateMaterial(m.id, {cost:v});
+      setPriceEdit(p=>({...p,[m.id]:{editing:false,draft:null,saving:false,status:'saved'}}));
+      setMaterials(ms=>ms.map(x=>x.id===m.id?{...x,cost:v}:x));
+      setTimeout(()=>setPriceEdit(p=>({...p,[m.id]:{...p[m.id],status:null}})),2500);
+    } catch(e) {
+      toast.error('Save failed',e.message);
+      setPriceEdit(p=>({...p,[m.id]:{...p[m.id],saving:false}}));
+    }
+  };
+
+  // New/edit modal
+  const openNew = () => { setForm({description:'',unit:'EA',cost:'',category:'General',service}); setModal('new'); };
+  const openEditModal = (m) => { setForm({description:m.description,unit:m.unit,cost:m.cost,category:m.category,service:m.service}); setModal(m); };
+  const saveModal = async () => {
+    if(!form.description.trim()) return toast.warn('Required','Description required');
+    setSaving(true);
+    try {
+      if(modal?.id) {
+        await api.pbUpdateMaterial(modal.id, {description:form.description,unit:form.unit,cost:parseFloat(form.cost)||0,category:form.category});
+      } else {
+        await api.pbCreateMaterial({...form,cost:parseFloat(form.cost)||0,service:form.service||service});
+      }
+      setModal(null); load();
+    } catch(e) { toast.error('Error',e.message); } finally { setSaving(false); }
+  };
+
+  const totalItems = materials.length;
+  const matchItems = grouped.cats.reduce((s,c)=>s+grouped.map[c].length,0);
+
+  return (
+    <div style={{animation:'fadeUp .4s ease'}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+        <div>
+          <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800}}>Materials Library</div>
+          <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>National average pricing · edit any price and it instantly updates all pricebook tasks</div>
+        </div>
         <div style={{flex:1}}/>
         <button onClick={openNew} style={{background:'#5daf7c22',border:'1px solid #5daf7c',borderRadius:8,padding:'8px 16px',color:'#5daf7c',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add Material</button>
       </div>
 
-      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search materials..."
-          style={{flex:1,minWidth:180,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}/>
-        <select value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}>
-          <option value="all">All Categories</option>
-          {(matCategories||[]).map(c=><option key={c} value={c}>{c}</option>)}
-        </select>
+      {/* Service tabs — only services enabled in Company Information appear */}
+      <div style={{display:'flex',gap:6,marginBottom:14,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:4,width:'fit-content'}}>
+        {(enabledServices||[]).map(svc => (
+          <button key={svc} onClick={()=>{setService(svc);setExpandedCats(null);}}
+            style={{padding:'6px 18px',border:'none',borderRadius:7,cursor:'pointer',fontSize:12,fontWeight:service===svc?700:400,
+              background:service===svc?'var(--amber)':'transparent',
+              color:service===svc?'#000':'var(--text)'}}>
+            {SERVICE_ICONS[svc]||'▪'} {SERVICE_LABELS[svc]||svc}
+          </button>
+        ))}
       </div>
 
-      {loading?<div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>:(
-        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-          <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead>
-              <tr style={{background:'var(--surface2)',borderBottom:'1px solid var(--border2)'}}>
-                {['CODE','NAME','CATEGORY','UNIT','NAT. AVG PRICE','LAST UPDATED',''].map(h=>(
-                  <th key={h} style={{padding:'9px 14px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:500}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(m=>(
-                <tr key={m.id} style={{borderBottom:'1px solid var(--border)'}}
-                  onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
-                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <td style={{padding:'9px 14px',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>{m.code||'—'}</td>
-                  <td style={{padding:'9px 14px',fontSize:13,fontWeight:500}}>{m.name}</td>
-                  <td style={{padding:'9px 14px',fontSize:11,color:'var(--muted)'}}>{m.category||'—'}</td>
-                  <td style={{padding:'9px 14px',fontFamily:'var(--font-mono)',fontSize:11}}>{m.unit}</td>
-                  <td style={{padding:'9px 14px',fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,color:'var(--amber)'}}>
-                    ${parseFloat(m.national_avg||0).toFixed(2)}
-                  </td>
-                  <td style={{padding:'9px 14px',fontSize:11,color:'var(--muted)'}}>{m.last_updated?new Date(m.last_updated).toLocaleDateString():''}</td>
-                  <td style={{padding:'9px 14px'}}>
-                    <div style={{display:'flex',gap:6}}>
-                      <button onClick={()=>openEdit(m)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 9px',color:'#e8a84a',fontSize:12,cursor:'pointer'}}>✎</button>
-                      <button onClick={()=>deleteMat(m.id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'4px 9px',color:'#f56565',fontSize:12,cursor:'pointer'}}>✕</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length===0&&<tr><td colSpan={7} style={{padding:40,textAlign:'center',color:'var(--muted)',fontSize:13}}>No materials found.</td></tr>}
-            </tbody>
-          </table>
+      {/* Search + expand controls */}
+      <div style={{display:'flex',gap:8,marginBottom:14,alignItems:'center'}}>
+        <input value={search} onChange={e=>{setSearch(e.target.value);setExpandedCats(new Set(grouped.cats));}}
+          placeholder={`Search ${totalItems} materials…`}
+          style={{flex:1,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',color:'var(--text)',fontSize:13}}/>
+        {search&&<span style={{fontSize:11,color:'var(--muted)',whiteSpace:'nowrap'}}>{matchItems} match{matchItems!==1?'es':''}</span>}
+        <button onClick={expandAll} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:6,padding:'6px 10px',fontSize:11,color:'var(--muted)',cursor:'pointer'}}>Expand All</button>
+        <button onClick={collapseAll} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:6,padding:'6px 10px',fontSize:11,color:'var(--muted)',cursor:'pointer'}}>Collapse</button>
+      </div>
+
+      {loading ? (
+        <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>
+      ) : grouped.cats.length === 0 ? (
+        <div style={{padding:40,textAlign:'center',color:'var(--muted)',fontSize:13}}>{search?'No materials match your search.':'No materials yet.'}</div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {grouped.cats.map(cat => {
+            const items = grouped.map[cat];
+            const isOpen = expandedCats ? expandedCats.has(cat) : false;
+            const icon = MAT_CAT_ICON[cat] || '📦';
+            const avgCost = items.reduce((s,m)=>s+parseFloat(m.cost||0),0)/items.length;
+            return (
+              <div key={cat} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                <button onClick={()=>toggleCat(cat)}
+                  style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'11px 16px',background:isOpen?'var(--surface2)':'var(--surface)',border:'none',cursor:'pointer',textAlign:'left',transition:'background .15s'}}>
+                  <span style={{fontSize:14}}>{icon}</span>
+                  <span style={{fontFamily:'var(--font-head)',fontSize:13,fontWeight:700,color:'var(--text)',flex:1}}>{cat}</span>
+                  <span style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--font-mono)',marginRight:8}}>avg ${avgCost.toFixed(2)}</span>
+                  <span style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:12,padding:'2px 8px',marginRight:4}}>{items.length}</span>
+                  <span style={{fontSize:12,color:'var(--muted)',transform:isOpen?'rotate(90deg)':'rotate(0)',display:'inline-block',transition:'transform .15s'}}>›</span>
+                </button>
+
+                {isOpen && (
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead>
+                      <tr style={{background:'var(--bg)'}}>
+                        <th style={{padding:'6px 16px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:500,width:60}}>ID</th>
+                        <th style={{padding:'6px 14px',textAlign:'left',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:500}}>DESCRIPTION</th>
+                        <th style={{padding:'6px 14px',textAlign:'center',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.07em',fontWeight:500,width:60}}>UNIT</th>
+                        <th style={{padding:'6px 14px',textAlign:'right',fontSize:9,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.07em',fontWeight:600,width:160}}>NAT'L AVG PRICE</th>
+                        <th style={{padding:'6px 14px',width:32}}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((m,idx) => {
+                        const ps = priceEdit[m.id] || {};
+                        return (
+                          <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:idx%2===0?'transparent':'var(--surface2)'}}>
+                            <td style={{padding:'8px 16px',fontFamily:'var(--font-mono)',fontSize:10,color:'var(--muted)'}}>{m.id}</td>
+                            <td style={{padding:'8px 14px',fontSize:13}}>{m.description}</td>
+                            <td style={{padding:'8px 14px',textAlign:'center',fontFamily:'var(--font-mono)',fontSize:11,color:'var(--muted)'}}>{m.unit}</td>
+                            <td style={{padding:'8px 14px',textAlign:'right'}}>
+                              {ps.editing ? (
+                                <div style={{display:'flex',alignItems:'center',gap:6,justifyContent:'flex-end'}}>
+                                  <span style={{fontSize:11,color:'var(--muted)'}}>$</span>
+                                  <input type="number" step="0.01" min="0" value={ps.draft}
+                                    onChange={e=>setPriceEdit(p=>({...p,[m.id]:{...p[m.id],draft:e.target.value}}))}
+                                    onKeyDown={e=>{if(e.key==='Enter')saveEdit(m);if(e.key==='Escape')cancelEdit(m.id);}}
+                                    autoFocus
+                                    style={{width:80,background:'var(--surface)',border:'1px solid var(--amber)',borderRadius:5,padding:'3px 7px',color:'var(--amber)',fontFamily:'var(--font-mono)',fontSize:13,textAlign:'right'}}/>
+                                  {ps.saving ? <span style={{fontSize:11,color:'var(--muted)'}}>Saving…</span> : <>
+                                    <button onClick={()=>saveEdit(m)} style={{background:'#5daf7c22',border:'1px solid #5daf7c',borderRadius:5,padding:'3px 8px',color:'#5daf7c',fontSize:12,cursor:'pointer'}}>✓</button>
+                                    <button onClick={()=>cancelEdit(m.id)} style={{background:'transparent',border:'1px solid var(--border)',borderRadius:5,padding:'3px 7px',color:'var(--muted)',fontSize:12,cursor:'pointer'}}>✕</button>
+                                  </>}
+                                </div>
+                              ) : (
+                                <div style={{display:'flex',alignItems:'center',gap:6,justifyContent:'flex-end'}}>
+                                  {ps.status==='saved'&&<span style={{fontSize:10,color:'#5daf7c',fontFamily:'var(--font-mono)'}}>✓ saved</span>}
+                                  <span onClick={()=>startEdit(m)} title="Click to edit" style={{fontFamily:'var(--font-head)',fontSize:15,fontWeight:800,color:'var(--amber)',cursor:'pointer',borderBottom:'1px dashed #e8a84a55'}}>
+                                    ${parseFloat(m.cost||0).toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{padding:'8px 8px',textAlign:'center'}}>
+                              <button onClick={()=>openEditModal(m)} title="Edit" style={{background:'transparent',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:13,opacity:.6}}>✎</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Add/Edit Modal */}
       {modal&&(
         <div style={{position:'fixed',inset:0,background:'#00000099',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:520,padding:28}}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:500,padding:28}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
-              <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:700}}>{modal?.id?'Edit Material':'New Material'}</div>
-              <button onClick={()=>setModal(null)} style={{background:'none',color:'var(--muted)',fontSize:20}}>×</button>
+              <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:700}}>{modal?.id?'Edit Material':'Add Material'}</div>
+              <button onClick={()=>setModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer'}}>×</button>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-              <div><label style={LBL}>MATERIAL CODE</label><input value={form.code||''} onChange={e=>setForm(f=>({...f,code:e.target.value}))} style={INP} placeholder="e.g. PLB-PIPE-34"/></div>
-              <div><label style={LBL}>NAME *</label><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={INP}/></div>
-              <div><label style={LBL}>CATEGORY</label><input value={form.category||''} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={INP} placeholder="e.g. Pipe, Fittings"/></div>
-              <div><label style={LBL}>UNIT</label>
-                <select value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} style={INP}>
-                  {['EA','LF','SF','GAL','BOX','SET','HR','ROLL','PKG'].map(u=><option key={u} value={u}>{u}</option>)}
-                </select>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div><label style={LBL}>DESCRIPTION *</label><input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} style={INP} placeholder="e.g. 3/4 inch Type M Copper Pipe"/></div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                <div><label style={LBL}>CATEGORY</label>
+                  <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={INP}>
+                    {MAT_CAT_ORDER.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div><label style={LBL}>UNIT</label>
+                  <select value={form.unit} onChange={e=>setForm(f=>({...f,unit:e.target.value}))} style={INP}>
+                    {['EA','LF','SF','GAL','BOX','SET','HR','ROLL','PKG'].map(u=><option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
               </div>
-              <div><label style={LBL}>NATIONAL AVG PRICE ($)</label><input type="number" step="0.01" value={form.national_avg||''} onChange={e=>setForm(f=>({...f,national_avg:e.target.value}))} style={INP}/></div>
+              <div><label style={LBL}>NATIONAL AVG COST ($)</label><input type="number" step="0.01" min="0" value={form.cost||''} onChange={e=>setForm(f=>({...f,cost:e.target.value}))} style={INP} placeholder="0.00"/></div>
+              {!modal?.id&&<div><label style={LBL}>SERVICE</label>
+                <select value={form.service||'plumbing'} onChange={e=>setForm(f=>({...f,service:e.target.value}))} style={INP}>
+                  <option value="plumbing">Plumbing</option>
+                  <option value="hvac">HVAC</option>
+                  <option value="electrical">Electrical</option>
+                </select>
+              </div>}
             </div>
-            <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
+            <div style={{display:'flex',gap:10,marginTop:22,justifyContent:'flex-end'}}>
               <button onClick={()=>setModal(null)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 20px',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
-              <button onClick={save} disabled={saving} style={{background:'#5daf7c22',border:'1px solid #5daf7c',borderRadius:8,padding:'9px 20px',color:'#5daf7c',fontSize:13,fontWeight:600,cursor:'pointer'}}>{saving?'Saving...':'Save'}</button>
+              <button onClick={saveModal} disabled={saving} style={{background:'var(--amber)',color:'#000',border:'none',borderRadius:8,padding:'9px 22px',fontSize:13,fontWeight:700,cursor:'pointer'}}>{saving?'Saving…':'Save'}</button>
             </div>
           </div>
         </div>
@@ -7553,31 +15532,101 @@ function MaterialsLibraryPage() {
   );
 }
 
-function ServicePricebooksPage({ user }) {
+function ServicePricebooksPage({ user, manageMode = false }) {
+  // manageMode=true → the Settings context: show ALL trades with toggles so
+  // the user can re-enable a disabled trade.
+  // manageMode=false → the top-nav /pricebook context: hide disabled trades
+  // entirely so techs only see live pricebooks.
   const enabledServices = useCompanyServices(); // ['plumbing','hvac',...]
   const [activeService, setActiveService] = useState(null);
+  const [savingSvc, setSavingSvc] = useState(null); // service key while a toggle is in flight
+
+  // Toggle a service on/off. Optimistic — the local cache updates
+  // immediately so the card flips before the server round-trips.
+  const handleToggle = async (svc, next, e) => {
+    if (e) e.stopPropagation();          // don't open the pricebook when clicking the switch
+    if (savingSvc) return;
+    setSavingSvc(svc);
+    try {
+      await toggleCompanyService(svc, next);
+    } catch (err) {
+      toast.error('Toggle failed', err.message || 'Could not update.');
+    } finally { setSavingSvc(null); }
+  };
 
   if (activeService) {
-    return <FlatRatePricebookPage service={activeService} onBack={()=>setActiveService(null)}/>;
+    return (
+      <div style={{height:'100%',display:'flex',flexDirection:'column',gap:0}}>
+        <button onClick={()=>setActiveService(null)}
+          style={{display:'inline-flex',alignItems:'center',gap:6,background:'transparent',border:'none',color:'var(--muted)',fontSize:13,cursor:'pointer',marginBottom:10,padding:'4px 0',alignSelf:'flex-start'}}>
+          ← Back to Services
+        </button>
+        <div style={{flex:1,minHeight:0}}>
+          <NewPricebookPage user={user} service={activeService}/>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div style={{animation:'fadeUp .4s ease'}}>
       <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800,marginBottom:6}}>Pricebook</div>
-      <div style={{fontSize:13,color:'var(--muted)',marginBottom:24}}>Select a service to view its flat rate pricebook and engine.</div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:16}}>
-        {['plumbing','hvac','electrical','restoration','renovations'].map(svc=>{
+      <div style={{fontSize:13,color:'var(--muted)',marginBottom:24}}>
+        {manageMode
+          ? 'Only services enabled in Settings → Company Information appear here. Toggle a service off here to disable it everywhere, or turn one back on from Company Information.'
+          : 'Select a service to view its flat rate pricebook and engine.'}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:16}}>
+        {['plumbing','hvac','electrical','restoration','renovations','pest_control','pools']
+          .filter(svc => enabledServices.includes(svc))
+          .map(svc=>{
           const isEnabled = enabledServices.includes(svc);
+          const isSaving  = savingSvc === svc;
           return (
             <div key={svc} onClick={()=>isEnabled&&setActiveService(svc)}
-              style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:24,cursor:isEnabled?'pointer':'default',opacity:isEnabled?1:0.45,transition:'all .2s',position:'relative'}}
+              style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:24,cursor:isEnabled?'pointer':'default',opacity:isEnabled?1:0.55,transition:'all .2s',position:'relative'}}
               onMouseEnter={e=>{if(isEnabled)e.currentTarget.style.borderColor='var(--amber)';}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';}}>
               <div style={{fontSize:32,marginBottom:10}}>{SERVICE_ICONS[svc]||'🔧'}</div>
               <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:4}}>{SERVICE_LABELS[svc]||svc}</div>
               <div style={{fontSize:11,color:'var(--muted)'}}>Flat Rate · Res + Com</div>
-              {!isEnabled&&<div style={{position:'absolute',top:10,right:10,fontSize:9,padding:'2px 7px',background:'#1e2a3a',color:'#3a5a7a',borderRadius:4,fontWeight:700}}>DISABLED</div>}
-              {isEnabled&&<div style={{position:'absolute',top:10,right:10,fontSize:9,padding:'2px 7px',background:'#5daf7c22',color:'#5daf7c',borderRadius:4,fontWeight:700}}>ACTIVE</div>}
+
+              {/* Toggle pill (Settings context only) */}
+              {manageMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={e => handleToggle(svc, !isEnabled, e)}
+                    disabled={isSaving}
+                    title={isEnabled ? 'Click to disable' : 'Click to enable'}
+                    style={{
+                      position:'absolute', top:10, right:10,
+                      width:44, height:24, borderRadius:12, border:'none',
+                      background: isEnabled ? 'var(--green)' : '#3a4a5f',
+                      cursor: isSaving ? 'wait' : 'pointer',
+                      transition:'background .18s',
+                      padding:0,
+                      boxShadow:'inset 0 1px 3px rgba(0,0,0,0.35)',
+                    }}>
+                    <span style={{
+                      position:'absolute', top:2, left: isEnabled ? 22 : 2,
+                      width:20, height:20, borderRadius:'50%', background:'#fff',
+                      transition:'left .18s',
+                      boxShadow:'0 1px 3px rgba(0,0,0,0.35)',
+                    }}/>
+                  </button>
+                  <div style={{
+                    position:'absolute', bottom:10, right:12,
+                    fontSize:9, fontWeight:700, letterSpacing:'.06em',
+                    color: isEnabled ? '#5daf7c' : '#7a8ba0',
+                  }}>
+                    {isSaving ? '…' : (isEnabled ? 'ACTIVE' : 'DISABLED')}
+                  </div>
+                </>
+              ) : (
+                // Top-nav view: no toggle — only enabled cards render anyway.
+                <div style={{position:'absolute',top:10,right:10,fontSize:9,padding:'2px 7px',background:'#5daf7c22',color:'#5daf7c',borderRadius:4,fontWeight:700}}>ACTIVE</div>
+              )}
             </div>
           );
         })}
@@ -7653,6 +15702,127 @@ function ComingSoonIntegrationPage({ name, logo, description }) {
         <div style={{fontSize:16,fontWeight:700,marginBottom:8}}>Coming Soon</div>
         <div style={{fontSize:13,color:'var(--muted)',textAlign:'center',marginBottom:20}}>The {name} integration is currently under development.</div>
         <div style={{padding:'6px 18px',background:'#1e2a3a',color:'#3a8abf',borderRadius:6,fontSize:12,fontWeight:700}}>COMING SOON</div>
+      </div>
+    </div>
+  );
+}
+
+function QuickBooksIntegrationPage() {
+  const [status, setStatus]   = useState(null);  // null | {connected:bool}
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+
+  useEffect(() => {
+    api.getQBStatus()
+      .then(s => setStatus(s))
+      .catch(() => setStatus({ connected: false }))
+      .finally(() => setLoading(false));
+    // Check if we just came back from OAuth
+    if (window.location.search.includes('qb=connected')) {
+      setSyncMsg('QuickBooks connected successfully!');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  const handleConnect = () => {
+    window.location.href = '/api/qb/connect';
+  };
+
+  const handleSyncAll = async () => {
+    setSyncing(true); setSyncMsg('');
+    try {
+      const r = await api.syncAllQB();
+      setSyncMsg(`✅ ${r.message} (${r.queued} invoices)`);
+    } catch (e) {
+      setSyncMsg('❌ ' + e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:560}}>
+      <div style={{display:'flex', alignItems:'center', gap:16, marginBottom:24}}>
+        <div style={{width:52, height:52, background:'#1a3050', border:'1px solid #2a5080',
+          borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0}}>
+          📊
+        </div>
+        <div>
+          <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800}}>QuickBooks</div>
+          <div style={{fontSize:13, color:'var(--muted)'}}>Sync invoices and customers with QuickBooks Online.</div>
+        </div>
+      </div>
+
+      <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:24, display:'flex', flexDirection:'column', gap:20}}>
+        {/* Connection status */}
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:4}}>Connection Status</div>
+            {loading ? (
+              <div style={{fontSize:13, color:'var(--muted)'}}>Checking...</div>
+            ) : (
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <div style={{width:8, height:8, borderRadius:'50%',
+                  background: status?.connected ? '#22c55e' : '#ef4444'}}/>
+                <span style={{fontSize:13, color: status?.connected ? '#22c55e' : '#ef4444', fontWeight:600}}>
+                  {status?.connected ? 'Connected to QuickBooks Online' : 'Not connected'}
+                </span>
+              </div>
+            )}
+          </div>
+          {!loading && !status?.connected && (
+            <button onClick={handleConnect} style={{padding:'9px 20px',
+              background:'var(--blue)', color:'#fff', borderRadius:8, fontSize:13, fontWeight:700, border:'none', cursor:'pointer'}}>
+              Connect QuickBooks
+            </button>
+          )}
+          {!loading && status?.connected && (
+            <button onClick={handleConnect} style={{padding:'9px 20px',
+              background:'var(--surface2)', color:'var(--muted)', borderRadius:8, fontSize:13, fontWeight:600, border:'1px solid var(--border)', cursor:'pointer'}}>
+              Reconnect
+            </button>
+          )}
+        </div>
+
+        {/* Sync actions */}
+        {status?.connected && (
+          <div style={{borderTop:'1px solid var(--border)', paddingTop:18}}>
+            <div style={{fontSize:14, fontWeight:700, marginBottom:12}}>Sync Options</div>
+            <div style={{display:'flex', flexDirection:'column', gap:10}}>
+              {[
+                { label:'Sync All Paid Invoices (Last 90 Days)', desc:'Push invoices to QuickBooks as Sales Receipts', action: handleSyncAll },
+              ].map((item, i) => (
+                <div key={i} style={{display:'flex', alignItems:'center', justifyContent:'space-between',
+                  padding:'12px 16px', background:'var(--surface2)', borderRadius:8, gap:12}}>
+                  <div>
+                    <div style={{fontSize:13, fontWeight:600}}>{item.label}</div>
+                    <div style={{fontSize:11, color:'var(--muted)', marginTop:2}}>{item.desc}</div>
+                  </div>
+                  <button onClick={item.action} disabled={syncing}
+                    style={{padding:'7px 16px', background:'var(--blue)', color:'#fff', borderRadius:7,
+                      fontSize:12, fontWeight:700, border:'none', cursor:'pointer', flexShrink:0,
+                      opacity: syncing ? .6 : 1}}>
+                    {syncing ? 'Syncing...' : 'Sync'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {syncMsg && (
+          <div style={{padding:'10px 14px', background: syncMsg.startsWith('✅') ? '#dcfce7' : '#fee2e2',
+            border:`1px solid ${syncMsg.startsWith('✅') ? '#86efac' : '#fca5a5'}`,
+            borderRadius:8, fontSize:13, color: syncMsg.startsWith('✅') ? '#166534' : '#991b1b'}}>
+            {syncMsg}
+          </div>
+        )}
+
+        <div style={{padding:'12px 16px', background:'#1D70B711', border:'1px solid #1D70B722',
+          borderRadius:8, fontSize:12, color:'var(--muted)'}}>
+          💡 Individual invoice sync is available from the Invoices page. Per-customer sync available from Customer profiles.
+        </div>
       </div>
     </div>
   );
@@ -8089,10 +16259,21 @@ function fmt12(t) {
   return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
 }
 
+const WEEK_END_DAY_OPTIONS = [
+  { value:'sunday',    label:'Sunday'    },
+  { value:'monday',    label:'Monday'    },
+  { value:'tuesday',   label:'Tuesday'   },
+  { value:'wednesday', label:'Wednesday' },
+  { value:'thursday',  label:'Thursday'  },
+  { value:'friday',    label:'Friday'    },
+  { value:'saturday',  label:'Saturday'  },
+];
+
 function BusinessHoursSettings() {
   const { data, loading } = useApi(() => api.getBusinessHours());
   const [hours, setHours] = useState(null);
   const [holidays, setHolidays] = useState(null);
+  const [weekEndDay, setWeekEndDay] = useState('saturday');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [newHolName, setNewHolName] = useState('');
@@ -8103,13 +16284,14 @@ function BusinessHoursSettings() {
     if (data) {
       setHours(data.hours || DEFAULT_HOURS_STATE);
       setHolidays(data.holidays || PRESET_HOLIDAYS);
+      setWeekEndDay(data.weekEndDay || 'saturday');
     }
   }, [data]);
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.saveBusinessHours(hours, holidays);
+      await api.saveBusinessHours(hours, holidays, weekEndDay);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch(e) { toast.error('Error', e.message); }
@@ -8181,6 +16363,23 @@ function BusinessHoursSettings() {
         })}
       </div>
 
+      {/* ── Work Week ── */}
+      <div style={card}>
+        <div style={sectionHead}>Work Week</div>
+        <div style={{ padding:'16px', display:'flex', alignItems:'center', gap:16 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:600, marginBottom:4 }}>Week Ends On</div>
+            <div style={{ fontSize:12, color:'var(--muted)' }}>Used for timesheet calculations and payroll periods.</div>
+          </div>
+          <select value={weekEndDay} onChange={e => setWeekEndDay(e.target.value)}
+            style={{ background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, padding:'8px 12px', fontSize:14, color:'var(--text)', cursor:'pointer' }}>
+            {WEEK_END_DAY_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* ── Holidays ── */}
       <div style={card}>
         <div style={{ ...sectionHead, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -8238,28 +16437,2563 @@ function BusinessHoursSettings() {
   );
 }
 
+// ─── PRICING MODEL SETTINGS ──────────────────────────────────────────────────
+function PricingModelSettings() {
+  const { data, reload } = useApi(() => api.getPricingModel());
+  const [model, setModel] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { if (data?.model) setModel(data.model); }, [data]);
+
+  const save = async (val) => {
+    setModel(val);
+    setSaving(true);
+    try { await api.savePricingModel(val); toast.success('Saved', 'Pricing model updated.'); }
+    catch(e) { toast.error('Error', e.message); reload(); }
+    finally { setSaving(false); }
+  };
+
+  const card = (value, icon, title, desc) => {
+    const active = model === value;
+    return (
+      <div onClick={() => !saving && save(value)} style={{
+        flex:1, padding:24, borderRadius:14, cursor:'pointer', transition:'all .2s',
+        border:`2px solid ${active ? 'var(--amber)' : 'var(--border)'}`,
+        background: active ? 'var(--amberdim)' : 'var(--surface)',
+        opacity: saving ? 0.7 : 1,
+      }}>
+        <div style={{fontSize:36, marginBottom:12}}>{icon}</div>
+        <div style={{fontSize:16, fontWeight:800, marginBottom:6, color: active ? 'var(--amber)' : 'var(--text)'}}>{title}</div>
+        <div style={{fontSize:13, color:'var(--muted)', lineHeight:1.5}}>{desc}</div>
+        {active && <div style={{marginTop:14, fontSize:12, fontWeight:700, color:'var(--amber)', letterSpacing:1}}>✓ ACTIVE</div>}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:620}}>
+      <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:6}}>Pricing Model</div>
+      <div style={{fontSize:13, color:'var(--muted)', marginBottom:24}}>
+        Controls how materials used on a job are handled. This setting applies to all technicians in the mobile app.
+      </div>
+
+      {model === null ? (
+        <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>
+      ) : (
+        <div style={{display:'flex', gap:16, marginBottom:28}}>
+          {card('flat_rate', '📋', 'Flat Rate',
+            'Material usage is tracked for inventory purposes but not broken out as a line item on the invoice. The customer sees a single job price.')}
+          {card('time_material', '🔧', 'Time & Material',
+            'Every part used is automatically added to the invoice as a line item. The customer sees individual material costs.')}
+        </div>
+      )}
+
+      <div style={{padding:16, borderRadius:10, background:'var(--surface)', border:'1px solid var(--border)', fontSize:13, color:'var(--muted)'}}>
+        <strong style={{color:'var(--text)'}}>Note:</strong> Changing this setting takes effect immediately on the mobile app. Inventory movements are always recorded regardless of which model you choose.
+      </div>
+    </div>
+  );
+}
+
+// ─── PAYMENT TYPES SETTINGS ───────────────────────────────────────────────────
+// ── General Ledger Accounts ─────────────────────────────────────────────────
+function GeneralLedgerSettings() {
+  const [accounts, setAccounts]   = useState(null);
+  const [search, setSearch]       = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [showInactive, setShowInactive] = useState(false);
+  const [editing, setEditing]     = useState(null); // null | 'new' | account row
+  const [seeding, setSeeding]     = useState(false);
+  const [seedMsg, setSeedMsg]     = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const ACCOUNT_TYPES = ['Asset','Liability','Equity','Revenue','COGS','Expense'];
+  const TYPE_COLORS = {
+    Asset:    '#3ecf8e',  // green
+    Liability:'#f97316',  // orange
+    Equity:   '#a78bfa',  // purple
+    Revenue:  '#4a9eff',  // blue
+    COGS:     '#e8a84a',  // amber
+    Expense:  '#f56565',  // red
+  };
+
+  const load = async () => {
+    try {
+      const data = await api.getGLAccounts({ include_inactive: showInactive ? 1 : 0 });
+      setAccounts(Array.isArray(data) ? data : []);
+    } catch(e) { console.error(e); setAccounts([]); }
+  };
+
+  useEffect(() => { load(); }, [showInactive]);
+
+  const seedDefaults = async () => {
+    setSeeding(true); setSeedMsg('');
+    try {
+      const r = await api.seedGLAccounts();
+      setSeedMsg(`Inserted ${r.inserted} new accounts (${r.total} default total).`);
+      load();
+    } catch(e) { setSeedMsg('Error: ' + e.message); }
+    finally { setSeeding(false); setTimeout(() => setSeedMsg(''), 4000); }
+  };
+
+  const filtered = (accounts || [])
+    .filter(a => typeFilter === 'all' || a.type === typeFilter)
+    .filter(a => !search ||
+      a.number.toLowerCase().includes(search.toLowerCase()) ||
+      a.name.toLowerCase().includes(search.toLowerCase()) ||
+      (a.subtype||'').toLowerCase().includes(search.toLowerCase())
+    );
+
+  // Group by type for display
+  const grouped = {};
+  filtered.forEach(a => {
+    if (!grouped[a.type]) grouped[a.type] = [];
+    grouped[a.type].push(a);
+  });
+
+  const handleDelete = async (id) => {
+    try {
+      await api.deleteGLAccount(id);
+      setConfirmDelete(null);
+      load();
+    } catch(e) { alert('Delete failed: ' + e.message); }
+  };
+
+  // Total counts per type (for chip badges)
+  const typeCounts = {};
+  (accounts || []).forEach(a => { typeCounts[a.type] = (typeCounts[a.type]||0) + 1; });
+  const totalAccounts = (accounts || []).length;
+
+  return (
+    <div style={{animation:'fadeUp .4s ease',maxWidth:1100}}>
+      <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:6}}>
+        <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800}}>General Ledger Accounts</div>
+        <div style={{flex:1}}/>
+        {accounts && accounts.length > 0 && (
+          <button onClick={() => setEditing('new')}
+            style={{padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)',
+              borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer'}}>
+            + Add Account
+          </button>
+        )}
+      </div>
+      <div style={{fontSize:13,color:'var(--muted)',marginBottom:20}}>
+        Chart of Accounts. Each account categorizes the money flowing through your business — Assets you own, Liabilities you owe, Equity, Revenue, Cost of Goods Sold, and Operating Expenses.
+      </div>
+
+      {/* Empty state — offer to seed defaults */}
+      {accounts && accounts.length === 0 && (
+        <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:32, textAlign:'center'}}>
+          <div style={{fontSize:48, marginBottom:12}}>📒</div>
+          <div style={{fontSize:16, fontWeight:700, marginBottom:6}}>No accounts yet</div>
+          <div style={{fontSize:13, color:'var(--muted)', marginBottom:20, maxWidth:480, margin:'0 auto 20px'}}>
+            Start with a recommended chart of accounts tuned for plumbing service businesses (~50 accounts covering cash, AR, sales tax, materials, subcontractors, payroll, and operating expenses). You can edit, rename, or remove any of them after.
+          </div>
+          <button onClick={seedDefaults} disabled={seeding}
+            style={{padding:'10px 24px', background:'var(--blue)', color:'#fff', border:'none', borderRadius:8,
+              fontSize:14, fontWeight:700, cursor:'pointer', opacity:seeding?0.6:1}}>
+            {seeding ? 'Seeding…' : '🌱 Seed Default Chart of Accounts'}
+          </button>
+          {seedMsg && <div style={{fontSize:12, color:'var(--green)', marginTop:14}}>{seedMsg}</div>}
+        </div>
+      )}
+
+      {/* Toolbar + table */}
+      {accounts && accounts.length > 0 && (
+        <>
+          {/* Type chips */}
+          <div style={{display:'flex', gap:8, flexWrap:'wrap', marginBottom:14}}>
+            <button onClick={() => setTypeFilter('all')}
+              style={chip(typeFilter === 'all', 'var(--text)')}>
+              All <span style={{opacity:.6, marginLeft:4}}>{totalAccounts}</span>
+            </button>
+            {ACCOUNT_TYPES.map(t => (
+              <button key={t} onClick={() => setTypeFilter(t)}
+                style={chip(typeFilter === t, TYPE_COLORS[t])}>
+                {t} <span style={{opacity:.6, marginLeft:4}}>{typeCounts[t] || 0}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Search + toggles */}
+          <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:14, flexWrap:'wrap'}}>
+            <input
+              type="text"
+              placeholder="🔍 Search by number, name, or category…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{flex:1, minWidth:250, padding:'8px 14px', border:'1px solid var(--border)',
+                borderRadius:8, background:'var(--surface)', color:'var(--text)', fontSize:13}}
+            />
+            <label style={{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'var(--muted)', cursor:'pointer'}}>
+              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}/>
+              Show archived
+            </label>
+            {seedMsg && <span style={{fontSize:11, color:'var(--green)'}}>{seedMsg}</span>}
+          </div>
+
+          {/* Grouped table */}
+          {ACCOUNT_TYPES.map(type => {
+            const list = grouped[type];
+            if (!list || list.length === 0) return null;
+            return (
+              <div key={type} style={{marginBottom:18}}>
+                <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:8}}>
+                  <div style={{width:6, height:18, background:TYPE_COLORS[type], borderRadius:2}}/>
+                  <div style={{fontSize:11, fontWeight:700, color:TYPE_COLORS[type], textTransform:'uppercase', letterSpacing:'.08em'}}>
+                    {type} <span style={{color:'var(--muted)', fontWeight:400, marginLeft:4}}>({list.length})</span>
+                  </div>
+                </div>
+                <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden'}}>
+                  <table style={{width:'100%', borderCollapse:'collapse', fontSize:13}}>
+                    <thead>
+                      <tr style={{background:'var(--surface2)'}}>
+                        <th style={th()}>Number</th>
+                        <th style={th()}>Account Name</th>
+                        <th style={th()}>Category</th>
+                        <th style={th()}>Description</th>
+                        <th style={{...th(), width:90, textAlign:'right'}}>Status</th>
+                        <th style={{...th(), width:120, textAlign:'right'}}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((a, i) => (
+                        <tr key={a.id} style={{borderBottom:'1px solid var(--border)', background:i%2===0 ? 'transparent' : 'var(--surface2)44'}}>
+                          <td style={{padding:'10px 14px', fontFamily:'var(--font-mono)', fontWeight:700, color:TYPE_COLORS[type]}}>
+                            {a.number}
+                            {a.system_key && <span title="System account — cannot be hard-deleted" style={{fontSize:9, marginLeft:6, padding:'1px 5px', background:'var(--surface3)', color:'var(--muted)', borderRadius:3, fontFamily:'var(--font-mono)'}}>SYS</span>}
+                          </td>
+                          <td style={{padding:'10px 14px', fontWeight:600}}>{a.name}</td>
+                          <td style={{padding:'10px 14px', color:'var(--muted)', fontSize:12}}>{a.subtype || '—'}</td>
+                          <td style={{padding:'10px 14px', color:'var(--muted)', fontSize:12, maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={a.description || ''}>
+                            {a.description || '—'}
+                          </td>
+                          <td style={{padding:'10px 14px', textAlign:'right'}}>
+                            <span style={{fontSize:10, padding:'2px 8px', borderRadius:4, fontWeight:700,
+                              background: a.active ? 'var(--greendim)' : 'var(--surface3)',
+                              color:      a.active ? 'var(--green)'   : 'var(--muted)'}}>
+                              {a.active ? 'ACTIVE' : 'ARCHIVED'}
+                            </span>
+                          </td>
+                          <td style={{padding:'10px 14px', textAlign:'right'}}>
+                            <button onClick={() => setEditing(a)}
+                              style={{padding:'4px 10px', background:'transparent', border:'1px solid var(--border)',
+                                borderRadius:6, color:'var(--muted)', fontSize:11, fontWeight:600, cursor:'pointer', marginRight:4}}>
+                              Edit
+                            </button>
+                            <button onClick={() => setConfirmDelete(a)}
+                              style={{padding:'4px 10px', background:'transparent', border:'1px solid #f5656544',
+                                borderRadius:6, color:'#f56565', fontSize:11, fontWeight:600, cursor:'pointer'}}>
+                              {a.system_key ? 'Archive' : 'Delete'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div style={{padding:32, textAlign:'center', color:'var(--muted)', fontSize:13, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10}}>
+              No accounts match your filter.
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Add/Edit modal */}
+      {editing && (
+        <GLAccountEditModal
+          account={editing === 'new' ? null : editing}
+          types={ACCOUNT_TYPES}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
+
+      {/* Delete confirm */}
+      {confirmDelete && (
+        <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}}>
+          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:24, maxWidth:420}}>
+            <div style={{fontSize:16, fontWeight:700, marginBottom:8}}>
+              {confirmDelete.system_key ? 'Archive' : 'Delete'} {confirmDelete.number} — {confirmDelete.name}?
+            </div>
+            <div style={{fontSize:13, color:'var(--muted)', marginBottom:18, lineHeight:1.5}}>
+              {confirmDelete.system_key
+                ? 'This is a system account used by reports — it can\'t be permanently removed but it will be hidden from the active list. Toggle "Show archived" to see it again.'
+                : 'This will permanently delete the account. Any transactions previously assigned to it will lose their categorization.'
+              }
+            </div>
+            <div style={{display:'flex', gap:10, justifyContent:'flex-end'}}>
+              <button onClick={() => setConfirmDelete(null)}
+                style={{padding:'8px 16px', background:'transparent', border:'1px solid var(--border)', borderRadius:7, color:'var(--muted)', fontSize:13, cursor:'pointer'}}>
+                Cancel
+              </button>
+              <button onClick={() => handleDelete(confirmDelete.id)}
+                style={{padding:'8px 18px', background:'#f56565', color:'#fff', border:'none', borderRadius:7, fontSize:13, fontWeight:700, cursor:'pointer'}}>
+                {confirmDelete.system_key ? 'Archive' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  function chip(active, color) {
+    return {
+      padding:'6px 14px', borderRadius:18, fontSize:12, fontWeight:600,
+      background: active ? `${color}22` : 'var(--surface)',
+      color:      active ? color        : 'var(--muted)',
+      border:    `1px solid ${active ? color : 'var(--border)'}`,
+      cursor:'pointer', transition:'all .15s',
+    };
+  }
+  function th() {
+    return { padding:'10px 14px', textAlign:'left', fontSize:10, fontFamily:'var(--font-mono)',
+      color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em' };
+  }
+}
+
+function GLAccountEditModal({ account, types, onClose, onSaved }) {
+  const blank = { number:'', name:'', type:'Asset', subtype:'', description:'', active:true };
+  const [form, setForm] = useState(account ? {...blank, ...account} : blank);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  const set = (k, v) => setForm(p => ({...p, [k]: v}));
+
+  const save = async () => {
+    if (!form.number.trim() || !form.name.trim() || !form.type) {
+      setError('Number, name, and type are required.');
+      return;
+    }
+    setSaving(true); setError('');
+    try {
+      if (account?.id) await api.updateGLAccount(account.id, form);
+      else             await api.createGLAccount(form);
+      onSaved();
+    } catch(e) {
+      setError(e.message || 'Save failed');
+    } finally { setSaving(false); }
+  };
+
+  const INP = { width:'100%', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:8, padding:'9px 12px', fontSize:13, color:'var(--text)', boxSizing:'border-box' };
+  const LBL = { display:'block', fontSize:11, color:'var(--muted)', marginBottom:5, fontWeight:600 };
+
+  return (
+    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}}>
+      <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:26, width:560}}>
+        <div style={{display:'flex', alignItems:'center', marginBottom:18}}>
+          <div style={{fontFamily:'var(--font-head)', fontSize:18, fontWeight:800, flex:1}}>
+            {account ? 'Edit' : 'Add'} GL Account
+          </div>
+          <button onClick={onClose} style={{background:'transparent', border:'none', color:'var(--muted)', fontSize:20, cursor:'pointer'}}>✕</button>
+        </div>
+
+        {error && (
+          <div style={{padding:'10px 14px', background:'#f5656518', border:'1px solid #f5656544', borderRadius:8, fontSize:13, color:'#f56565', marginBottom:14}}>
+            {error}
+          </div>
+        )}
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 2fr', gap:12, marginBottom:12}}>
+          <div>
+            <label style={LBL}>Account Number *</label>
+            <input value={form.number} onChange={e => set('number', e.target.value)} style={{...INP, fontFamily:'var(--font-mono)'}} placeholder="4250"/>
+          </div>
+          <div>
+            <label style={LBL}>Account Name *</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)} style={INP} placeholder="Water Heater Sales Revenue"/>
+          </div>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12}}>
+          <div>
+            <label style={LBL}>Type *</label>
+            <select value={form.type} onChange={e => set('type', e.target.value)} style={INP}
+              disabled={!!account?.system_key}>
+              {types.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {account?.system_key && <div style={{fontSize:10, color:'var(--muted)', marginTop:4}}>Type locked for system accounts.</div>}
+          </div>
+          <div>
+            <label style={LBL}>Category / Sub-type</label>
+            <input value={form.subtype || ''} onChange={e => set('subtype', e.target.value)} style={INP} placeholder="Current Asset, Fixed Asset, etc."/>
+          </div>
+        </div>
+
+        <div style={{marginBottom:12}}>
+          <label style={LBL}>Description</label>
+          <textarea value={form.description || ''} onChange={e => set('description', e.target.value)}
+            style={{...INP, height:64, resize:'vertical'}}
+            placeholder="Optional notes about what posts to this account…"/>
+        </div>
+
+        <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:18}}>
+          <input type="checkbox" id="gl_active" checked={form.active !== false} onChange={e => set('active', e.target.checked)}
+            style={{width:16, height:16, accentColor:'var(--amber)'}}/>
+          <label htmlFor="gl_active" style={{fontSize:13, cursor:'pointer'}}>Active</label>
+        </div>
+
+        <div style={{display:'flex', gap:10, justifyContent:'flex-end'}}>
+          <button onClick={onClose}
+            style={{padding:'9px 18px', background:'transparent', border:'1px solid var(--border)', borderRadius:8, color:'var(--muted)', fontSize:13, cursor:'pointer'}}>
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving}
+            style={{padding:'9px 22px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving?0.6:1}}>
+            {saving ? 'Saving…' : account ? 'Save Changes' : 'Create Account'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Shared building blocks for the new settings pages ───────────────────────
+const settingsCSS = {
+  inp: {width:'100%', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:8, padding:'9px 12px', fontSize:13, color:'var(--text)', boxSizing:'border-box'},
+  lbl: {display:'block', fontSize:11, color:'var(--muted)', marginBottom:5, fontWeight:600},
+  card: {background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px', marginBottom:10},
+  badge: (color) => ({fontSize:10, padding:'2px 8px', borderRadius:4, fontWeight:700, background:color+'22', color, fontFamily:'var(--font-mono)'}),
+  primaryBtn: {padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer'},
+  ghostBtn:   {padding:'5px 12px', background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer'},
+  dangerBtn:  {padding:'5px 10px', background:'transparent', border:'1px solid #f5656544', borderRadius:6, color:'#f56565', fontSize:12, cursor:'pointer'},
+};
+
+function SettingsHeader({ title, description, action }) {
+  return (
+    <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:6}}>
+      <div style={{flex:1}}>
+        <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800}}>{title}</div>
+        {description && <div style={{fontSize:13, color:'var(--muted)', marginTop:4}}>{description}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+// ── Payment Terms ───────────────────────────────────────────────────────────
+function PaymentTermsSettings() {
+  const [terms, setTerms]   = useState(null);
+  const [editing, setEdit]  = useState(null); // null | 'new' | object
+  const load = () => api.getPaymentTerms().then(setTerms).catch(()=>setTerms([]));
+  useEffect(() => { load(); }, []);
+
+  const save = async (form) => {
+    if (form.id) await api.updatePaymentTerm(form.id, form);
+    else         await api.createPaymentTerm(form);
+    setEdit(null); load();
+  };
+  const del = async (id) => {
+    if (!confirm('Delete this payment term?')) return;
+    await api.deletePaymentTerm(id).catch(e => alert(e.message));
+    load();
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:780}}>
+      <SettingsHeader
+        title="Payment Terms"
+        description="Customer-facing payment terms shown on invoices and estimates. The default term is auto-applied to new invoices."
+        action={
+          <button onClick={() => setEdit('new')} style={settingsCSS.primaryBtn}>+ Add Term</button>
+        }
+      />
+      <div style={{marginTop:18}}>
+        {terms === null ? <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>
+        : terms.length === 0 ? <div style={settingsCSS.card}>No payment terms yet.</div>
+        : terms.map(t => (
+          <div key={t.id} style={{...settingsCSS.card, display:'flex', alignItems:'center', gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                <div style={{fontWeight:700, fontSize:14}}>{t.name}</div>
+                {t.is_default && <span style={settingsCSS.badge('var(--green)')}>DEFAULT</span>}
+                {!t.active && <span style={settingsCSS.badge('var(--muted)')}>INACTIVE</span>}
+              </div>
+              <div style={{fontSize:12, color:'var(--muted)'}}>
+                {t.days === 0 ? 'Due upon completion' : `Net ${t.days} days`}
+                {t.description ? ` · ${t.description}` : ''}
+              </div>
+            </div>
+            <button onClick={() => setEdit(t)} style={settingsCSS.ghostBtn}>Edit</button>
+            <button onClick={() => del(t.id)}  style={settingsCSS.dangerBtn}>Delete</button>
+          </div>
+        ))}
+      </div>
+      {editing && (
+        <SimpleEditModal
+          title={`${editing === 'new' ? 'Add' : 'Edit'} Payment Term`}
+          initial={editing === 'new' ? {name:'', days:0, description:'', is_default:false, active:true, sort_order:0} : editing}
+          onClose={() => setEdit(null)}
+          onSave={save}
+          fields={[
+            { key:'name',        label:'Name *',      type:'text',  placeholder:'Net 30' },
+            { key:'days',        label:'Days *',      type:'number', placeholder:'30' },
+            { key:'description', label:'Description', type:'text',  placeholder:'Optional notes' },
+            { key:'is_default',  label:'Default term for new invoices', type:'checkbox' },
+            { key:'active',      label:'Active',       type:'checkbox' },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Tax Zones ───────────────────────────────────────────────────────────────
+function TaxZonesSettings() {
+  const [zones, setZones] = useState(null);
+  const [editing, setEdit] = useState(null);
+  const load = () => api.getTaxZones().then(setZones).catch(()=>setZones([]));
+  useEffect(() => { load(); }, []);
+
+  const save = async (form) => {
+    const payload = {...form, rate: parseFloat(form.rate || 0)};
+    // zip_codes from comma-separated string → array
+    if (typeof payload.zip_codes === 'string') {
+      payload.zip_codes = payload.zip_codes.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    if (form.id) await api.updateTaxZone(form.id, payload);
+    else         await api.createTaxZone(payload);
+    setEdit(null); load();
+  };
+  const del = async (id) => {
+    if (!confirm('Delete this tax zone?')) return;
+    await api.deleteTaxZone(id).catch(e => alert(e.message));
+    load();
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:780}}>
+      <SettingsHeader
+        title="Tax Zones"
+        description="Sales-tax jurisdictions and rates. Match to invoices by ZIP code or use the default zone."
+        action={<button onClick={() => setEdit('new')} style={settingsCSS.primaryBtn}>+ Add Zone</button>}
+      />
+      <div style={{marginTop:18}}>
+        {zones === null ? <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>
+        : zones.length === 0 ? (
+          <div style={{...settingsCSS.card, textAlign:'center', color:'var(--muted)', fontSize:13, padding:28}}>
+            No tax zones yet. Add your first jurisdiction (e.g. "Houston / Harris County" at 8.25%).
+          </div>
+        )
+        : zones.map(z => (
+          <div key={z.id} style={{...settingsCSS.card, display:'flex', alignItems:'center', gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                <div style={{fontWeight:700, fontSize:14}}>{z.name}</div>
+                {z.is_default && <span style={settingsCSS.badge('var(--green)')}>DEFAULT</span>}
+                <span style={{fontSize:14, fontWeight:800, color:'#8b5cf6', fontFamily:'var(--font-mono)', marginLeft:'auto'}}>{(parseFloat(z.rate)*100).toFixed(3)}%</span>
+              </div>
+              <div style={{fontSize:12, color:'var(--muted)'}}>
+                {z.jurisdiction || '—'}
+                {Array.isArray(z.zip_codes) && z.zip_codes.length ? ` · ZIPs: ${z.zip_codes.join(', ')}` : ''}
+              </div>
+            </div>
+            <button onClick={() => setEdit({...z, rate: z.rate, zip_codes: Array.isArray(z.zip_codes) ? z.zip_codes.join(', ') : ''})} style={settingsCSS.ghostBtn}>Edit</button>
+            <button onClick={() => del(z.id)} style={settingsCSS.dangerBtn}>Delete</button>
+          </div>
+        ))}
+      </div>
+      {editing && (
+        <SimpleEditModal
+          title={`${editing === 'new' ? 'Add' : 'Edit'} Tax Zone`}
+          initial={editing === 'new' ? {name:'', rate:0.0825, jurisdiction:'', zip_codes:'', is_default:false, active:true, notes:''} : editing}
+          onClose={() => setEdit(null)}
+          onSave={save}
+          fields={[
+            { key:'name',         label:'Zone Name *',     type:'text',   placeholder:'Houston / Harris County' },
+            { key:'rate',         label:'Tax Rate (decimal) *', type:'number', step:'0.0001', placeholder:'0.0825', help:'0.0825 = 8.25%' },
+            { key:'jurisdiction', label:'Jurisdiction',    type:'text',   placeholder:'TX-HARRIS' },
+            { key:'zip_codes',    label:'ZIP Codes',       type:'text',   placeholder:'77002, 77003, 77004', help:'Comma-separated' },
+            { key:'is_default',   label:'Default zone',    type:'checkbox' },
+            { key:'active',       label:'Active',          type:'checkbox' },
+            { key:'notes',        label:'Notes',           type:'textarea' },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Business Units ──────────────────────────────────────────────────────────
+function BusinessUnitsSettings() {
+  const [units, setUnits] = useState(null);
+  const [editing, setEdit] = useState(null);
+  const load = () => api.getBusinessUnits().then(setUnits).catch(()=>setUnits([]));
+  useEffect(() => { load(); }, []);
+
+  const save = async (form) => {
+    if (form.id) await api.updateBusinessUnit(form.id, form);
+    else         await api.createBusinessUnit(form);
+    setEdit(null); load();
+  };
+  const del = async (id) => {
+    if (!confirm('Delete this business unit?')) return;
+    await api.deleteBusinessUnit(id).catch(e => alert(e.message));
+    load();
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:780}}>
+      <SettingsHeader
+        title="Business Units"
+        description="Organizational segments — e.g. Plumbing, HVAC, Restoration. Used for revenue reporting and tech assignment."
+        action={<button onClick={() => setEdit('new')} style={settingsCSS.primaryBtn}>+ Add Unit</button>}
+      />
+      <div style={{marginTop:18}}>
+        {units === null ? <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>
+        : units.length === 0 ? (
+          <div style={{...settingsCSS.card, textAlign:'center', color:'var(--muted)', fontSize:13, padding:28}}>
+            No business units yet.
+          </div>
+        )
+        : units.map(u => (
+          <div key={u.id} style={{...settingsCSS.card, display:'flex', alignItems:'center', gap:12}}>
+            <div style={{width:8, height:32, background:u.color || '#3ecf8e', borderRadius:3, flexShrink:0}}/>
+            <div style={{flex:1}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                <div style={{fontWeight:700, fontSize:14}}>{u.name}</div>
+                {u.code && <span style={{...settingsCSS.badge(u.color || '#3ecf8e'), fontSize:9}}>{u.code}</span>}
+                {!u.active && <span style={settingsCSS.badge('var(--muted)')}>INACTIVE</span>}
+              </div>
+              <div style={{fontSize:12, color:'var(--muted)'}}>{u.description || '—'}</div>
+            </div>
+            <button onClick={() => setEdit(u)} style={settingsCSS.ghostBtn}>Edit</button>
+            <button onClick={() => del(u.id)} style={settingsCSS.dangerBtn}>Delete</button>
+          </div>
+        ))}
+      </div>
+      {editing && (
+        <SimpleEditModal
+          title={`${editing === 'new' ? 'Add' : 'Edit'} Business Unit`}
+          initial={editing === 'new' ? {name:'', code:'', description:'', color:'#3ecf8e', active:true, sort_order:0} : editing}
+          onClose={() => setEdit(null)}
+          onSave={save}
+          fields={[
+            { key:'name',        label:'Name *',     type:'text',  placeholder:'Plumbing' },
+            { key:'code',        label:'Short Code', type:'text',  placeholder:'PLB', help:'2-4 letters used as a prefix in reports' },
+            { key:'description', label:'Description', type:'textarea' },
+            { key:'color',       label:'Color',      type:'color' },
+            { key:'active',      label:'Active',     type:'checkbox' },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Phone Numbers (Purchase + Manage) ───────────────────────────────────────
+function PhoneNumbersSettings() {
+  const [nums, setNums] = useState(null);
+  const [editing, setEdit] = useState(null);
+  const load = () => api.getPhoneNumbers().then(setNums).catch(()=>setNums([]));
+  useEffect(() => { load(); }, []);
+
+  const save = async (form) => {
+    if (form.id) await api.updatePhoneNumber(form.id, form);
+    else         await api.createPhoneNumber(form);
+    setEdit(null); load();
+  };
+  const del = async (id) => {
+    if (!confirm('Remove this phone number?')) return;
+    await api.deletePhoneNumber(id).catch(e => alert(e.message));
+    load();
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:780}}>
+      <SettingsHeader
+        title="Phone Numbers"
+        description="Manage the numbers your business uses for inbound and outbound calls. Mark one as primary for outbound caller ID."
+        action={<button onClick={() => setEdit('new')} style={settingsCSS.primaryBtn}>+ Add Number</button>}
+      />
+
+      {/* Twilio purchase note */}
+      <div style={{marginTop:14, marginBottom:14, padding:'12px 16px', background:'#4a9eff18', border:'1px solid #4a9eff44', borderRadius:10, fontSize:12, color:'var(--muted)'}}>
+        💡 To purchase brand new numbers from a carrier, configure Twilio (or your VoIP provider) credentials in
+        Settings → Integrations. Numbers you already own can be added below for tracking and routing.
+      </div>
+
+      <div style={{marginTop:8}}>
+        {nums === null ? <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>
+        : nums.length === 0 ? (
+          <div style={{...settingsCSS.card, textAlign:'center', color:'var(--muted)', fontSize:13, padding:28}}>
+            No phone numbers yet.
+          </div>
+        )
+        : nums.map(n => (
+          <div key={n.id} style={{...settingsCSS.card, display:'flex', alignItems:'center', gap:12}}>
+            <div style={{fontSize:18}}>📞</div>
+            <div style={{flex:1}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                <div style={{fontWeight:700, fontSize:15, fontFamily:'var(--font-mono)'}}>{n.number}</div>
+                {n.is_primary && <span style={settingsCSS.badge('var(--green)')}>PRIMARY</span>}
+                {n.provider && <span style={settingsCSS.badge('var(--blue)')}>{n.provider.toUpperCase()}</span>}
+                {!n.active && <span style={settingsCSS.badge('var(--muted)')}>INACTIVE</span>}
+              </div>
+              <div style={{fontSize:12, color:'var(--muted)'}}>
+                {n.label || '—'}
+                {n.forward_to ? ` · forwards to ${n.forward_to}` : ''}
+              </div>
+            </div>
+            <button onClick={() => setEdit(n)} style={settingsCSS.ghostBtn}>Edit</button>
+            <button onClick={() => del(n.id)} style={settingsCSS.dangerBtn}>Remove</button>
+          </div>
+        ))}
+      </div>
+      {editing && (
+        <SimpleEditModal
+          title={`${editing === 'new' ? 'Add' : 'Edit'} Phone Number`}
+          initial={editing === 'new' ? {number:'', label:'', provider:'manual', is_primary:false, active:true, forward_to:'', notes:''} : editing}
+          onClose={() => setEdit(null)}
+          onSave={save}
+          fields={[
+            { key:'number',     label:'Phone Number *', type:'text',  placeholder:'(713) 555-2041' },
+            { key:'label',      label:'Label',          type:'text',  placeholder:'Main Line' },
+            { key:'provider',   label:'Provider',       type:'select', options:[
+              {value:'manual',  label:'Manual / Other'},
+              {value:'twilio',  label:'Twilio'},
+              {value:'vonage',  label:'Vonage'},
+              {value:'sinch',   label:'Sinch'},
+              {value:'plivo',   label:'Plivo'},
+            ]},
+            { key:'forward_to', label:'Forward To',    type:'text',  placeholder:'+1234567890', help:'Optional — forward inbound calls' },
+            { key:'is_primary', label:'Primary outbound caller-ID', type:'checkbox' },
+            { key:'active',     label:'Active',        type:'checkbox' },
+            { key:'notes',      label:'Notes',         type:'textarea' },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Caller ID Settings ──────────────────────────────────────────────────────
+function CallerIDSettings() {
+  const [cfg, setCfg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  useEffect(() => {
+    api.getIntegrationConfig('caller_id').then(c => setCfg(c || {})).catch(() => setCfg({}));
+  }, []);
+  const set = (k, v) => setCfg(p => ({...p, [k]: v}));
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try {
+      await api.saveIntegrationConfig('caller_id', cfg);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+  if (!cfg) return <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>;
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:580}}>
+      <SettingsHeader
+        title="Caller ID"
+        description="What the customer sees when you call them or send a text from the business line."
+      />
+      <div style={{...settingsCSS.card, marginTop:18, padding:22}}>
+        <div style={{marginBottom:14}}>
+          <label style={settingsCSS.lbl}>OUTBOUND CALLER ID NAME</label>
+          <input value={cfg.cnam || ''} onChange={e => set('cnam', e.target.value)} style={settingsCSS.inp} placeholder="DAVIS PLUMBING"/>
+          <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+            Carrier-registered name (CNAM). Most networks display 15 chars max, ALL CAPS recommended.
+          </div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={settingsCSS.lbl}>OUTBOUND NUMBER</label>
+          <input value={cfg.outbound_number || ''} onChange={e => set('outbound_number', e.target.value)} style={settingsCSS.inp} placeholder="(713) 555-2041"/>
+          <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+            Defaults to whichever number is marked "primary" in Phone Numbers if blank.
+          </div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={settingsCSS.lbl}>SMS SENDER NAME</label>
+          <input value={cfg.sms_sender_name || ''} onChange={e => set('sms_sender_name', e.target.value)} style={settingsCSS.inp} placeholder="Davis Plumbing"/>
+          <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+            Prepended to outbound texts ("Davis Plumbing: Your tech is on the way…"). Helps with deliverability.
+          </div>
+        </div>
+        <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:18}}>
+          <input type="checkbox" id="cid_block" checked={!!cfg.block_anonymous} onChange={e => set('block_anonymous', e.target.checked)}/>
+          <label htmlFor="cid_block" style={{fontSize:13}}>Block calls from anonymous / restricted numbers</label>
+        </div>
+        <button onClick={save} disabled={saving} style={{...settingsCSS.primaryBtn, opacity:saving?0.6:1}}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Online Payments toggles ─────────────────────────────────────────────────
+function OnlinePaymentsSettings() {
+  const [cfg, setCfg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  useEffect(() => {
+    api.getIntegrationConfig('online_payments').then(c => setCfg(c || {enabled:false, processor:'square', accept_ach:false, accept_card:true, surcharge_pct:0, allow_partial:true, deposit_required:false, deposit_pct:25})).catch(() => setCfg({}));
+  }, []);
+  const set = (k, v) => setCfg(p => ({...p, [k]: v}));
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try {
+      await api.saveIntegrationConfig('online_payments', cfg);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+  if (!cfg) return <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>;
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:580}}>
+      <SettingsHeader
+        title="Online Payments"
+        description="Let customers pay invoices online via a hosted checkout link emailed with the invoice."
+      />
+      <div style={{...settingsCSS.card, marginTop:18, padding:22}}>
+        <div style={{display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'var(--surface2)', borderRadius:8, marginBottom:18}}>
+          <input type="checkbox" id="op_enabled" checked={!!cfg.enabled} onChange={e => set('enabled', e.target.checked)} style={{width:18, height:18}}/>
+          <label htmlFor="op_enabled" style={{fontSize:14, fontWeight:600, cursor:'pointer'}}>Enable online payments on invoices</label>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={settingsCSS.lbl}>PROCESSOR</label>
+          <select value={cfg.processor || 'square'} onChange={e => set('processor', e.target.value)} style={settingsCSS.inp}>
+            <option value="square">Square</option>
+            <option value="stripe">Stripe</option>
+          </select>
+          <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
+            Configure credentials in Settings → Integrations → Payment Processing.
+          </div>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14}}>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+            <input type="checkbox" checked={!!cfg.accept_card} onChange={e => set('accept_card', e.target.checked)}/>
+            Accept credit/debit cards
+          </label>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+            <input type="checkbox" checked={!!cfg.accept_ach} onChange={e => set('accept_ach', e.target.checked)}/>
+            Accept ACH / bank transfer
+          </label>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+            <input type="checkbox" checked={!!cfg.allow_partial} onChange={e => set('allow_partial', e.target.checked)}/>
+            Allow partial payments
+          </label>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+            <input type="checkbox" checked={!!cfg.deposit_required} onChange={e => set('deposit_required', e.target.checked)}/>
+            Require deposit on estimates
+          </label>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:18}}>
+          <div>
+            <label style={settingsCSS.lbl}>SURCHARGE %</label>
+            <input type="number" step="0.1" min="0" max="10" value={cfg.surcharge_pct ?? 0}
+              onChange={e => set('surcharge_pct', parseFloat(e.target.value) || 0)}
+              style={settingsCSS.inp} placeholder="0"/>
+            <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>Pass card-processing fees to customer (where legal)</div>
+          </div>
+          <div>
+            <label style={settingsCSS.lbl}>DEPOSIT %</label>
+            <input type="number" step="1" min="0" max="100" value={cfg.deposit_pct ?? 25}
+              onChange={e => set('deposit_pct', parseFloat(e.target.value) || 0)}
+              style={settingsCSS.inp} disabled={!cfg.deposit_required}/>
+            <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>% required to approve estimate</div>
+          </div>
+        </div>
+
+        <button onClick={save} disabled={saving} style={{...settingsCSS.primaryBtn, opacity:saving?0.6:1}}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Review Automation Settings ──────────────────────────────────────────────
+function ReviewAutomationSettings() {
+  const [cfg, setCfg]       = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [requests, setRequests] = useState(null);
+
+  useEffect(() => {
+    api.getIntegrationConfig('review_settings').then(c => setCfg(c || {auto_send:true, redirect_threshold:4, send_delay_hours:2})).catch(() => setCfg({}));
+    api.getReviewRequests().then(setRequests).catch(()=>setRequests([]));
+  }, []);
+
+  const set = (k, v) => setCfg(p => ({...p, [k]: v}));
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try {
+      await api.saveIntegrationConfig('review_settings', cfg);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (!cfg) return <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>;
+
+  const STATUS_COLORS = { pending:'var(--muted)', sent:'var(--blue)', completed:'var(--green)', expired:'#f56565' };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:780}}>
+      <SettingsHeader
+        title="Review Automation"
+        description="Auto-send a feedback link to customers after every completed job. High ratings redirect to Google/Yelp; low ratings stay private and alert your team."
+      />
+
+      <div style={{...settingsCSS.card, padding:22, marginTop:18}}>
+        <div style={{display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'var(--surface2)', borderRadius:8, marginBottom:18}}>
+          <input type="checkbox" id="auto_send" checked={cfg.auto_send !== false} onChange={e => set('auto_send', e.target.checked)} style={{width:18, height:18}}/>
+          <label htmlFor="auto_send" style={{fontSize:14, fontWeight:600, cursor:'pointer'}}>
+            Auto-create review request when a job completes
+          </label>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14}}>
+          <div>
+            <label style={settingsCSS.lbl}>SEND DELAY (HOURS)</label>
+            <input type="number" min="0" max="168" value={cfg.send_delay_hours ?? 2}
+              onChange={e => set('send_delay_hours', parseFloat(e.target.value) || 0)}
+              style={settingsCSS.inp}/>
+            <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>Wait this long after completion before sending the link.</div>
+          </div>
+          <div>
+            <label style={settingsCSS.lbl}>REDIRECT THRESHOLD</label>
+            <select value={cfg.redirect_threshold ?? 4} onChange={e => set('redirect_threshold', parseInt(e.target.value))} style={settingsCSS.inp}>
+              <option value={5}>5★ only</option>
+              <option value={4}>4★ and above (recommended)</option>
+              <option value={3}>3★ and above</option>
+              <option value={0}>Never redirect — keep all internal</option>
+            </select>
+            <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>Below this rating, the review stays private.</div>
+          </div>
+        </div>
+
+        <div style={{borderTop:'1px solid var(--border)', paddingTop:16, marginTop:8}}>
+          <div style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:12}}>
+            Public Review Platform Links
+          </div>
+          {[
+            { key:'google_review_url',   label:'Google Review URL',   help:'Find this in Google Business Profile → "Get more reviews"' },
+            { key:'yelp_review_url',     label:'Yelp Review URL',     help:'https://www.yelp.com/writeareview/biz/<your-id>' },
+            { key:'facebook_review_url', label:'Facebook Review URL', help:'https://www.facebook.com/<your-page>/reviews' },
+          ].map(f => (
+            <div key={f.key} style={{marginBottom:14}}>
+              <label style={settingsCSS.lbl}>{f.label.toUpperCase()}</label>
+              <input value={cfg[f.key] || ''} onChange={e => set(f.key, e.target.value)} style={settingsCSS.inp} placeholder="https://…"/>
+              <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>{f.help}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{borderTop:'1px solid var(--border)', paddingTop:16, marginTop:8}}>
+          <div style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:12}}>
+            External Review Webhook
+          </div>
+          <div style={{fontSize:12, color:'var(--muted)', marginBottom:10, lineHeight:1.5}}>
+            Configure a third-party reputation service (NiceJob, Birdeye, or a Zapier flow) to POST new reviews to this URL.
+            We'll auto-match each review to a customer (by email or phone) and the technician who ran their last completed job.
+          </div>
+          <div style={{padding:'10px 14px', background:'var(--surface2)', border:'1px dashed var(--border2)', borderRadius:8, fontFamily:'var(--font-mono)', fontSize:12, marginBottom:12, wordBreak:'break-all'}}>
+            {window.location.origin}/api/marketing/reviews/webhook
+          </div>
+          <label style={settingsCSS.lbl}>WEBHOOK SECRET (OPTIONAL)</label>
+          <input value={cfg.webhook_secret || ''} onChange={e => set('webhook_secret', e.target.value)} style={settingsCSS.inp} placeholder="(blank = accept any source — set a secret for security)"/>
+          <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>Sender must include header: <code style={{fontFamily:'var(--font-mono)', background:'var(--surface2)', padding:'1px 4px', borderRadius:3}}>X-Webhook-Secret: &lt;your secret&gt;</code></div>
+        </div>
+
+        <button onClick={save} disabled={saving} style={{...settingsCSS.primaryBtn, opacity:saving?0.6:1, marginTop:18}}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
+        </button>
+      </div>
+
+      {/* Recent review requests */}
+      <div style={{marginTop:24}}>
+        <div style={{fontSize:13, fontWeight:700, marginBottom:10}}>Recent Review Requests</div>
+        {requests === null ? <div style={{color:'var(--muted)', fontSize:12}}>Loading…</div>
+        : requests.length === 0 ? (
+          <div style={{...settingsCSS.card, fontSize:12, color:'var(--muted)', textAlign:'center', padding:20}}>
+            No review requests yet. They'll appear here once jobs start completing.
+          </div>
+        )
+        : requests.slice(0, 12).map(r => (
+          <div key={r.id} style={{...settingsCSS.card, display:'flex', alignItems:'center', gap:12, padding:'12px 16px'}}>
+            <span style={{...settingsCSS.badge(STATUS_COLORS[r.status] || 'var(--muted)'), fontSize:9}}>{r.status.toUpperCase()}</span>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:13, fontWeight:600}}>{r.customer_name || '—'}</div>
+              <div style={{fontSize:11, color:'var(--muted)', fontFamily:'var(--font-mono)'}}>
+                {r.technician_name ? `tech: ${r.technician_name}` : 'no tech'} · {new Date(r.created_at).toLocaleDateString()}
+                {r.responded_at && ` · responded ${new Date(r.responded_at).toLocaleDateString()}`}
+              </div>
+            </div>
+            {r.status !== 'completed' && (
+              <button onClick={() => {
+                const url = `${window.location.origin}/feedback/${r.token}`;
+                navigator.clipboard.writeText(url).then(() => alert('Feedback URL copied!'));
+              }} style={settingsCSS.ghostBtn}>📋 Copy Link</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Generic integration credential form (Acorn / Stripe / FreshBooks) ───────
+function IntegrationCredsPage({ name, displayName, logo, description, fields, docsUrl }) {
+  const [cfg, setCfg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [showSecrets, setShow] = useState(false);
+  useEffect(() => {
+    api.getIntegrationConfig(name).then(c => setCfg(c || {})).catch(() => setCfg({}));
+  }, [name]);
+  const set = (k, v) => setCfg(p => ({...p, [k]: v}));
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try {
+      await api.saveIntegrationConfig(name, cfg);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+  const isConnected = cfg && fields.filter(f => f.required).every(f => cfg[f.key]);
+  if (!cfg) return <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>;
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:580}}>
+      <div style={{display:'flex', alignItems:'flex-start', gap:14, marginBottom:6}}>
+        <div style={{fontSize:36, lineHeight:1}}>{logo}</div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800}}>{displayName}</div>
+          <div style={{fontSize:13, color:'var(--muted)', marginTop:4}}>{description}</div>
+        </div>
+      </div>
+
+      {/* Connection status */}
+      <div style={{display:'flex', alignItems:'center', gap:10, marginTop:18, marginBottom:16}}>
+        <div style={{width:9, height:9, borderRadius:'50%', background:isConnected ? 'var(--green)' : '#f56565', animation:isConnected?'none':'pulse2 1.2s infinite'}}/>
+        <span style={{fontSize:12, fontFamily:'var(--font-mono)', color:isConnected ? 'var(--green)' : '#f56565', fontWeight:600}}>
+          {isConnected ? 'Connected — credentials saved' : 'Not connected — fill in the credentials below'}
+        </span>
+      </div>
+
+      <div style={{...settingsCSS.card, padding:22, marginTop:0}}>
+        {fields.map(f => (
+          <div key={f.key} style={{marginBottom:14}}>
+            <label style={settingsCSS.lbl}>
+              {f.label}{f.required && <span style={{color:'var(--amber)'}}> *</span>}
+            </label>
+            {f.type === 'select' ? (
+              <select value={cfg[f.key] || ''} onChange={e => set(f.key, e.target.value)} style={settingsCSS.inp}>
+                {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ) : f.secret ? (
+              <div style={{display:'flex', gap:6}}>
+                <input
+                  type={showSecrets ? 'text' : 'password'}
+                  value={cfg[f.key] || ''}
+                  onChange={e => set(f.key, e.target.value)}
+                  style={{...settingsCSS.inp, flex:1, fontFamily:'var(--font-mono)', letterSpacing: showSecrets?'.02em':'.1em'}}
+                  placeholder={f.placeholder}
+                />
+                <button onClick={() => setShow(s => !s)} style={{...settingsCSS.ghostBtn, padding:'9px 12px'}}>
+                  {showSecrets ? '🙈' : '👁'}
+                </button>
+              </div>
+            ) : (
+              <input value={cfg[f.key] || ''} onChange={e => set(f.key, e.target.value)} style={settingsCSS.inp} placeholder={f.placeholder}/>
+            )}
+            {f.help && <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>{f.help}</div>}
+          </div>
+        ))}
+        <div style={{display:'flex', alignItems:'center', gap:10, marginTop:18}}>
+          <button onClick={save} disabled={saving} style={{...settingsCSS.primaryBtn, opacity:saving?0.6:1}}>
+            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Credentials'}
+          </button>
+          {docsUrl && (
+            <a href={docsUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:12, color:'var(--blue)', textDecoration:'none'}}>
+              📖 {displayName} docs ↗
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AcornFinanceIntegrationPage() {
+  return <IntegrationCredsPage
+    name="acorn"
+    displayName="Acorn Finance"
+    logo="🌰"
+    description="Multi-lender financing marketplace — customers compare offers from multiple lenders for higher approval rates."
+    docsUrl="https://www.acornfinance.com/business/api"
+    fields={[
+      { key:'partner_id',  label:'Partner ID',  required:true,  placeholder:'acorn_xxx' },
+      { key:'api_key',     label:'API Key',     required:true,  placeholder:'sk_xxx', secret:true },
+      { key:'environment', label:'Environment', type:'select', options:[
+        {value:'sandbox',    label:'Sandbox'},
+        {value:'production', label:'Production'},
+      ]},
+      { key:'min_amount',  label:'Min Amount Eligible ($)', placeholder:'1000' },
+      { key:'max_amount',  label:'Max Amount Eligible ($)', placeholder:'100000' },
+    ]}
+  />;
+}
+
+function StripeIntegrationPage() {
+  return <IntegrationCredsPage
+    name="stripe"
+    displayName="Stripe"
+    logo="💳"
+    description="Accept credit cards on invoices, online estimates, and the customer portal."
+    docsUrl="https://dashboard.stripe.com/apikeys"
+    fields={[
+      { key:'publishable_key', label:'Publishable Key', required:true, placeholder:'pk_live_…' },
+      { key:'secret_key',      label:'Secret Key',      required:true, placeholder:'sk_live_…', secret:true },
+      { key:'webhook_secret',  label:'Webhook Secret', placeholder:'whsec_…', secret:true,
+        help:'Optional but recommended — verifies webhook authenticity.' },
+      { key:'environment', label:'Environment', type:'select', options:[
+        {value:'test', label:'Test mode'},
+        {value:'live', label:'Live mode'},
+      ]},
+    ]}
+  />;
+}
+
+function FreshBooksIntegrationPage() {
+  return <IntegrationCredsPage
+    name="freshbooks"
+    displayName="FreshBooks"
+    logo="📒"
+    description="Sync invoices, customers, and time tracking with FreshBooks accounting."
+    docsUrl="https://www.freshbooks.com/api/start"
+    fields={[
+      { key:'client_id',     label:'Client ID',     required:true, placeholder:'…' },
+      { key:'client_secret', label:'Client Secret', required:true, placeholder:'…', secret:true },
+      { key:'account_id',    label:'Account ID',    required:true, placeholder:'…',
+        help:'Find this in FreshBooks → Settings → API.' },
+      { key:'auto_sync',     label:'Auto-sync invoices on payment', type:'select', options:[
+        {value:'',       label:'Manual only'},
+        {value:'paid',   label:'Sync when paid'},
+        {value:'always', label:'Sync on every change'},
+      ]},
+    ]}
+  />;
+}
+
+// ── Reusable simple edit modal ──────────────────────────────────────────────
+function SimpleEditModal({ title, initial, onClose, onSave, fields }) {
+  const [form, setForm] = useState(initial || {});
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+  const set = (k, v) => setForm(p => ({...p, [k]: v}));
+
+  const save = async () => {
+    // Basic required-field check
+    const missing = (fields || []).filter(f => f.label?.includes('*') && (form[f.key] === undefined || form[f.key] === ''));
+    if (missing.length) { setError(`${missing[0].label.replace(' *','')} is required`); return; }
+    setSaving(true); setError('');
+    try { await onSave(form); }
+    catch(e) { setError(e.message || 'Save failed'); setSaving(false); }
+  };
+
+  return (
+    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}}>
+      <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:26, width:540, maxHeight:'92vh', overflow:'auto'}}>
+        <div style={{display:'flex', alignItems:'center', marginBottom:18}}>
+          <div style={{fontFamily:'var(--font-head)', fontSize:18, fontWeight:800, flex:1}}>{title}</div>
+          <button onClick={onClose} style={{background:'transparent', border:'none', color:'var(--muted)', fontSize:20, cursor:'pointer'}}>✕</button>
+        </div>
+        {error && (
+          <div style={{padding:'10px 14px', background:'#f5656518', border:'1px solid #f5656544', borderRadius:8, fontSize:13, color:'#f56565', marginBottom:14}}>
+            {error}
+          </div>
+        )}
+        {fields.map(f => (
+          <div key={f.key} style={{marginBottom:12}}>
+            {f.type !== 'checkbox' && <label style={settingsCSS.lbl}>{f.label}</label>}
+            {f.type === 'textarea' ? (
+              <textarea value={form[f.key] || ''} onChange={e => set(f.key, e.target.value)}
+                style={{...settingsCSS.inp, height:60, resize:'vertical'}} placeholder={f.placeholder}/>
+            ) : f.type === 'checkbox' ? (
+              <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+                <input type="checkbox" checked={!!form[f.key]} onChange={e => set(f.key, e.target.checked)}/>
+                {f.label}
+              </label>
+            ) : f.type === 'select' ? (
+              <select value={form[f.key] || ''} onChange={e => set(f.key, e.target.value)} style={settingsCSS.inp}>
+                {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ) : f.type === 'color' ? (
+              <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                <input type="color" value={form[f.key] || '#3ecf8e'} onChange={e => set(f.key, e.target.value)}
+                  style={{width:50, height:38, border:'1px solid var(--border)', borderRadius:6, cursor:'pointer'}}/>
+                <input value={form[f.key] || ''} onChange={e => set(f.key, e.target.value)}
+                  style={{...settingsCSS.inp, fontFamily:'var(--font-mono)'}} placeholder="#3ecf8e"/>
+              </div>
+            ) : (
+              <input
+                type={f.type || 'text'}
+                step={f.step}
+                value={form[f.key] ?? ''}
+                onChange={e => set(f.key, f.type === 'number' ? (e.target.value === '' ? '' : parseFloat(e.target.value)) : e.target.value)}
+                style={settingsCSS.inp}
+                placeholder={f.placeholder}
+              />
+            )}
+            {f.help && <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>{f.help}</div>}
+          </div>
+        ))}
+        <div style={{display:'flex', gap:10, justifyContent:'flex-end', marginTop:18}}>
+          <button onClick={onClose} style={{padding:'9px 18px', background:'transparent', border:'1px solid var(--border)', borderRadius:8, color:'var(--muted)', fontSize:13, cursor:'pointer'}}>
+            Cancel
+          </button>
+          <button onClick={save} disabled={saving} style={{...settingsCSS.primaryBtn, opacity:saving?0.6:1}}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentTypesSettingsPage() {
+  const [methods, setMethods]   = useState(null);
+  const [glAccounts, setGl]     = useState([]);
+  const [saving, setSaving]     = useState(false);
+  const [saved,  setSaved]      = useState(false);
+  const [editing, setEditing]   = useState(null); // null | 'new' | method
+  const [dragId, setDragId]     = useState(null);
+
+  const COMMON_ICONS = ['💵','📝','💳','🏦','🌰','💰','💸','📱','🏧','🪙','🟩','🔶','🟦','✉️','🧾','🅿️','🏛️','📨'];
+
+  const load = () => Promise.all([
+    api.getPaymentMethods().then(setMethods).catch(()=>setMethods([])),
+    api.getGLAccounts({type:'Asset'}).then(rows => setGl(Array.isArray(rows) ? rows : [])).catch(()=>setGl([])),
+  ]);
+  useEffect(() => { load(); }, []);
+
+  const update = (id, patch) => {
+    setMethods(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
+  };
+  const toggle = (id) => update(id, { enabled: !methods.find(m => m.id === id)?.enabled });
+  const setDefault = (id) => {
+    setMethods(prev => prev.map(m => ({...m, is_default: m.id === id})));
+  };
+  const removeMethod = (id) => {
+    if (!confirm('Remove this payment type? Existing payments referencing it will be unaffected.')) return;
+    setMethods(prev => prev.filter(m => m.id !== id));
+  };
+
+  // Drag-and-drop reorder
+  const onDragStart = (id) => setDragId(id);
+  const onDragOver  = (e) => { e.preventDefault(); };
+  const onDrop      = (overId) => {
+    if (!dragId || dragId === overId) return;
+    const order = methods.map(m => m.id);
+    const fromIdx = order.indexOf(dragId);
+    const toIdx   = order.indexOf(overId);
+    order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, dragId);
+    setMethods(prev => order.map((id, i) => ({ ...prev.find(m => m.id === id), sort_order: i })));
+    setDragId(null);
+  };
+
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try {
+      await api.savePaymentMethods(methods);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch(e) { alert('Save failed: ' + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const saveEdit = (m) => {
+    if (editing === 'new') {
+      const id = (m.label || 'custom').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') + '_' + Date.now().toString(36);
+      setMethods(prev => [...prev, { ...m, id, sort_order: prev.length, is_custom: true }]);
+    } else {
+      update(editing.id, m);
+    }
+    setEditing(null);
+  };
+
+  const fmtSurcharge = (m) => {
+    const parts = [];
+    if (m.surcharge_pct)   parts.push(`+${m.surcharge_pct}%`);
+    if (m.surcharge_fixed) parts.push(`+$${m.surcharge_fixed}`);
+    return parts.join(' & ');
+  };
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:880}}>
+      <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:6}}>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:'var(--font-head)', fontSize:22, fontWeight:800}}>Payment Types</div>
+          <div style={{fontSize:13, color:'var(--muted)', marginTop:4}}>
+            What your team can accept in the field. Each type can carry a surcharge, post to a specific GL account, and have one marked as the default for the Collect Payment screen. Drag the handle to reorder.
+          </div>
+        </div>
+        <button onClick={() => setEditing('new')}
+          style={{padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer'}}>
+          + Add Custom Type
+        </button>
+      </div>
+
+      {!methods ? (
+        <div style={{color:'var(--muted)', fontSize:13, padding:'24px 0'}}>Loading…</div>
+      ) : (
+        <>
+          <div style={{display:'flex', flexDirection:'column', gap:8, marginTop:18}}>
+            {methods.map(m => {
+              const isFinancing = m.type === 'financing' || m.integration;
+              const glAccount   = glAccounts.find(a => a.id === m.gl_account_id);
+              return (
+                <div key={m.id}
+                  draggable
+                  onDragStart={() => onDragStart(m.id)}
+                  onDragOver={onDragOver}
+                  onDrop={() => onDrop(m.id)}
+                  style={{
+                    display:'grid', gridTemplateColumns:'auto 36px 1fr auto auto', alignItems:'center', gap:12,
+                    background:'var(--surface)',
+                    border: `1px solid ${m.is_default ? 'var(--green)' : m.enabled ? 'var(--border2)' : 'var(--border)'}`,
+                    borderRadius:12, padding:'12px 16px',
+                    opacity: dragId === m.id ? 0.5 : 1,
+                    transition:'all .15s',
+                  }}>
+                  {/* Drag handle */}
+                  <div style={{cursor:'grab', color:'var(--muted)', fontSize:14, userSelect:'none', padding:'0 4px'}}>⋮⋮</div>
+                  {/* Icon */}
+                  <div style={{fontSize:24, textAlign:'center'}}>{m.icon || '💰'}</div>
+                  {/* Label + meta */}
+                  <div style={{minWidth:0}}>
+                    <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap'}}>
+                      <span style={{fontSize:14, fontWeight:700}}>{m.label}</span>
+                      {m.is_default && <span style={{fontSize:10, padding:'1px 8px', background:'var(--greendim)', color:'var(--green)', borderRadius:10, fontWeight:700}}>★ DEFAULT</span>}
+                      {fmtSurcharge(m) && <span style={{fontSize:10, padding:'1px 8px', background:'#f9731622', color:'#f97316', borderRadius:10, fontWeight:700, fontFamily:'var(--font-mono)'}}>{fmtSurcharge(m)}</span>}
+                      {isFinancing && <span style={{fontSize:10, padding:'1px 8px', background:'#a78bfa22', color:'#a78bfa', borderRadius:10, fontWeight:700}}>FINANCING</span>}
+                      {m.is_custom && <span style={{fontSize:10, padding:'1px 8px', background:'var(--surface3)', color:'var(--muted)', borderRadius:10, fontWeight:700}}>CUSTOM</span>}
+                      {m.visible_to === 'tech' && <span style={{fontSize:10, padding:'1px 8px', background:'var(--surface3)', color:'var(--muted)', borderRadius:10}}>TECH ONLY</span>}
+                      {m.visible_to === 'customer' && <span style={{fontSize:10, padding:'1px 8px', background:'var(--surface3)', color:'var(--muted)', borderRadius:10}}>CUSTOMER ONLY</span>}
+                    </div>
+                    <div style={{fontSize:12, color:'var(--muted)', lineHeight:1.4}}>
+                      {m.description || 'No description'}
+                      {glAccount && <span style={{marginLeft:6, fontFamily:'var(--font-mono)', fontSize:11, color:'var(--blue)'}}>· posts to {glAccount.number} {glAccount.name}</span>}
+                    </div>
+                  </div>
+                  {/* Set Default + Edit + Delete */}
+                  <div style={{display:'flex', gap:6, alignItems:'center', flexShrink:0}}>
+                    {!m.is_default && m.enabled && (
+                      <button onClick={() => setDefault(m.id)}
+                        title="Mark as default"
+                        style={{padding:'4px 10px', background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', fontSize:11, cursor:'pointer'}}>★</button>
+                    )}
+                    <button onClick={() => setEditing(m)}
+                      style={{padding:'4px 10px', background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', fontSize:11, fontWeight:600, cursor:'pointer'}}>Edit</button>
+                    {m.is_custom && (
+                      <button onClick={() => removeMethod(m.id)}
+                        style={{padding:'4px 10px', background:'transparent', border:'1px solid #f5656544', borderRadius:6, color:'#f56565', fontSize:11, cursor:'pointer'}}>Remove</button>
+                    )}
+                  </div>
+                  {/* Enable toggle */}
+                  <div onClick={() => toggle(m.id)}
+                    style={{
+                      width:44, height:24, borderRadius:12, cursor:'pointer',
+                      background: m.enabled ? 'var(--green)' : 'var(--surface2)',
+                      border:`1px solid ${m.enabled ? 'var(--green)' : 'var(--border)'}`,
+                      position:'relative', flexShrink:0, transition:'all .2s',
+                    }}>
+                    <div style={{
+                      position:'absolute', top:2, left: m.enabled ? 22 : 2,
+                      width:18, height:18, borderRadius:'50%',
+                      background: m.enabled ? '#fff' : 'var(--muted)',
+                      transition:'left .2s',
+                    }}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{display:'flex', alignItems:'center', gap:12, marginTop:18}}>
+            <button onClick={save} disabled={saving}
+              style={{padding:'10px 26px', background: saved ? 'var(--green)' : 'var(--amber)', border:'none', borderRadius:10, color:'#000', fontSize:14, fontWeight:700, cursor:'pointer', opacity:saving?0.6:1}}>
+              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
+            </button>
+            <div style={{fontSize:11, color:'var(--muted)', flex:1}}>
+              Financing options auto-appear here when the matching integration is connected under Settings → Integrations → Customer Financing.
+            </div>
+          </div>
+        </>
+      )}
+
+      {editing && (
+        <PaymentTypeEditModal
+          method={editing === 'new' ? null : editing}
+          glAccounts={glAccounts}
+          icons={COMMON_ICONS}
+          onClose={() => setEditing(null)}
+          onSave={saveEdit}
+        />
+      )}
+    </div>
+  );
+}
+
+function PaymentTypeEditModal({ method, glAccounts, icons, onClose, onSave }) {
+  const blank = { label:'', icon:'💰', description:'', enabled:true, is_default:false, surcharge_pct:0, surcharge_fixed:0, gl_account_id:'', visible_to:'all' };
+  const [form, setForm] = useState(method ? {...blank, ...method} : blank);
+  const set = (k,v) => setForm(p => ({...p, [k]: v}));
+  const isLocked = method && !method.is_custom; // protect built-in id field
+
+  const INP = {width:'100%', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:8, padding:'9px 12px', fontSize:13, color:'var(--text)', boxSizing:'border-box'};
+  const LBL = {display:'block', fontSize:11, color:'var(--muted)', marginBottom:5, fontWeight:600};
+
+  return (
+    <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000}}>
+      <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:26, width:560, maxHeight:'92vh', overflow:'auto'}}>
+        <div style={{display:'flex', alignItems:'center', marginBottom:18}}>
+          <div style={{fontFamily:'var(--font-head)', fontSize:18, fontWeight:800, flex:1}}>
+            {method ? `Edit ${method.label}` : 'Add Custom Payment Type'}
+          </div>
+          <button onClick={onClose} style={{background:'transparent', border:'none', color:'var(--muted)', fontSize:20, cursor:'pointer'}}>✕</button>
+        </div>
+
+        {/* Icon picker */}
+        <div style={{marginBottom:14}}>
+          <label style={LBL}>ICON</label>
+          <div style={{display:'flex', gap:6, flexWrap:'wrap', padding:8, background:'var(--surface2)', borderRadius:8, border:'1px solid var(--border)'}}>
+            {icons.map(ico => (
+              <button key={ico} type="button" onClick={() => set('icon', ico)}
+                style={{padding:'6px 10px', fontSize:18, background: form.icon === ico ? 'var(--amberdim)' : 'transparent', border: form.icon === ico ? '1px solid var(--amber)' : '1px solid transparent', borderRadius:6, cursor:'pointer'}}>
+                {ico}
+              </button>
+            ))}
+            <input value={form.icon || ''} onChange={e => set('icon', e.target.value)}
+              maxLength={4}
+              style={{width:70, marginLeft:6, ...INP, padding:'6px 10px', fontSize:18, textAlign:'center'}}
+              placeholder="custom"/>
+          </div>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={LBL}>NAME *</label>
+          <input value={form.label} onChange={e => set('label', e.target.value)} style={INP} placeholder="e.g. Zelle, Venmo, ACH Transfer, Wire"/>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <label style={LBL}>DESCRIPTION</label>
+          <textarea value={form.description || ''} onChange={e => set('description', e.target.value)}
+            style={{...INP, height:54, resize:'vertical'}}
+            placeholder="What is this payment type, and how is it processed?"/>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14}}>
+          <div>
+            <label style={LBL}>SURCHARGE %</label>
+            <input type="number" step="0.1" min="0" value={form.surcharge_pct ?? 0}
+              onChange={e => set('surcharge_pct', parseFloat(e.target.value) || 0)} style={INP}/>
+            <div style={{fontSize:10, color:'var(--muted)', marginTop:3}}>e.g. 3 for 3% card processing fee</div>
+          </div>
+          <div>
+            <label style={LBL}>SURCHARGE FIXED ($)</label>
+            <input type="number" step="0.01" min="0" value={form.surcharge_fixed ?? 0}
+              onChange={e => set('surcharge_fixed', parseFloat(e.target.value) || 0)} style={INP}/>
+            <div style={{fontSize:10, color:'var(--muted)', marginTop:3}}>flat fee added per transaction</div>
+          </div>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14}}>
+          <div>
+            <label style={LBL}>POSTS TO GL ACCOUNT</label>
+            <select value={form.gl_account_id || ''} onChange={e => set('gl_account_id', e.target.value || null)} style={INP}>
+              <option value="">— Not mapped —</option>
+              {glAccounts.map(a => (
+                <option key={a.id} value={a.id}>{a.number} — {a.name}</option>
+              ))}
+            </select>
+            <div style={{fontSize:10, color:'var(--muted)', marginTop:3}}>Asset account where payments land. Configure in Settings → Accounting.</div>
+          </div>
+          <div>
+            <label style={LBL}>VISIBLE TO</label>
+            <select value={form.visible_to || 'all'} onChange={e => set('visible_to', e.target.value)} style={INP}>
+              <option value="all">All — tech & customer</option>
+              <option value="tech">Tech only (in-field)</option>
+              <option value="customer">Customer only (online pay)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{display:'flex', gap:14, marginBottom:18, padding:'12px 14px', background:'var(--surface2)', borderRadius:8}}>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+            <input type="checkbox" checked={form.enabled !== false} onChange={e => set('enabled', e.target.checked)}/>
+            Enabled
+          </label>
+          <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer'}}>
+            <input type="checkbox" checked={!!form.is_default} onChange={e => set('is_default', e.target.checked)}/>
+            ★ Default — pre-selected on Collect Payment screen
+          </label>
+        </div>
+
+        <div style={{display:'flex', gap:10, justifyContent:'flex-end'}}>
+          <button onClick={onClose}
+            style={{padding:'9px 18px', background:'transparent', border:'1px solid var(--border)', borderRadius:8, color:'var(--muted)', fontSize:13, cursor:'pointer'}}>Cancel</button>
+          <button onClick={() => onSave(form)} disabled={!form.label?.trim()}
+            style={{padding:'9px 22px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer', opacity: form.label?.trim() ? 1 : .5}}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Invoice Defaults (numbering, due, late fees, reminders) ─────────────────
+function InvoiceDefaultsSettings() {
+  const [cfg, setCfg]       = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  useEffect(() => { api.getInvoiceDefaults().then(setCfg).catch(() => setCfg({})); }, []);
+  const set = (k, v) => setCfg(p => ({...p, [k]: v}));
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try { await api.saveInvoiceDefaults(cfg); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+  if (!cfg) return <div style={{color:'var(--muted)', fontSize:13}}>Loading…</div>;
+
+  const previewNum = `${cfg.number_prefix || ''}${String(cfg.number_next || 1).padStart(cfg.number_pad || 4, '0')}`;
+
+  return (
+    <div style={{animation:'fadeUp .4s ease', maxWidth:780}}>
+      <SettingsHeader
+        title="Invoice Defaults"
+        description="Numbering, due dates, late fees, reminders, and the standard footer text that appears on every invoice."
+      />
+
+      {/* Numbering */}
+      <div style={{...settingsCSS.card, padding:22, marginTop:18}}>
+        <div style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:14}}>Numbering</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:10}}>
+          <div>
+            <label style={settingsCSS.lbl}>PREFIX</label>
+            <input value={cfg.number_prefix || ''} onChange={e => set('number_prefix', e.target.value)} style={{...settingsCSS.inp, fontFamily:'var(--font-mono)'}} placeholder="INV-"/>
+          </div>
+          <div>
+            <label style={settingsCSS.lbl}>NEXT NUMBER</label>
+            <input type="number" value={cfg.number_next ?? 1001} onChange={e => set('number_next', parseInt(e.target.value) || 0)} style={{...settingsCSS.inp, fontFamily:'var(--font-mono)'}}/>
+          </div>
+          <div>
+            <label style={settingsCSS.lbl}>ZERO-PAD WIDTH</label>
+            <input type="number" min="0" max="10" value={cfg.number_pad ?? 4} onChange={e => set('number_pad', parseInt(e.target.value) || 0)} style={{...settingsCSS.inp, fontFamily:'var(--font-mono)'}}/>
+          </div>
+        </div>
+        <div style={{padding:'10px 14px', background:'var(--surface2)', borderRadius:8, fontSize:12, color:'var(--muted)'}}>
+          Next invoice will be: <strong style={{fontFamily:'var(--font-mono)', fontSize:14, color:'var(--text)', marginLeft:6}}>{previewNum}</strong>
+        </div>
+      </div>
+
+      {/* Due dates */}
+      <div style={{...settingsCSS.card, padding:22}}>
+        <div style={{fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:14}}>Default Due</div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 2fr', gap:12}}>
+          <div>
+            <label style={settingsCSS.lbl}>DEFAULT DUE IN (DAYS)</label>
+            <input type="number" min="0" max="365" value={cfg.default_due_days ?? 30} onChange={e => set('default_due_days', parseInt(e.target.value) || 0)} style={settingsCSS.inp}/>
+            <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>0 = due upon completion. Override per invoice in Payment Terms.</div>
+          </div>
+          <div>
+            <label style={settingsCSS.lbl}>DEFAULT TERMS TEXT (PRINTED ON INVOICE)</label>
+            <textarea value={cfg.default_terms_text || ''} onChange={e => set('default_terms_text', e.target.value)} style={{...settingsCSS.inp, height:64, resize:'vertical'}}/>
+          </div>
+        </div>
+      </div>
+
+      {/* Late fees */}
+      <div style={{...settingsCSS.card, padding:22}}>
+        <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:14}}>
+          <input type="checkbox" id="lf_on" checked={!!cfg.late_fee_enabled} onChange={e => set('late_fee_enabled', e.target.checked)} style={{width:18, height:18}}/>
+          <label htmlFor="lf_on" style={{fontSize:14, fontWeight:700, cursor:'pointer'}}>Charge late fees on overdue invoices</label>
+        </div>
+        {cfg.late_fee_enabled && (
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12}}>
+            <div>
+              <label style={settingsCSS.lbl}>FEE TYPE</label>
+              <select value={cfg.late_fee_type || 'percent'} onChange={e => set('late_fee_type', e.target.value)} style={settingsCSS.inp}>
+                <option value="percent">Percentage of balance</option>
+                <option value="fixed">Fixed dollar amount</option>
+              </select>
+            </div>
+            <div>
+              <label style={settingsCSS.lbl}>FEE VALUE</label>
+              <input type="number" step="0.01" min="0" value={cfg.late_fee_value ?? 0} onChange={e => set('late_fee_value', parseFloat(e.target.value) || 0)} style={settingsCSS.inp}/>
+              <div style={{fontSize:10, color:'var(--muted)', marginTop:3}}>{cfg.late_fee_type === 'percent' ? 'compounds monthly' : 'flat per occurrence'}</div>
+            </div>
+            <div>
+              <label style={settingsCSS.lbl}>GRACE PERIOD (DAYS PAST DUE)</label>
+              <input type="number" min="0" max="60" value={cfg.late_fee_grace_days ?? 5} onChange={e => set('late_fee_grace_days', parseInt(e.target.value) || 0)} style={settingsCSS.inp}/>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Reminders */}
+      <div style={{...settingsCSS.card, padding:22}}>
+        <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:14}}>
+          <input type="checkbox" id="rem_on" checked={cfg.reminder_enabled !== false} onChange={e => set('reminder_enabled', e.target.checked)} style={{width:18, height:18}}/>
+          <label htmlFor="rem_on" style={{fontSize:14, fontWeight:700, cursor:'pointer'}}>Send automatic invoice reminders</label>
+        </div>
+        {cfg.reminder_enabled !== false && (
+          <>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:10}}>
+              <div>
+                <label style={settingsCSS.lbl}>HEADS-UP BEFORE DUE</label>
+                <input type="number" min="0" max="30" value={cfg.reminder_before_due ?? 3} onChange={e => set('reminder_before_due', parseInt(e.target.value) || 0)} style={settingsCSS.inp}/>
+                <div style={{fontSize:10, color:'var(--muted)', marginTop:3}}>days before due (0 = off)</div>
+              </div>
+              <div style={{display:'flex', alignItems:'center', gap:10, paddingTop:24}}>
+                <input type="checkbox" id="rem_on_due" checked={!!cfg.reminder_on_due} onChange={e => set('reminder_on_due', e.target.checked)}/>
+                <label htmlFor="rem_on_due" style={{fontSize:13}}>Also send reminder on the due date itself</label>
+              </div>
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12}}>
+              <div>
+                <label style={settingsCSS.lbl}>1ST FOLLOW-UP (DAYS PAST DUE)</label>
+                <input type="number" min="0" value={cfg.reminder_after_due_1 ?? 7} onChange={e => set('reminder_after_due_1', parseInt(e.target.value) || 0)} style={settingsCSS.inp}/>
+              </div>
+              <div>
+                <label style={settingsCSS.lbl}>2ND FOLLOW-UP</label>
+                <input type="number" min="0" value={cfg.reminder_after_due_2 ?? 14} onChange={e => set('reminder_after_due_2', parseInt(e.target.value) || 0)} style={settingsCSS.inp}/>
+              </div>
+              <div>
+                <label style={settingsCSS.lbl}>FINAL NOTICE</label>
+                <input type="number" min="0" value={cfg.reminder_after_due_3 ?? 30} onChange={e => set('reminder_after_due_3', parseInt(e.target.value) || 0)} style={settingsCSS.inp}/>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{...settingsCSS.card, padding:22}}>
+        <label style={settingsCSS.lbl}>FOOTER TEXT</label>
+        <textarea value={cfg.default_footer || ''} onChange={e => set('default_footer', e.target.value)} style={{...settingsCSS.inp, height:60, resize:'vertical'}} placeholder="Thank you for your business!"/>
+      </div>
+
+      <button onClick={save} disabled={saving} style={{...settingsCSS.primaryBtn, opacity:saving?0.6:1, marginTop:18}}>
+        {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Defaults'}
+      </button>
+    </div>
+  );
+}
+
+// ── Vendor list component (shared between Supply Houses and Subcontractors) ──
+function VendorList({ title, description, items, onSave, saving, saved, blankExtra = {} }) {
+  const BLANK = { name:'', account_number:'', phone:'', address:'', poc_name:'', poc_email:'', ...blankExtra };
+  const [adding, setAdding] = useState(false);
+  const [form, setForm]     = useState(BLANK);
+  const [editId, setEditId] = useState(null);
+
+  const inp = {
+    width:'100%', padding:'9px 12px', background:'var(--surface2)',
+    border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', fontSize:13, boxSizing:'border-box',
+  };
+
+  const add = async () => {
+    if (!form.name.trim()) return;
+    await onSave([...(items || []), { ...form, id: Date.now() }]);
+    setForm(BLANK); setAdding(false);
+  };
+  const del = async (id) => {
+    if (!window.confirm('Remove this entry?')) return;
+    await onSave((items || []).filter(h => h.id !== id));
+  };
+  const saveEdit = async () => {
+    await onSave((items || []).map(h => h.id === editId ? { ...h, ...form } : h));
+    setEditId(null); setForm(BLANK);
+  };
+
+  const FieldGrid = ({ f, setF }) => (
+    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+      <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Name *</div>
+        <input style={inp} value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="Company name"/></div>
+      <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Account Number</div>
+        <input style={inp} value={f.account_number||''} onChange={e=>setF(p=>({...p,account_number:e.target.value}))} placeholder="ACC-12345"/></div>
+      <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Phone</div>
+        <input style={inp} value={f.phone||''} onChange={e=>setF(p=>({...p,phone:e.target.value}))} placeholder="(555) 000-0000"/></div>
+      <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Address</div>
+        <input style={inp} value={f.address||''} onChange={e=>setF(p=>({...p,address:e.target.value}))} placeholder="123 Main St, City, TX"/></div>
+      <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Point of Contact</div>
+        <input style={inp} value={f.poc_name||''} onChange={e=>setF(p=>({...p,poc_name:e.target.value}))} placeholder="Jane Smith"/></div>
+      <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Contact Email</div>
+        <input style={inp} value={f.poc_email||''} onChange={e=>setF(p=>({...p,poc_email:e.target.value}))} placeholder="jane@vendor.com"/></div>
+      {blankExtra.trade !== undefined && (
+        <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Trade / Specialty</div>
+          <input style={inp} value={f.trade||''} onChange={e=>setF(p=>({...p,trade:e.target.value}))} placeholder="Electrical, HVAC…"/></div>
+      )}
+      {blankExtra.license !== undefined && (
+        <div><div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>License #</div>
+          <input style={inp} value={f.license||''} onChange={e=>setF(p=>({...p,license:e.target.value}))} placeholder="LIC-000000"/></div>
+      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', marginBottom:16, gap:10 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:'var(--font-head)', fontSize:18, fontWeight:800 }}>{title}</div>
+          <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>{description}</div>
+        </div>
+        {saved && <span style={{ fontSize:12, padding:'4px 12px', background:'#5daf7c22', color:'#5daf7c', borderRadius:6, fontWeight:600 }}>✓ Saved</span>}
+        <button onClick={() => { setAdding(true); setEditId(null); setForm(BLANK); }}
+          style={{ padding:'8px 16px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+          + Add
+        </button>
+      </div>
+
+      {items === null ? <div style={{ color:'var(--muted)', fontSize:13 }}>Loading…</div> : (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {(items||[]).length === 0 && !adding && (
+            <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:24, textAlign:'center', color:'var(--muted)', fontSize:13 }}>
+              No {title.toLowerCase()} yet. Click + Add to get started.
+            </div>
+          )}
+
+          {(items||[]).map(h => (
+            <div key={h.id} style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px' }}>
+              {editId === h.id ? (
+                <div>
+                  <FieldGrid f={form} setF={setForm}/>
+                  <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                    <button onClick={saveEdit} disabled={saving} style={{ padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer' }}>{saving?'Saving…':'Save'}</button>
+                    <button onClick={() => { setEditId(null); setForm(BLANK); }} style={{ padding:'8px 14px', background:'transparent', border:'1px solid var(--border)', borderRadius:8, color:'var(--muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{h.name}</div>
+                    <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+                      {[h.trade, h.account_number && `Acct: ${h.account_number}`, h.phone, h.poc_name].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <button onClick={() => { setEditId(h.id); setForm(h); setAdding(false); }}
+                    style={{ padding:'5px 12px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:6, color:'var(--amber)', fontSize:12, fontWeight:700, cursor:'pointer' }}>Edit</button>
+                  <button onClick={() => del(h.id)}
+                    style={{ padding:'5px 10px', background:'transparent', border:'1px solid #f5656544', borderRadius:6, color:'#f56565', fontSize:12, cursor:'pointer' }}>Remove</button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {adding && (
+            <div style={{ background:'var(--surface)', border:'1px solid var(--amber)', borderRadius:12, padding:'14px 18px' }}>
+              <FieldGrid f={form} setF={setForm}/>
+              <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                <button onClick={add} disabled={saving} style={{ padding:'8px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer' }}>{saving?'Saving…':'Add'}</button>
+                <button onClick={() => { setAdding(false); setForm(BLANK); }} style={{ padding:'8px 14px', background:'transparent', border:'1px solid var(--border)', borderRadius:8, color:'var(--muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VendorsSettingsPage() {
+  const [activeTab, setActiveTab] = useState('supply');
+  const [houses, setHouses]       = useState(null);
+  const [subs, setSubs]           = useState(null);
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(false);
+
+  useEffect(() => {
+    api.getSupplyHouses().then(h => setHouses(h || [])).catch(() => setHouses([]));
+    api.getSubcontractors().then(s => setSubs(s || [])).catch(() => setSubs([]));
+  }, []);
+
+  const saveHouses = async (list) => {
+    setSaving(true); setSaved(false);
+    try { await api.saveSupplyHouses(list); setHouses(list); setSaved(true); setTimeout(()=>setSaved(false),2500); }
+    catch(e) { alert('Save failed: '+e.message); } finally { setSaving(false); }
+  };
+  const saveSubs = async (list) => {
+    setSaving(true); setSaved(false);
+    try { await api.saveSubcontractors(list); setSubs(list); setSaved(true); setTimeout(()=>setSaved(false),2500); }
+    catch(e) { alert('Save failed: '+e.message); } finally { setSaving(false); }
+  };
+
+  const TAB = { padding:'8px 20px', borderRadius:7, fontSize:13, fontWeight:600, cursor:'pointer', border:'1px solid transparent' };
+
+  return (
+    <div style={{ animation:'fadeUp .4s ease', maxWidth:680 }}>
+      <div style={{ fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:6 }}>Vendors</div>
+      <div style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
+        Manage your supply house vendors and subcontractors. Each list feeds its own PO type with a separate prefix on the P&amp;L.
+      </div>
+
+      {/* Tab switcher */}
+      <div style={{ display:'flex', gap:6, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:9, padding:4, marginBottom:24, width:'fit-content' }}>
+        <button onClick={()=>setActiveTab('supply')} style={{ ...TAB, background:activeTab==='supply'?'var(--amberdim)':'transparent', borderColor:activeTab==='supply'?'var(--amber)':'transparent', color:activeTab==='supply'?'var(--amber)':'var(--muted)' }}>
+          🏪 Supply Houses
+        </button>
+        <button onClick={()=>setActiveTab('sub')} style={{ ...TAB, background:activeTab==='sub'?'var(--amberdim)':'transparent', borderColor:activeTab==='sub'?'var(--amber)':'transparent', color:activeTab==='sub'?'var(--amber)':'var(--muted)' }}>
+          🔧 Subcontractors
+        </button>
+      </div>
+
+      {activeTab === 'supply' && (
+        <VendorList
+          title="Supply Houses"
+          description="Vendors your techs order materials from. POs use prefix PO- and appear under Materials on the P&L."
+          items={houses}
+          onSave={saveHouses}
+          saving={saving}
+          saved={saved}
+        />
+      )}
+      {activeTab === 'sub' && (
+        <VendorList
+          title="Subcontractors"
+          description="Trade contractors you hire for jobs. POs use prefix SC- and appear as a separate line on the P&L."
+          items={subs}
+          onSave={saveSubs}
+          saving={saving}
+          saved={saved}
+          blankExtra={{ trade:'', license:'' }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Truck Assignment Settings ──────────────────────────────────────────────
+function TruckAssignmentPage() {
+  const [locations, setLocations] = useState([]);
+  const [techs, setTechs]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(null); // location id being saved
+  const [newTruck, setNewTruck]   = useState('');
+  const [adding, setAdding]       = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [locs, ts] = await Promise.all([api.getInventoryLocations(), api.getTechnicians()]);
+      setLocations((locs || []).filter(l => l.type === 'truck' || l.type === 'van'));
+      setTechs(ts || []);
+    } catch(e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const assignTech = async (locId, techId) => {
+    setSaving(locId);
+    try {
+      const loc = locations.find(l => l.id === locId);
+      await api.updateInventoryLocation(locId, { name: loc.name, technician_id: techId || null });
+      setLocations(prev => prev.map(l => l.id === locId ? { ...l, technician_id: techId||null, technician_name: techs.find(t=>t.id===techId) ? `${techs.find(t=>t.id===techId).first_name} ${techs.find(t=>t.id===techId).last_name}` : null } : l));
+    } catch(e) { alert('Failed to assign: '+e.message); }
+    finally { setSaving(null); }
+  };
+
+  const addTruck = async () => {
+    if (!newTruck.trim()) return;
+    setAdding(true);
+    try {
+      const loc = await api.createInventoryLocation({ type:'truck', name: newTruck.trim() });
+      setLocations(prev => [...prev, loc]);
+      setNewTruck('');
+    } catch(e) { alert('Failed to add truck: '+e.message); }
+    finally { setAdding(false); }
+  };
+
+  const INP = { padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', fontSize:13 };
+
+  if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:60 }}><Spinner/></div>;
+
+  return (
+    <div style={{ animation:'fadeUp .4s ease', maxWidth:640 }}>
+      <div style={{ fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:6 }}>Truck / Van Assignments</div>
+      <div style={{ fontSize:13, color:'var(--muted)', marginBottom:24 }}>
+        Assign trucks and vans to technicians. This links each vehicle to a technician's inventory stock.
+      </div>
+
+      {/* Add new truck */}
+      <div style={{ display:'flex', gap:8, marginBottom:20 }}>
+        <input value={newTruck} onChange={e=>setNewTruck(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&addTruck()}
+          placeholder="Truck name (e.g. Truck #3, Van 02)…"
+          style={{ ...INP, flex:1 }}/>
+        <button onClick={addTruck} disabled={adding||!newTruck.trim()}
+          style={{ padding:'9px 18px', background:'var(--amberdim)', border:'1px solid var(--amber)', borderRadius:8, color:'var(--amber)', fontSize:13, fontWeight:700, cursor:'pointer', opacity:adding||!newTruck.trim()?.5:1 }}>
+          {adding ? 'Adding…' : '+ Add Vehicle'}
+        </button>
+      </div>
+
+      {locations.length === 0 ? (
+        <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:32, textAlign:'center', color:'var(--muted)', fontSize:14 }}>
+          No trucks or vans yet. Add one above.
+        </div>
+      ) : (
+        <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom:'1px solid var(--border)', background:'var(--surface2)' }}>
+                {['Vehicle','Type','Assigned Technician',''].map((h,i) => (
+                  <th key={i} style={{ textAlign:'left', padding:'10px 14px', fontSize:11, fontWeight:700, color:'var(--muted)', letterSpacing:'.06em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {locations.map(loc => (
+                <tr key={loc.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                  <td style={{ padding:'12px 14px', fontSize:13, fontWeight:600, color:'var(--text)' }}>
+                    🚐 {loc.name}
+                  </td>
+                  <td style={{ padding:'12px 14px' }}>
+                    <span style={{ fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:6, background:'#4a9eff22', color:'#4a9eff', textTransform:'uppercase', letterSpacing:'.04em' }}>{loc.type}</span>
+                  </td>
+                  <td style={{ padding:'12px 14px' }}>
+                    <select
+                      value={loc.technician_id || ''}
+                      onChange={e => assignTech(loc.id, e.target.value || null)}
+                      disabled={saving === loc.id}
+                      style={{ ...INP, minWidth:200, opacity: saving===loc.id?.6:1 }}>
+                      <option value=''>— Unassigned —</option>
+                      {techs.map(t => (
+                        <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={{ padding:'12px 14px' }}>
+                    {saving === loc.id && <span style={{ fontSize:11, color:'var(--muted)' }}>Saving…</span>}
+                    {loc.technician_id && saving !== loc.id && (
+                      <span style={{ fontSize:11, color:'#5daf7c', fontWeight:600 }}>✓ Assigned</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupplyHousesSettings() {
+  const BLANK = { name:'', account_number:'', phone:'', address:'', poc_name:'', poc_email:'' };
+  const [houses, setHouses] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState(BLANK);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [editId, setEditId] = useState(null);
+
+  useEffect(() => {
+    api.getSupplyHouses().then(h => setHouses(h || [])).catch(() => setHouses([]));
+  }, []);
+
+  const inp = {
+    width:'100%', padding:'9px 12px', background:'var(--surface2)',
+    border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', fontSize:13,
+    boxSizing:'border-box',
+  };
+
+  const save = async (list) => {
+    setSaving(true); setSaved(false);
+    try {
+      await api.saveSupplyHouses(list);
+      setHouses(list);
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch(e) { alert('Save failed: ' + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const addHouse = async () => {
+    if (!form.name.trim()) return;
+    const next = [...(houses || []), { ...form, id: Date.now() }];
+    await save(next);
+    setForm(BLANK); setAdding(false);
+  };
+
+  const deleteHouse = async (id) => {
+    if (!window.confirm('Remove this supply house?')) return;
+    await save((houses || []).filter(h => h.id !== id));
+  };
+
+  const saveEdit = async () => {
+    const next = (houses || []).map(h => h.id === editId ? { ...h, ...form } : h);
+    await save(next);
+    setEditId(null); setForm(BLANK);
+  };
+
+  return (
+    <div style={{ animation:'fadeUp .4s ease', maxWidth:640 }}>
+      <div style={{ fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:6 }}>Supply Houses</div>
+      <div style={{ fontSize:13, color:'var(--muted)', marginBottom:24, lineHeight:1.6 }}>
+        Manage the list of supply houses your technicians order from. These appear as a dropdown when creating a Purchase Order on a job.
+      </div>
+
+      {houses === null ? (
+        <div style={{ color:'var(--muted)', fontSize:13 }}>Loading…</div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {houses.length === 0 && !adding && (
+            <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:24, textAlign:'center', color:'var(--muted)', fontSize:13 }}>
+              No supply houses yet. Add one below.
+            </div>
+          )}
+
+          {houses.map(h => (
+            <div key={h.id} style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, padding:'14px 18px' }}>
+              {editId === h.id ? (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Name *</div>
+                      <input style={inp} value={form.name} onChange={e => setForm(p => ({...p, name:e.target.value}))} placeholder="Ferguson, Hajoca…"/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Account Number</div>
+                      <input style={inp} value={form.account_number} onChange={e => setForm(p => ({...p, account_number:e.target.value}))} placeholder="ACC-12345"/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Phone</div>
+                      <input style={inp} value={form.phone} onChange={e => setForm(p => ({...p, phone:e.target.value}))} placeholder="(555) 000-0000"/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Address</div>
+                      <input style={inp} value={form.address} onChange={e => setForm(p => ({...p, address:e.target.value}))} placeholder="123 Main St, City, TX"/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Point of Contact</div>
+                      <input style={inp} value={form.poc_name} onChange={e => setForm(p => ({...p, poc_name:e.target.value}))} placeholder="Jane Smith"/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>POC Email</div>
+                      <input style={inp} type="email" value={form.poc_email} onChange={e => setForm(p => ({...p, poc_email:e.target.value}))} placeholder="jane@ferguson.com"/>
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                    <button onClick={saveEdit} disabled={saving} style={{ padding:'8px 18px', background:'var(--amber)', border:'none', borderRadius:8, fontWeight:700, fontSize:13, cursor:'pointer', color:'#000' }}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => { setEditId(null); setForm(BLANK); }} style={{ padding:'8px 18px', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, fontSize:13, cursor:'pointer', color:'var(--text)' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <span style={{ fontSize:22 }}>🏪</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>{h.name}</div>
+                    <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, lineHeight:1.6 }}>
+                      {h.account_number && <span>Acct: {h.account_number}{(h.phone||h.address||h.poc_name) ? '  ·  ' : ''}</span>}
+                      {h.phone && <span>{h.phone}{(h.address||h.poc_name) ? '  ·  ' : ''}</span>}
+                      {h.address && <span>{h.address}{h.poc_name ? '  ·  ' : ''}</span>}
+                      {h.poc_name && <span>POC: {h.poc_name}{h.poc_email ? ' ' : ''}{h.poc_email && <a href={`mailto:${h.poc_email}`} style={{ color:'var(--amber)', textDecoration:'none' }}>{h.poc_email}</a>}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button onClick={() => { setEditId(h.id); setForm({ name:h.name||'', account_number:h.account_number||'', phone:h.phone||'', address:h.address||'', poc_name:h.poc_name||'', poc_email:h.poc_email||'' }); setAdding(false); }} style={{ padding:'6px 14px', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, fontSize:12, cursor:'pointer', color:'var(--text)' }}>
+                      Edit
+                    </button>
+                    <button onClick={() => deleteHouse(h.id)} style={{ padding:'6px 14px', background:'#f5656518', border:'1px solid #f5656544', borderRadius:8, fontSize:12, cursor:'pointer', color:'#f56565' }}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {adding && (
+            <div style={{ background:'var(--surface)', border:'1px solid var(--amber)', borderRadius:12, padding:'16px 18px' }}>
+              <div style={{ fontSize:13, fontWeight:700, color:'var(--text)', marginBottom:12 }}>New Supply House</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Name *</div>
+                  <input style={inp} value={form.name} onChange={e => setForm(p => ({...p, name:e.target.value}))} placeholder="Ferguson, Hajoca, Home Depot…" autoFocus/>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Account Number</div>
+                  <input style={inp} value={form.account_number} onChange={e => setForm(p => ({...p, account_number:e.target.value}))} placeholder="ACC-12345"/>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Phone</div>
+                  <input style={inp} value={form.phone} onChange={e => setForm(p => ({...p, phone:e.target.value}))} placeholder="(555) 000-0000"/>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Address</div>
+                  <input style={inp} value={form.address} onChange={e => setForm(p => ({...p, address:e.target.value}))} placeholder="123 Main St, City, TX"/>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>Point of Contact</div>
+                  <input style={inp} value={form.poc_name} onChange={e => setForm(p => ({...p, poc_name:e.target.value}))} placeholder="Jane Smith"/>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:4 }}>POC Email</div>
+                  <input style={inp} type="email" value={form.poc_email} onChange={e => setForm(p => ({...p, poc_email:e.target.value}))} placeholder="jane@ferguson.com"/>
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                <button onClick={addHouse} disabled={saving || !form.name.trim()} style={{ padding:'8px 18px', background:'var(--amber)', border:'none', borderRadius:8, fontWeight:700, fontSize:13, cursor:'pointer', color:'#000', opacity: !form.name.trim() ? 0.5 : 1 }}>
+                  {saving ? 'Saving…' : 'Add Supply House'}
+                </button>
+                <button onClick={() => { setAdding(false); setForm(BLANK); }} style={{ padding:'8px 18px', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, fontSize:13, cursor:'pointer', color:'var(--text)' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!adding && editId === null && (
+            <button onClick={() => { setAdding(true); setEditId(null); setForm(BLANK); }} style={{ alignSelf:'flex-start', padding:'9px 20px', background:'var(--surface)', border:'1px solid var(--border)', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', color:'var(--text)', display:'flex', alignItems:'center', gap:6 }}>
+              ＋ Add Supply House
+            </button>
+          )}
+
+          {saved && (
+            <div style={{ fontSize:12, color:'var(--green)', fontWeight:600, marginTop:4 }}>✓ Saved successfully</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Timesheets Settings ──────────────────────────────────────────────────────
+function TimesheetsSettings() {
+  const [techs, setTechs]               = useState([]);
+  const [punches, setPunches]           = useState([]);
+  const [weekEndDay, setWeekEndDay]     = useState('saturday');
+  const [weekOptions, setWeekOptions]   = useState([]);
+  const [selectedWeek, setSelectedWeek] = useState('');
+  const [staffType, setStaffType]       = useState('technicians'); // 'technicians' | 'office'
+  const [loading, setLoading]           = useState(true);
+  const [punchLoading, setPunchLoading] = useState(false);
+  const [modal, setModal]               = useState(null);
+  // modal shape: { mode:'add'|'edit', techId, date, punch? }
+
+  // Build week-ending date strings for dropdown (current week + 15 past weeks)
+  // opts[0] is always the end of the CURRENT week (today or upcoming)
+  const buildWeekOptions = (endDayName) => {
+    const dayIdx = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 };
+    const target = dayIdx[endDayName] ?? 6;
+    const today = new Date();
+    today.setHours(12, 0, 0, 0); // noon to avoid DST edge cases
+    // days until the next occurrence of the end day (0 = today IS the end day)
+    const daysUntil = (target - today.getDay() + 7) % 7;
+    const currentWeekEnd = new Date(today);
+    currentWeekEnd.setDate(today.getDate() + daysUntil);
+    const opts = [];
+    for (let i = 0; i < 16; i++) {
+      const d = new Date(currentWeekEnd);
+      d.setDate(currentWeekEnd.getDate() - i * 7);
+      opts.push(d.toISOString().split('T')[0]);
+    }
+    return opts;
+  };
+
+  // 7 calendar dates for the selected week (oldest first)
+  const weekDays = useMemo(() => {
+    if (!selectedWeek) return [];
+    const end = new Date(selectedWeek + 'T12:00:00Z');
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(end);
+      d.setUTCDate(end.getUTCDate() - 6 + i);
+      return d.toISOString().split('T')[0];
+    });
+  }, [selectedWeek]);
+
+  useEffect(() => {
+    async function init() {
+      const bhData = await api.getBusinessHours();
+      const wd = bhData.weekEndDay ?? 'saturday';
+      const opts = buildWeekOptions(wd);
+      setWeekEndDay(wd);
+      setWeekOptions(opts);
+      setSelectedWeek(opts[0]);
+      setLoading(false);
+    }
+    init().catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedWeek) return;
+    setPunchLoading(true);
+    api.getTimesheets(selectedWeek, staffType)
+      .then(d => { setTechs(d.techs ?? []); setPunches(d.punches ?? []); })
+      .catch(() => {})
+      .finally(() => setPunchLoading(false));
+  }, [selectedWeek, staffType]);
+
+  // Group: { [userId]: { [date]: [punch] } }
+  const grouped = useMemo(() => {
+    const g = {};
+    for (const p of punches) {
+      const date = p.punch_in.slice(0, 10);
+      if (!g[p.user_id]) g[p.user_id] = {};
+      if (!g[p.user_id][date]) g[p.user_id][date] = [];
+      g[p.user_id][date].push(p);
+    }
+    return g;
+  }, [punches]);
+
+  const fmtTime = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const h = d.getHours(), m = d.getMinutes();
+    const ampm = h < 12 ? 'am' : 'pm';
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')}${ampm}`;
+  };
+
+  const calcHours = (p_in, p_out) => {
+    if (!p_out) return null;
+    return ((new Date(p_out) - new Date(p_in)) / 3600000).toFixed(1);
+  };
+
+  const techTotalHours = (techId) => {
+    const techPunches = punches.filter(p => p.user_id === techId && p.punch_out);
+    return techPunches.reduce((s, p) => s + (new Date(p.punch_out) - new Date(p.punch_in)) / 3600000, 0).toFixed(1);
+  };
+
+  const fmtWeekLabel = (dateStr) => {
+    const d = new Date(dateStr + 'T12:00:00Z');
+    return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
+  };
+
+  const fmtColHeader = (dateStr) => {
+    const d = new Date(dateStr + 'T12:00:00Z');
+    const dow = d.toLocaleDateString('en-US', { weekday:'short', timeZone:'UTC' });
+    const md  = d.toLocaleDateString('en-US', { month:'numeric', day:'numeric', timeZone:'UTC' });
+    return { dow, md };
+  };
+
+  const reload = () => {
+    if (!selectedWeek) return;
+    api.getTimesheets(selectedWeek, staffType)
+      .then(d => { setTechs(d.techs ?? []); setPunches(d.punches ?? []); })
+      .catch(() => {});
+  };
+
+  const handleDeletePunch = async (punchId) => {
+    if (!confirm('Delete this punch?')) return;
+    await api.deletePunch(punchId);
+    setPunches(prev => prev.filter(p => p.id !== punchId));
+  };
+
+  // Shared card/input styles
+  const card = { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden', marginBottom:20 };
+  const inp  = { background:'var(--bg)', border:'1px solid var(--border2)', borderRadius:7, padding:'7px 10px', fontSize:13, color:'var(--text)', width:'100%', boxSizing:'border-box' };
+
+  if (loading) return <div style={{ padding:40, color:'var(--muted)', fontSize:13 }}>Loading…</div>;
+
+  return (
+    <div style={{ animation:'fadeUp .4s ease' }}>
+      <div style={{ fontFamily:'var(--font-head)', fontSize:22, fontWeight:800, marginBottom:4 }}>Timesheets</div>
+      <div style={{ fontSize:13, color:'var(--muted)', marginBottom:22 }}>Track technician clock-in / clock-out by week.</div>
+
+      {/* Week selector + calendar jump + staff toggle */}
+      <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:20, flexWrap:'wrap' }}>
+        <label style={{ fontSize:13, fontWeight:600, color:'var(--muted)', whiteSpace:'nowrap' }}>Week ending</label>
+        <select value={selectedWeek} onChange={e => setSelectedWeek(e.target.value)}
+          style={{ background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, padding:'8px 14px', fontSize:14, color:'var(--text)', cursor:'pointer', minWidth:180 }}>
+          {weekOptions.map(w => (
+            <option key={w} value={w}>{fmtWeekLabel(w)}</option>
+          ))}
+        </select>
+
+        {/* Prev / Next week step buttons */}
+        <div style={{ display:'flex', gap:0, background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, overflow:'hidden' }}>
+          <button
+            onClick={() => {
+              const d = new Date(selectedWeek + 'T12:00:00Z');
+              d.setUTCDate(d.getUTCDate() - 7);
+              const iso = d.toISOString().split('T')[0];
+              setSelectedWeek(iso);
+              setWeekOptions(opts => (opts.includes(iso) ? opts : [...opts, iso].sort((a, b) => b.localeCompare(a))));
+            }}
+            title="Previous week"
+            style={{ background:'transparent', border:'none', padding:'8px 12px', color:'var(--text)', fontSize:14, cursor:'pointer' }}>
+            ◀
+          </button>
+          <button
+            onClick={() => {
+              const d = new Date(selectedWeek + 'T12:00:00Z');
+              d.setUTCDate(d.getUTCDate() + 7);
+              const iso = d.toISOString().split('T')[0];
+              // Don't go past current week
+              if (weekOptions[0] && iso > weekOptions[0]) return;
+              setSelectedWeek(iso);
+            }}
+            title="Next week"
+            style={{ background:'transparent', border:'none', padding:'8px 12px', color:'var(--text)', fontSize:14, cursor:'pointer', borderLeft:'1px solid var(--border2)' }}>
+            ▶
+          </button>
+        </div>
+
+        {/* Calendar picker — jump to any week in the past */}
+        <label
+          title="Pick any date to jump to that week"
+          style={{ display:'flex', alignItems:'center', gap:6, background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:8, padding:'8px 12px', fontSize:13, color:'var(--text)', cursor:'pointer' }}>
+          📅
+          <input
+            type="date"
+            value={selectedWeek}
+            max={weekOptions[0] /* current week-ending */}
+            onChange={e => {
+              const picked = e.target.value;
+              if (!picked) return;
+              // Snap any picked date forward to the next week-ending day of week
+              const dayIdx = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 };
+              const target = dayIdx[weekEndDay] ?? 6;
+              const d = new Date(picked + 'T12:00:00Z');
+              const daysUntil = (target - d.getUTCDay() + 7) % 7;
+              d.setUTCDate(d.getUTCDate() + daysUntil);
+              const iso = d.toISOString().split('T')[0];
+              setSelectedWeek(iso);
+              // Make sure this week appears in the dropdown going forward
+              setWeekOptions(opts => (opts.includes(iso) ? opts : [...opts, iso].sort((a, b) => b.localeCompare(a))));
+            }}
+            style={{ background:'transparent', border:'none', color:'var(--text)', fontSize:13, cursor:'pointer', outline:'none', padding:0 }}/>
+        </label>
+
+        {/* Technicians / Office toggle */}
+        <div style={{ display:'flex', alignItems:'center', gap:0, background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:9, overflow:'hidden', flexShrink:0 }}>
+          {[['technicians','Technicians'],['office','Office Personnel']].map(([val, label]) => (
+            <button key={val} onClick={() => setStaffType(val)}
+              style={{
+                padding:'7px 16px', border:'none', cursor:'pointer', fontSize:13, fontWeight:600,
+                background: staffType === val ? 'var(--amber)' : 'transparent',
+                color:      staffType === val ? '#000'          : 'var(--muted)',
+                transition: 'background .15s, color .15s',
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {punchLoading && <span style={{ fontSize:12, color:'var(--muted)' }}>Loading…</span>}
+      </div>
+
+      {/* Timesheet table */}
+      <div style={{ ...card, overflow:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+          <thead>
+            <tr style={{ background:'#ffffff06' }}>
+              <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:700, color:'var(--muted)', fontSize:12, textTransform:'uppercase', letterSpacing:'.04em', borderBottom:'1px solid var(--border)', whiteSpace:'nowrap', minWidth:130 }}>
+                {staffType === 'office' ? 'Office Personnel' : 'Technician'}
+              </th>
+              {weekDays.map(d => {
+                const { dow, md } = fmtColHeader(d);
+                return (
+                  <th key={d} style={{ padding:'8px 6px', textAlign:'center', fontWeight:600, color:'var(--muted)', fontSize:11, borderBottom:'1px solid var(--border)', minWidth:90 }}>
+                    <div style={{ textTransform:'uppercase', letterSpacing:'.04em' }}>{dow}</div>
+                    <div style={{ color:'var(--text)', fontSize:12, fontWeight:700 }}>{md}</div>
+                  </th>
+                );
+              })}
+              <th style={{ padding:'10px 10px', textAlign:'center', fontWeight:700, color:'var(--muted)', fontSize:12, textTransform:'uppercase', letterSpacing:'.04em', borderBottom:'1px solid var(--border)', minWidth:70 }}>
+                Total
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {techs.length === 0 && (
+              <tr><td colSpan={9} style={{ padding:24, textAlign:'center', color:'var(--muted)', fontSize:13 }}>No technicians found.</td></tr>
+            )}
+            {techs.map((tech, ti) => (
+              <tr key={tech.id} style={{ borderBottom: ti < techs.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                {/* Tech name */}
+                <td style={{ padding:'10px 14px', whiteSpace:'nowrap' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{ width:28, height:28, borderRadius:'50%', background: tech.color || '#3ecf8e', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#fff', flexShrink:0 }}>
+                      {tech.initials}
+                    </div>
+                    <span style={{ fontWeight:600 }}>{tech.first_name} {tech.last_name}</span>
+                  </div>
+                </td>
+
+                {/* Day cells */}
+                {weekDays.map(date => {
+                  const dayPunches = grouped[tech.id]?.[date] ?? [];
+                  return (
+                    <td key={date} style={{ padding:'6px 4px', textAlign:'center', verticalAlign:'middle' }}>
+                      {dayPunches.length === 0 ? (
+                        <button onClick={() => setModal({ mode:'add', techId: tech.id, date })}
+                          style={{ background:'transparent', border:'1px dashed var(--border2)', borderRadius:6, color:'var(--muted)', fontSize:18, cursor:'pointer', width:32, height:32, lineHeight:1 }}>+</button>
+                      ) : (
+                        <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                          {dayPunches.map(p => {
+                            const hrs = calcHours(p.punch_in, p.punch_out);
+                            return (
+                              <div key={p.id} onClick={() => setModal({ mode:'edit', techId: tech.id, date, punch: p })}
+                                style={{ background:'#ffffff08', border:'1px solid var(--border)', borderRadius:6, padding:'4px 6px', cursor:'pointer', fontSize:11, lineHeight:1.5 }}>
+                                <div style={{ fontWeight:600, color:'var(--text)' }}>
+                                  {fmtTime(p.punch_in)} {p.punch_out ? `– ${fmtTime(p.punch_out)}` : <span style={{ color:'#e5a50a' }}>clocked in</span>}
+                                </div>
+                                {hrs && <div style={{ color:'var(--muted)' }}>{hrs}h</div>}
+                              </div>
+                            );
+                          })}
+                          <button onClick={() => setModal({ mode:'add', techId: tech.id, date })}
+                            style={{ background:'transparent', border:'none', color:'var(--muted)', fontSize:11, cursor:'pointer', padding:'2px 0' }}>+ add</button>
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+
+                {/* Total */}
+                <td style={{ padding:'10px', textAlign:'center', fontWeight:700, fontSize:13, color: Number(techTotalHours(tech.id)) > 0 ? 'var(--text)' : 'var(--muted)' }}>
+                  {techTotalHours(tech.id)}h
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Punch modal */}
+      {modal && (
+        <PunchModal
+          mode={modal.mode}
+          techId={modal.techId}
+          date={modal.date}
+          punch={modal.punch}
+          onClose={() => setModal(null)}
+          onSaved={reload}
+          onDeleted={handleDeletePunch}
+        />
+      )}
+    </div>
+  );
+}
+
+function PunchModal({ mode, techId, date, punch, onClose, onSaved, onDeleted }) {
+  const toLocalInput = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const [punchIn,  setPunchIn]  = useState(punch ? toLocalInput(punch.punch_in)  : `${date}T08:00`);
+  const [punchOut, setPunchOut] = useState(punch ? toLocalInput(punch.punch_out) : `${date}T17:00`);
+  const [notes,    setNotes]    = useState(punch?.notes ?? '');
+  const [saving,   setSaving]   = useState(false);
+  const [err,      setErr]      = useState('');
+
+  const save = async () => {
+    if (!punchIn) { setErr('Punch-in time is required.'); return; }
+    if (punchOut && new Date(punchOut) <= new Date(punchIn)) { setErr('Punch-out must be after punch-in.'); return; }
+    setSaving(true);
+    setErr('');
+    try {
+      if (mode === 'edit') {
+        await api.updatePunch(punch.id, { punch_in: new Date(punchIn).toISOString(), punch_out: punchOut ? new Date(punchOut).toISOString() : null, notes });
+      } else {
+        await api.createPunch({ user_id: techId, punch_in: new Date(punchIn).toISOString(), punch_out: punchOut ? new Date(punchOut).toISOString() : null, notes });
+      }
+      onSaved();
+      onClose();
+    } catch(e) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const overlay = { position:'fixed', inset:0, background:'rgba(0,0,0,.55)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center' };
+  const box     = { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:28, width:380, maxWidth:'95vw' };
+  const inp     = { background:'var(--bg)', border:'1px solid var(--border2)', borderRadius:7, padding:'8px 10px', fontSize:13, color:'var(--text)', width:'100%', boxSizing:'border-box' };
+  const lbl     = { fontSize:12, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:5 };
+
+  return (
+    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={box}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+          <div style={{ fontFamily:'var(--font-head)', fontSize:17, fontWeight:800 }}>
+            {mode === 'edit' ? 'Edit Punch' : 'Add Punch'}
+          </div>
+          <button onClick={onClose} style={{ background:'transparent', border:'none', fontSize:18, cursor:'pointer', color:'var(--muted)' }}>✕</button>
+        </div>
+
+        <div style={{ marginBottom:14 }}>
+          <div style={lbl}>Clock In</div>
+          <input type="datetime-local" value={punchIn} onChange={e => setPunchIn(e.target.value)} style={inp}/>
+        </div>
+
+        <div style={{ marginBottom:14 }}>
+          <div style={lbl}>Clock Out <span style={{ color:'var(--muted)', fontWeight:400, textTransform:'none' }}>(leave blank if still clocked in)</span></div>
+          <input type="datetime-local" value={punchOut} onChange={e => setPunchOut(e.target.value)} style={inp}/>
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={lbl}>Notes</div>
+          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional…" style={inp}/>
+        </div>
+
+        {err && <div style={{ fontSize:12, color:'#f56565', marginBottom:12 }}>{err}</div>}
+
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
+          {mode === 'edit' && (
+            <button onClick={() => { onDeleted(punch.id); onClose(); }}
+              style={{ padding:'9px 16px', background:'#f5656518', border:'1px solid #f5656544', borderRadius:8, color:'#f56565', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+              Delete
+            </button>
+          )}
+          <div style={{ display:'flex', gap:8, marginLeft:'auto' }}>
+            <button onClick={onClose}
+              style={{ padding:'9px 18px', background:'transparent', border:'1px solid var(--border2)', borderRadius:8, color:'var(--muted)', fontSize:13, cursor:'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={save} disabled={saving}
+              style={{ padding:'9px 22px', background:'var(--amber)', border:'none', borderRadius:8, color:'#000', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const SETTINGS_TREE = [
   { id:'company', label:'Company Information', built:true },
   { id:'employees', label:'Employees', children:[
     { id:'technicians',        label:'Technicians',          built:true },
     { id:'office',             label:'Office Personnel',     built:true },
     { id:'permissions',        label:'Roles & Permissions',  built:true },
-    { id:'payroll', label:'Payroll Settings', built:true },
+    { id:'payroll',            label:'Payroll Settings',     built:true },
+    { id:'timesheets',         label:'Timesheets',           built:true },
   ]},
   { id:'integrations_cat', label:'Integrations', children:[
     { id:'financing_cat',   label:'Customer Financing',          built:true, children:[
       { id:'wisetack',        label:'Wisetack',                    built:true },
-      { id:'acorn',           label:'Acorn Finance',               soon:true },
+      { id:'acorn',           label:'Acorn Finance',               built:true },
     ]},
-    { id:'marketing_board', label:'Marketing Board (Portal)',    soon:true },
-    { id:'review_board',    label:'Review Board (Portal)',       soon:true },
     { id:'payments_cat',    label:'Payment Processing',          built:true, children:[
       { id:'square',        label:'Square',                      built:true },
-      { id:'stripe',        label:'Stripe',                      soon:true },
+      { id:'stripe',        label:'Stripe',                      built:true },
     ]},
-    { id:'accounting_cat',  label:'Accounting Software',         soon:true, children:[
-      { id:'quickbooks',    label:'QuickBooks',                  soon:true },
-      { id:'freshbooks',    label:'FreshBooks',                  soon:true },
+    { id:'accounting_cat',  label:'Accounting Software',         built:true, children:[
+      { id:'quickbooks',    label:'QuickBooks',                  built:true },
+      { id:'freshbooks',    label:'FreshBooks',                  built:true },
     ]},
     { id:'gps_tracking_cat',label:'GPS Fleet Tracking',          built:true, children:[
       { id:'gps_integration',label:'GPS Integration',            built:true },
@@ -8276,6 +19010,7 @@ const SETTINGS_TREE = [
   { id:'pricebook_cat', label:'Pricebook', built:true, children:[
     { id:'pricebook_cat',       label:'Service Pricebooks',   built:true },
     { id:'materials_library',   label:'Materials Library',    built:true },
+    { id:'pricebook_engine',    label:'Engine Settings',      built:true },
   ]},
   { id:'inventory_cat', label:'Inventory', children:[
     { id:'inv_items',      label:'All Items',       built:true },
@@ -8288,42 +19023,42 @@ const SETTINGS_TREE = [
   { id:'phone_system', label:'Phone System', children:[
     { id:'phone_manager',      label:'Phone Number Manager',  built:true },
     { id:'csr_questionnaire',  label:'CSR Questionnaire',     built:true },
-    { id:'phone_purchase',     label:'Purchase Phone Numbers',soon:true },
-    { id:'caller_id',          label:'Caller ID Settings',    soon:true },
+    { id:'phone_purchase',     label:'Purchase Phone Numbers',built:true },
+    { id:'caller_id',          label:'Caller ID Settings',    built:true },
   ]},
   { id:'operations', label:'Operations', children:[
     { id:'departments',     label:'Departments',          built:true },
+    { id:'vendors',         label:'Vendors',               built:true },
+    { id:'truck_assignment', label:'Truck Assignments',   built:true },
+    { id:'pricing_model',   label:'Pricing Model',        built:true },
     { id:'arrival_windows', label:'Arrival Windows',      built:true },
     { id:'business_hours',  label:'Business Hours',       built:true },
-    { id:'business_units',  label:'Business Unit Groups', soon:true, children:[
-      { id:'biz_units',   label:'Business Units',         soon:true },
+    { id:'business_units',  label:'Business Unit Groups', built:true, children:[
+      { id:'biz_units',   label:'Business Units',         built:true },
       { id:'job_types',   label:'Job Types',              built:true },
     ]},
   ]},
   { id:'invoices_cat', label:'Invoices and Estimates', children:[
-    { id:'inv_layout',    label:'Custom Layout',         soon:true },
-    { id:'inv_email',     label:'Email',                 soon:true },
-    { id:'inv_online_pay', label:'Online Payments',      soon:true },
-    { id:'payment_terms', label:'Payment Terms',         soon:true, children:[
-      { id:'due_completion', label:'Due Upon Completion', soon:true },
-      { id:'net7',           label:'Net-7',               soon:true },
-      { id:'net15',          label:'Net-15',              soon:true },
-      { id:'net30',          label:'Net-30',              soon:true },
-      { id:'net60',          label:'Net-60',              soon:true },
-      { id:'net90',          label:'Net-90',              soon:true },
-    ]},
-    { id:'payment_types', label:'Payment Types',         soon:true },
-    { id:'tax_zones',     label:'Tax Zones',             soon:true },
+    { id:'inv_defaults',  label:'Defaults & Numbering',  built:true },
+    { id:'inv_layout',    label:'Custom Layout',         built:true },
+    { id:'inv_email',     label:'Email',                 built:true },
+    { id:'inv_online_pay', label:'Online Payments',      built:true },
+    { id:'payment_terms', label:'Payment Terms',         built:true },
+    { id:'payment_types', label:'Payment Types',         built:true },
+    { id:'tax_zones',     label:'Tax Zones',             built:true },
   ]},
   { id:'accounting_cat', label:'Accounting', children:[
-    { id:'general_ledger', label:'General Ledger Accounts', soon:true },
+    { id:'general_ledger', label:'General Ledger Accounts', built:true },
   ]},
-  { id:'import_export', label:'Import / Export', children:[
-    { id:'import_customers',  label:'Customers',  soon:true },
-    { id:'import_jobs',       label:'Jobs',       soon:true },
-    { id:'import_invoices',   label:'Invoices',   soon:true },
-    { id:'import_inventory',  label:'Inventory',  soon:true },
-    { id:'import_pricebook',  label:'Pricebook',  soon:true },
+  { id:'marketing_cat', label:'Marketing', children:[
+    { id:'review_automation', label:'Review Automation', built:true },
+  ]},
+  { id:'import_export', label:'Import / Export', built:true, children:[
+    { id:'import_customers',  label:'Customers',  built:true },
+    { id:'import_jobs',       label:'Jobs',       built:true },
+    { id:'import_invoices',   label:'Invoices',   built:true },
+    { id:'import_inventory',  label:'Inventory',  built:true },
+    { id:'import_pricebook',  label:'Pricebook',  built:true },
   ]},
 ];
 
@@ -8361,7 +19096,7 @@ function SettingsSidebar({ activeId, onSelect }) {
           )}
           {!hasChildren && <span style={{width:9,flexShrink:0}}/>}
           <span style={{flex:1}}>{item.label}</span>
-          {item.soon && <span style={{fontSize:9,background:'#1e2a3a',color:'#3a5a7a',borderRadius:3,padding:'1px 4px',fontWeight:700,flexShrink:0}}>SOON</span>}
+          {item.soon && <span style={{fontSize:9,background:'var(--surface3)',color:'var(--dim)',borderRadius:3,padding:'1px 4px',fontWeight:700,flexShrink:0}}>SOON</span>}
         </button>
         {hasChildren && isOpen && (
           <div style={{borderLeft:'1px solid var(--border)',marginLeft:24+indent}}>
@@ -8373,7 +19108,7 @@ function SettingsSidebar({ activeId, onSelect }) {
   });
 
   return (
-    <div style={{width:220,background:'#080b10',borderRight:'1px solid var(--border)',overflow:'auto',flexShrink:0,paddingTop:8,paddingBottom:24}} className='scrollbar-thin'>
+    <div style={{width:220,background:'var(--surface)',borderRight:'1px solid var(--border)',overflow:'auto',flexShrink:0,paddingTop:8,paddingBottom:24}} className='scrollbar-thin'>
       <div style={{fontSize:10,fontWeight:700,color:'var(--muted)',padding:'8px 16px 6px',letterSpacing:'.1em'}}>SETTINGS</div>
       {renderItems(SETTINGS_TREE, 0)}
     </div>
@@ -9616,6 +20351,7 @@ function SettingsContent({ tab, user, logout }) {
   if (tab === 'office')                   return <EmployeeListPage filterDept='Office'/>;
   if (tab === 'permissions')              return <RolesPermissionsPage/>;
   if (tab === 'payroll')                  return <PayrollSettingsPage/>;
+  if (tab === 'timesheets')              return <TimesheetsSettings/>;
   if (tab === 'account' || !tab) return (
     <div style={{animation:'fadeUp .4s ease'}}>
       <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800,marginBottom:20}}>Account</div>
@@ -9632,20 +20368,33 @@ function SettingsContent({ tab, user, logout }) {
       </div>
     </div>
   );
-  if (tab === 'pricebook_cat')            return <ServicePricebooksPage user={user}/>;
+  if (tab === 'pricebook_cat')            return <ServicePricebooksPage user={user} manageMode={true}/>;
   if (tab === 'materials_library')        return <MaterialsLibraryPage/>;
+  if (tab === 'pricebook_engine')         return <PricebookEngineSettings user={user}/>;
   if (tab === 'inv_items')     return <InventoryPage defaultTab="items"/>;
   if (tab === 'inv_barcodes')  return <InventoryPage defaultTab="barcodes"/>;
   if (tab === 'inv_locations') return <InventoryPage defaultTab="locations"/>;
   if (tab === 'inv_templates') return <InventoryPage defaultTab="templates"/>;
   if (tab === 'inv_po')        return <InventoryPage defaultTab="po"/>;
   if (tab === 'inv_counts')    return <InventoryPage defaultTab="counts"/>;
+  if (tab === 'inv_layout')        return <InvoiceLayoutSettings/>;
+  if (tab === 'inv_email')         return <InvoiceEmailSettings/>;
+  if (tab === 'payment_types')    return <PaymentTypesSettingsPage/>;
+  if (tab === 'inv_defaults')     return <InvoiceDefaultsSettings/>;
+  if (tab === 'general_ledger')   return <GeneralLedgerSettings/>;
+  if (tab === 'payment_terms')    return <PaymentTermsSettings/>;
+  if (tab === 'tax_zones')        return <TaxZonesSettings/>;
+  if (tab === 'inv_online_pay')   return <OnlinePaymentsSettings/>;
+  if (tab === 'business_units' || tab === 'biz_units') return <BusinessUnitsSettings/>;
+  if (tab === 'phone_purchase')   return <PhoneNumbersSettings/>;
+  if (tab === 'caller_id')        return <CallerIDSettings/>;
+  if (tab === 'review_automation') return <ReviewAutomationSettings/>;
   if (tab === 'square')           return <SquareIntegrationPage/>;
   if (tab === 'wisetack')          return <WisetackIntegrationPage/>;
-  if (tab === 'acorn')             return <ComingSoonIntegrationPage name='Acorn Finance' logo='🌰' description='Multi-lender financing marketplace for customers with varying credit profiles.'/>;
-  if (tab === 'stripe')            return <ComingSoonIntegrationPage name='Stripe' logo='💳' description='Accept credit card payments via Stripe.'/>;
-  if (tab === 'quickbooks')        return <ComingSoonIntegrationPage name='QuickBooks' logo='📊' description='Sync invoices and expenses with QuickBooks.'/>;
-  if (tab === 'freshbooks')        return <ComingSoonIntegrationPage name='FreshBooks' logo='📒' description='Sync invoices and time tracking with FreshBooks.'/>;
+  if (tab === 'acorn')             return <AcornFinanceIntegrationPage/>;
+  if (tab === 'stripe')            return <StripeIntegrationPage/>;
+  if (tab === 'quickbooks')        return <QuickBooksIntegrationPage/>;
+  if (tab === 'freshbooks')        return <FreshBooksIntegrationPage/>;
   if (tab === 'gps_integration')   return <GPSIntegrationPage/>;
   if (tab === 'google_maps')       return <GoogleMapsSettings/>;
   if (tab === 'apple_maps')        return <AppleMapsSettings/>;
@@ -9653,9 +20402,15 @@ function SettingsContent({ tab, user, logout }) {
   if (tab === 'reece')             return <ReeceSupplySettings/>;
   if (tab === 'phone_manager')     return <PhoneManagerSettings/>;
   if (tab === 'csr_questionnaire') return <CSRQuestionnaireSettings/>;
+  if (tab === 'vendors')            return <VendorsSettingsPage/>;
+  if (tab === 'truck_assignment')  return <TruckAssignmentPage/>;
+  if (tab === 'pricing_model')     return <PricingModelSettings/>;
   if (tab === 'arrival_windows')   return <ArrivalWindowsSettings/>;
   if (tab === 'job_types')         return <JobTypesSettings/>;
   if (tab === 'business_hours')    return <BusinessHoursSettings/>;
+  if (tab === 'import_export' || tab === 'import_customers' || tab === 'import_jobs' ||
+      tab === 'import_invoices' || tab === 'import_inventory' || tab === 'import_pricebook')
+    return <ImportExportPage defaultSection={tab}/>;
   // Default: coming soon panel
   const label = tab ? tab.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase()) : '';
   return (
@@ -9673,6 +20428,18 @@ function SettingsContent({ tab, user, logout }) {
 // Do not change this formula. Inputs come from the pb_engine row (see backend pricebook routes).
 function calcFlatRate(task, engine) {
   const E = engine || {};
+
+  // Subcontractor shortcut: if the task has a sub cost, bill so the shop
+  // retains sub_gp% as gross profit. price = cost / (1 - gp/100).
+  // E.g. $100 cost @ 65% GP → $286 (shop keeps $186 ≈ 65% of price).
+  const subCost = parseFloat(task.sub_cost || 0);
+  if (subCost > 0) {
+    const subGp = parseFloat(E.sub_gp != null ? E.sub_gp : 65);
+    const denom = Math.max(0.01, 1 - subGp / 100);
+    const flatRate = subCost / denom;
+    return { flatRate, matCost: 0, laborRate: 0, mu: 1 / denom, burdened: 0, ohPerHr: 0, subCost, subGp };
+  }
+
   const wage = +E.wage || 0, hrs = +E.hrs || 1600;
   const fica = +E.fica || 0, unemp = +E.unemp || 0, wc = +E.wc || 0;
   const health = +E.health || 0, vehicle = +E.vehicle || 0, fuel = +E.fuel || 0;
@@ -9709,56 +20476,539 @@ function calcFlatRate(task, engine) {
 
 // Full HTML pricebook category list (19 categories). Loaded from pb_categories at runtime.
 const PB_CATS = [
-  {id:'acc',  icon:'🔑', name:'Accesses',           color:'#8B6914'},
-  {id:'diag', icon:'🔍', name:'Diagnosis',           color:'#2E5FA3'},
-  {id:'prmt', icon:'📋', name:'Permits & Reports',   color:'#5B2D8E'},
-  {id:'bath', icon:'🚿', name:'Bathroom',            color:'#1F7A8C'},
-  {id:'kit',  icon:'🍳', name:'Kitchen',             color:'#C55A11'},
-  {id:'lndr', icon:'🧺', name:'Laundry Room',        color:'#1E6B3C'},
-  {id:'dc',   icon:'🌀', name:'Drain Cleaning',      color:'#5B2D8E'},
-  {id:'cs',   icon:'📦', name:'Customer Supplied',   color:'#4A4A6A'},
-  {id:'wh',   icon:'🔥', name:'Water Heaters',       color:'#C55A11'},
-  {id:'of',   icon:'🌿', name:'Outdoor Faucets',     color:'#1E6B3C'},
-  {id:'gas',  icon:'🔴', name:'Gas',                 color:'#B84C00'},
-  {id:'fvt',  icon:'🔧', name:'Fixture Valves',      color:'#1F7A8C'},
-  {id:'swr',  icon:'🚧', name:'Sewer Repairs',       color:'#7A4B1A'},
-  {id:'pip',  icon:'💧', name:'Piping',              color:'#2E5FA3'},
-  {id:'vlv',  icon:'⚙️', name:'Valves',              color:'#1F7A8C'},
-  {id:'wlk',  icon:'💦', name:'Water Leaks',         color:'#C00000'},
-  {id:'dig',  icon:'🚜', name:'Digging',             color:'#6B4423'},
-  {id:'wpur', icon:'💎', name:'Water Purification',  color:'#1F7A8C'},
-  {id:'ewrn', icon:'🛡️', name:'Extended Warranties', color:'#1E6B3C'},
+  {id:'acc',  icon:'🔑', name:'Accesses',           color:'#8B6914', photo:'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=400&q=70'},
+  {id:'diag', icon:'🔍', name:'Diagnosis',           color:'#2E5FA3', photo:'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&q=70'},
+  {id:'prmt', icon:'📋', name:'Permits & Reports',   color:'#5B2D8E', photo:'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&q=70'},
+  {id:'bath', icon:'🚿', name:'Bathroom',            color:'#1F7A8C', photo:'https://images.unsplash.com/photo-1552321554-5feca3b2c8a4?w=400&q=70'},
+  {id:'kit',  icon:'🍳', name:'Kitchen',             color:'#C55A11', photo:'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=70'},
+  {id:'lndr', icon:'🧺', name:'Laundry Room',        color:'#1E6B3C', photo:'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=70'},
+  {id:'dc',   icon:'🌀', name:'Drain Cleaning',      color:'#5B2D8E', photo:'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=400&q=70'},
+  {id:'cs',   icon:'📦', name:'Customer Supplied',   color:'#4A4A6A', photo:'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&q=70'},
+  {id:'wh',   icon:'🔥', name:'Water Heaters',       color:'#C55A11', photo:'https://images.unsplash.com/photo-1527689368864-3a821dbccc34?w=400&q=70'},
+  {id:'of',   icon:'🌿', name:'Outdoor Faucets',     color:'#1E6B3C', photo:'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&q=70'},
+  {id:'gas',  icon:'🔴', name:'Gas',                 color:'#B84C00', photo:'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?w=400&q=70'},
+  {id:'fvt',  icon:'🔧', name:'Fixture Valves',      color:'#1F7A8C', photo:'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=400&q=70'},
+  {id:'swr',  icon:'🚧', name:'Sewer Repairs',       color:'#7A4B1A', photo:'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=400&q=70'},
+  {id:'pip',  icon:'💧', name:'Piping',              color:'#2E5FA3', photo:'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=70'},
+  {id:'vlv',  icon:'⚙️', name:'Valves',              color:'#1F7A8C', photo:'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&q=70'},
+  {id:'wlk',  icon:'💦', name:'Water Leaks',         color:'#C00000', photo:'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=400&q=70'},
+  {id:'dig',  icon:'🚜', name:'Digging',             color:'#6B4423', photo:'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&q=70'},
+  {id:'wpur', icon:'💎', name:'Water Purification',  color:'#1F7A8C', photo:'https://images.unsplash.com/photo-1548839140-29a749e1cf4d?w=400&q=70'},
+  {id:'ewrn', icon:'🛡️', name:'Extended Warranties', color:'#1E6B3C', photo:'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&q=70'},
 ];
 const DIFF_COLOR = {Easy:'#22c55e',Moderate:'#f59e0b',Hard:'#f97316',Complex:'#a855f7'};
 
-function NewPricebookPage({user}) {
+// ── MobilePricebookPicker ─────────────────────────────────────────────────────
+// Mobile  (≤700px): bottom-sheet · ServiceTitan-style photo thumbnail categories
+//                   → product-card tasks with circular + button
+// Desktop (>700px) : centered modal · category grid + task list
+function MobilePricebookPicker({ open, onClose, onPick, calcPrice }) {
+  const [step, setStep]               = useState('cats');
+  const [selCat, setSelCat]           = useState(null);
+  const [catCounts, setCatCounts]     = useState({});
+  const [tasks, setTasks]             = useState([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [search, setSearch]           = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching]     = useState(false);
+  const searchRef = useRef(null);
+  const [isMobile, setIsMobile]       = useState(() => window.matchMedia('(max-width: 700px)').matches);
+
+  // Keep isMobile in sync with viewport (handles orientation change, resize, etc.)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 700px)');
+    const handler = (e) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    setIsMobile(mq.matches); // re-read on every mount in case it changed
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  // Load category task counts once on mount
+  useEffect(() => {
+    api.get('/pricebook/categories').then(cats => {
+      const m = {};
+      (Array.isArray(cats) ? cats : []).forEach(c => { m[c.id] = c.task_count || 0; });
+      setCatCounts(m);
+    }).catch(() => {});
+  }, []);
+
+  // Reset when closed
+  useEffect(() => {
+    if (!open) {
+      setStep('cats'); setSelCat(null); setTasks([]);
+      setSearch(''); setSearchResults([]);
+    } else {
+      setTimeout(() => searchRef.current?.focus(), 200);
+    }
+  }, [open]);
+
+  // Load tasks for selected category
+  useEffect(() => {
+    if (!selCat) return;
+    setLoadingTasks(true);
+    api.pbTasks({ category: selCat })
+      .then(d => setTasks(Array.isArray(d) ? d : []))
+      .finally(() => setLoadingTasks(false));
+  }, [selCat]);
+
+  // Search across all categories (debounced 300ms)
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) { setSearchResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      api.pbTasks({ search: q })
+        .then(d => setSearchResults(Array.isArray(d) ? d : []))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  if (!open) return null;
+
+  const isSearching = !!search.trim();
+  const currentCat  = PB_CATS.find(c => c.id === selCat);
+
+  const pickCat    = (cat)  => { setSelCat(cat.id); setStep('tasks'); };
+  const goBack     = ()     => { setStep('cats'); setSelCat(null); setTasks([]); };
+  const handlePick = (task) => onPick(task);
+
+  // ── shared search bar ──────────────────────────────────────────
+  const SearchBar = () => (
+    <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--border)', flexShrink:0,
+      background:'var(--bg)' }}>
+      <div style={{ position:'relative' }}>
+        <span style={{ position:'absolute', left:11, top:'50%', transform:'translateY(-50%)',
+          fontSize:14, color:'var(--muted)', pointerEvents:'none' }}>🔍</span>
+        <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search all tasks…"
+          style={{ width:'100%', padding:'10px 32px 10px 34px', background:'var(--surface2)',
+            border:'1px solid var(--border)', borderRadius:10, color:'var(--text)',
+            fontSize:14, outline:'none', boxSizing:'border-box' }}/>
+        {search && (
+          <button onClick={() => setSearch('')}
+            style={{ position:'absolute', right:9, top:'50%', transform:'translateY(-50%)',
+              background:'transparent', border:'none', color:'var(--muted)', fontSize:16, cursor:'pointer' }}>
+            ✕
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── desktop task row (list style) ─────────────────────────────
+  const DesktopTaskRow = ({ task }) => {
+    const price = calcPrice(task);
+    const cat   = PB_CATS.find(c => c.id === task.category_id);
+    return (
+      <div onClick={() => handlePick(task)}
+        style={{ padding:'12px 16px', borderBottom:'1px solid var(--border)', display:'flex',
+          alignItems:'center', gap:12, cursor:'pointer', background:'var(--bg)',
+          transition:'background .1s' }}
+        onMouseEnter={e => e.currentTarget.style.background='var(--surface)'}
+        onMouseLeave={e => e.currentTarget.style.background='var(--bg)'}>
+        <div style={{ width:38, height:38, borderRadius:9, display:'flex', alignItems:'center',
+          justifyContent:'center', fontSize:20, flexShrink:0,
+          background:`${(cat?.color||'#888')}22`, border:`1.5px solid ${(cat?.color||'#888')}44` }}>
+          {cat?.icon||'🔧'}
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text)', marginBottom:2 }}>{task.name}</div>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+            {task.tag && <span style={{ fontSize:10, padding:'1px 6px', background:'var(--surface2)',
+              border:'1px solid var(--border)', borderRadius:3, color:'var(--muted)' }}>{task.tag}</span>}
+            <span style={{ fontSize:11, color:'var(--muted)' }}>{task.hours}h</span>
+            {task.difficulty && <span style={{ fontSize:10, color:DIFF_COLOR[task.difficulty]||'var(--muted)',
+              fontWeight:600 }}>{task.difficulty}</span>}
+            {isSearching && cat && <span style={{ fontSize:10, color:cat.color, fontWeight:600 }}>
+              {cat.icon} {cat.name}</span>}
+          </div>
+        </div>
+        <div style={{ textAlign:'right', flexShrink:0 }}>
+          <div style={{ fontFamily:'var(--font-head)', fontSize:16, fontWeight:900, color:'var(--amber)' }}>
+            {price != null ? `$${price.toFixed(2)}` : '—'}
+          </div>
+          <div style={{ fontSize:11, fontWeight:700, color:'#fff', background:'var(--green)',
+            borderRadius:6, padding:'3px 10px', marginTop:3 }}>+ Add</div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── mobile product card (ServiceTitan style) ──────────────────
+  const MobileTaskCard = ({ task }) => {
+    const price = calcPrice(task);
+    const cat   = currentCat || PB_CATS.find(c => c.id === task.category_id);
+    return (
+      <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14,
+        overflow:'hidden', display:'flex', flexDirection:'column' }}>
+        {/* Icon / image area */}
+        <div style={{ aspectRatio:'4/3', display:'flex', alignItems:'center', justifyContent:'center',
+          background:`linear-gradient(135deg,${(cat?.color||'#555')}33 0%,${(cat?.color||'#555')}11 100%)`,
+          fontSize:46 }}>
+          {cat?.icon || '🔧'}
+        </div>
+        {/* Info */}
+        <div style={{ padding:'10px 10px 6px', flex:1 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'var(--text)', lineHeight:1.35,
+            marginBottom:4, minHeight:32 }}>
+            {task.name}
+          </div>
+          {task.tag && (
+            <div style={{ fontSize:10, color:'var(--muted)', marginBottom:4 }}>{task.tag}</div>
+          )}
+          <div style={{ color:'#2563eb', fontWeight:900, fontSize:17 }}>
+            {price != null ? `$${price.toFixed(2)}` : '—'}
+          </div>
+        </div>
+        {/* Circular + button */}
+        <div style={{ padding:'6px 10px 14px', display:'flex', justifyContent:'center' }}>
+          <button onClick={() => handlePick(task)}
+            style={{ width:42, height:42, borderRadius:'50%', background:'#2563eb',
+              color:'#fff', border:'none', fontSize:26, cursor:'pointer', lineHeight:1,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              fontWeight:300, boxShadow:'0 2px 8px rgba(37,99,235,0.4)',
+              WebkitTapHighlightColor:'transparent' }}>
+            +
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── MOBILE: ServiceTitan bottom-sheet ─────────────────────────
+  if (isMobile) {
+    return (
+      <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)',
+        zIndex:950, display:'flex', alignItems:'flex-end' }}>
+        <div onClick={e => e.stopPropagation()} style={{ background:'var(--bg)',
+          borderRadius:'20px 20px 0 0', width:'100%', height:'93vh',
+          display:'flex', flexDirection:'column', animation:'slideUp .22s ease', overflow:'hidden' }}>
+
+          {/* Drag handle */}
+          <div style={{ width:40, height:4, borderRadius:2, background:'var(--border2)',
+            margin:'10px auto 0', flexShrink:0 }}/>
+
+          {/* Header */}
+          <div style={{ padding:'10px 16px 8px', display:'flex', alignItems:'center',
+            gap:10, flexShrink:0 }}>
+            {step === 'tasks' && !isSearching ? (
+              <button onClick={goBack} style={{ background:'var(--surface2)', border:'none',
+                borderRadius:8, padding:'6px 12px', fontSize:13, color:'var(--text)',
+                cursor:'pointer', flexShrink:0 }}>
+                ← Back
+              </button>
+            ) : (
+              <div style={{ width:8 }}/>
+            )}
+            <div style={{ flex:1, minWidth:0 }}>
+              {step === 'tasks' && currentCat && !isSearching ? (
+                <>
+                  {/* Breadcrumb */}
+                  <div style={{ fontSize:11, color:'var(--muted)', marginBottom:1 }}>
+                    <span style={{ cursor:'pointer' }} onClick={goBack}>All Categories</span>
+                    <span style={{ margin:'0 4px' }}>›</span>
+                    <span style={{ color:'var(--text)', fontWeight:600 }}>{currentCat.name}</span>
+                  </div>
+                  <div style={{ fontSize:15, fontWeight:800, fontFamily:'var(--font-head)' }}>
+                    {currentCat.icon} {currentCat.name}
+                    {catCounts[selCat] ? <span style={{ fontSize:11, fontWeight:400,
+                      color:'var(--muted)', marginLeft:6 }}>{catCounts[selCat]} items</span> : null}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize:17, fontWeight:800, fontFamily:'var(--font-head)' }}>
+                  💲 Select a Task
+                </div>
+              )}
+            </div>
+            <button onClick={onClose} style={{ background:'var(--surface2)', border:'none',
+              borderRadius:'50%', width:32, height:32, fontSize:16, color:'var(--muted)',
+              cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+              flexShrink:0 }}>✕</button>
+          </div>
+
+          <SearchBar/>
+
+          {/* Scrollable content */}
+          <div style={{ flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch' }}>
+
+            {/* Search results — product-card grid */}
+            {isSearching && (
+              searching
+                ? <div style={{ padding:40, display:'flex', justifyContent:'center' }}><Spinner/></div>
+                : searchResults.length === 0
+                  ? <div style={{ padding:40, textAlign:'center', color:'var(--muted)', fontSize:14 }}>
+                      No tasks found for "{search}"
+                    </div>
+                  : <div style={{ padding:'8px 12px 24px' }}>
+                      <div style={{ fontSize:11, color:'var(--muted)', fontWeight:600,
+                        letterSpacing:'.06em', padding:'4px 2px 10px' }}>
+                        {searchResults.length} RESULTS
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        {searchResults.map(t => <MobileTaskCard key={t.id} task={t}/>)}
+                      </div>
+                    </div>
+            )}
+
+            {/* Category photo-thumbnail grid */}
+            {!isSearching && step === 'cats' && (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, padding:12 }}>
+                {PB_CATS.map(cat => (
+                  <button key={cat.id} onClick={() => pickCat(cat)}
+                    style={{ position:'relative', borderRadius:16, overflow:'hidden',
+                      aspectRatio:'4/3', border:'none', cursor:'pointer', padding:0, display:'block',
+                      background:`linear-gradient(135deg,${cat.color}ee 0%,${cat.color}88 100%)`,
+                      WebkitTapHighlightColor:'transparent' }}>
+                    {/* Background photo (falls back to gradient) */}
+                    {cat.photo && (
+                      <img src={cat.photo} alt="" loading="lazy"
+                        style={{ position:'absolute', inset:0, width:'100%', height:'100%',
+                          objectFit:'cover', opacity:0.5 }}
+                        onError={e => { e.target.style.display='none'; }}/>
+                    )}
+                    {/* Dark gradient overlay */}
+                    <div style={{ position:'absolute', inset:0,
+                      background:'linear-gradient(to bottom, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.72) 100%)' }}/>
+                    {/* Emoji — upper center */}
+                    <div style={{ position:'absolute', top:'28%', left:'50%',
+                      transform:'translate(-50%,-50%)', fontSize:38, lineHeight:1 }}>
+                      {cat.icon}
+                    </div>
+                    {/* Bottom bar — name + count + chevron */}
+                    <div style={{ position:'absolute', bottom:0, left:0, right:0,
+                      padding:'8px 10px 10px', display:'flex', alignItems:'flex-end' }}>
+                      <div style={{ flex:1, textAlign:'left' }}>
+                        <div style={{ color:'#fff', fontWeight:800, fontSize:14, lineHeight:1.2,
+                          textShadow:'0 1px 6px rgba(0,0,0,0.7)' }}>
+                          {cat.name}
+                        </div>
+                        {catCounts[cat.id] ? (
+                          <div style={{ color:'rgba(255,255,255,0.7)', fontSize:10, marginTop:1 }}>
+                            {catCounts[cat.id]} tasks
+                          </div>
+                        ) : null}
+                      </div>
+                      <div style={{ color:'rgba(255,255,255,0.85)', fontSize:20, lineHeight:1,
+                        flexShrink:0 }}>›</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Task product-card grid */}
+            {!isSearching && step === 'tasks' && (
+              loadingTasks
+                ? <div style={{ padding:40, display:'flex', justifyContent:'center' }}><Spinner/></div>
+                : tasks.length === 0
+                  ? <div style={{ padding:40, textAlign:'center', color:'var(--muted)', fontSize:14 }}>
+                      No tasks in this category.
+                    </div>
+                  : <div style={{ padding:'4px 12px 32px' }}>
+                      <div style={{ fontSize:11, color:'var(--muted)', fontWeight:600,
+                        letterSpacing:'.06em', padding:'6px 2px 10px' }}>ITEMS</div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        {tasks.map(t => <MobileTaskCard key={t.id} task={t}/>)}
+                      </div>
+                    </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP: centered modal with category pills + task list ────
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)',
+      zIndex:950, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'var(--bg)',
+        border:'1px solid var(--border)', borderRadius:14, width:820, maxWidth:'95vw',
+        height:'85vh', display:'flex', flexDirection:'column',
+        boxShadow:'0 20px 60px rgba(0,0,0,0.65)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)',
+          display:'flex', alignItems:'center', gap:10, background:'var(--surface)', flexShrink:0 }}>
+          {step === 'tasks' && !isSearching && (
+            <button onClick={goBack} style={{ background:'var(--surface2)',
+              border:'1px solid var(--border)', borderRadius:8, padding:'6px 12px',
+              fontSize:13, color:'var(--text)', cursor:'pointer', flexShrink:0 }}>
+              ← Back
+            </button>
+          )}
+          <span style={{ fontFamily:'var(--font-head)', fontSize:16, fontWeight:800, flex:1 }}>
+            {step === 'tasks' && currentCat && !isSearching
+              ? `${currentCat.icon} ${currentCat.name}`
+              : '💲 Pricebook — Choose a Task'}
+          </span>
+          <button onClick={onClose} style={{ background:'transparent', border:'none',
+            color:'var(--muted)', fontSize:22, cursor:'pointer' }}>✕</button>
+        </div>
+
+        <SearchBar/>
+
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {/* Search results */}
+          {isSearching && (
+            searching
+              ? <div style={{ padding:32, display:'flex', justifyContent:'center' }}><Spinner/></div>
+              : searchResults.length === 0
+                ? <div style={{ padding:40, textAlign:'center', color:'var(--muted)', fontSize:14 }}>
+                    No tasks found for "{search}"
+                  </div>
+                : <>
+                    <div style={{ padding:'8px 16px', fontSize:11, color:'var(--muted)', fontWeight:600,
+                      letterSpacing:'.06em', borderBottom:'1px solid var(--border)',
+                      background:'var(--surface)' }}>
+                      {searchResults.length} RESULTS
+                    </div>
+                    {searchResults.map(t => <DesktopTaskRow key={t.id} task={t}/>)}
+                  </>
+          )}
+
+          {/* Category grid (desktop: 3 cols) */}
+          {!isSearching && step === 'cats' && (
+            <div style={{ padding:14, display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+              {PB_CATS.map(cat => (
+                <button key={cat.id} onClick={() => pickCat(cat)}
+                  style={{ background:'var(--surface)', border:`2px solid ${cat.color}55`,
+                    borderRadius:14, padding:'18px 12px', cursor:'pointer',
+                    display:'flex', flexDirection:'column', alignItems:'center', gap:8,
+                    textAlign:'center', transition:'border-color .12s, transform .12s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor=cat.color; e.currentTarget.style.transform='scale(1.02)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor=`${cat.color}55`; e.currentTarget.style.transform='scale(1)'; }}>
+                  <span style={{ fontSize:34 }}>{cat.icon}</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:cat.color }}>{cat.name}</span>
+                  {catCounts[cat.id] != null && (
+                    <span style={{ fontSize:11, color:'var(--muted)' }}>{catCounts[cat.id]} tasks</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Task list */}
+          {!isSearching && step === 'tasks' && (
+            loadingTasks
+              ? <div style={{ padding:40, display:'flex', justifyContent:'center' }}><Spinner/></div>
+              : tasks.length === 0
+                ? <div style={{ padding:40, textAlign:'center', color:'var(--muted)', fontSize:13 }}>
+                    No tasks in this category.
+                  </div>
+                : tasks.map(t => <DesktopTaskRow key={t.id} task={t}/>)
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewPricebookPage({ user, service: lockedService }) {
+  // This page is always rendered under ONE service (Plumbing OR HVAC), scoped by
+  // the `service` prop passed in from ServicePricebooksPage. It never mixes trades.
+  //   • Plumbing = single book, no toggle
+  //   • HVAC     = Install / Service toggle (each with its own engine)
+  const initial = lockedService || 'plumbing';
+  const [service, setService]         = useState(initial);
+  const [serviceType, setServiceType] = useState('service');
   const [engine,setEngine] = useState(null);
-  const [engineDraft,setEngineDraft] = useState(null);
-  const [engineOpen,setEngineOpen] = useState(false);
-  const [selCat,setSelCat] = useState('acc');
+  const [cats,setCats]     = useState([]);          // categories for the active pricebook
+  const [selCat,setSelCat] = useState(null);
   const [tasks,setTasks] = useState([]);
   const [loading,setLoading] = useState(false);
   const [search,setSearch] = useState('');
   const [expanded,setExpanded] = useState(null);
-  const [saving,setSaving] = useState(false);
+  // Task editing
+  const [editTask,setEditTask] = useState(null);
+  const [editDraft,setEditDraft] = useState(null);
+  const [editSaving,setEditSaving] = useState(false);
+  const [allMats,setAllMats] = useState([]);
+  const [matSearch,setMatSearch] = useState('');
 
-  useEffect(()=>{ api.pbEngine().then(d=>{setEngine(d);setEngineDraft({...d});}); },[]);
+  // Load engine + categories whenever the (service, serviceType) selection changes.
+  useEffect(() => {
+    api.pbEngine(service, serviceType).then(setEngine).catch(() => setEngine(null));
+    api.pbCategories(service, serviceType).then(list => {
+      const arr = Array.isArray(list) ? list : [];
+      setCats(arr);
+      // Pick the first category that actually has tasks; fall back to first if all empty.
+      const firstWithTasks = arr.find(c => (c.task_count || 0) > 0);
+      setSelCat((firstWithTasks || arr[0])?.id || null);
+    }).catch(() => setCats([]));
+    setAllMats([]);      // wipe cached material list (service-scoped)
+    setExpanded(null);
+    setSearch('');
+  }, [service, serviceType]);
+
   useEffect(()=>{
-    if(!selCat) return;
+    if(!selCat) { setTasks([]); return; }
     setLoading(true);
-    api.pbTasks({category:selCat}).then(setTasks).finally(()=>setLoading(false));
-  },[selCat]);
+    api.pbTasks({ service, service_type: serviceType, category: selCat })
+      .then(d => setTasks(Array.isArray(d) ? d : []))
+      .finally(() => setLoading(false));
+  }, [selCat, service, serviceType]);
 
   const displayTasks = search
     ? tasks.filter(t=>t.name.toLowerCase().includes(search.toLowerCase())||t.tag.toLowerCase().includes(search.toLowerCase()))
     : tasks;
 
-  const saveEngine = async()=>{
-    setSaving(true);
-    try { const d=await api.pbSaveEngine(engineDraft); setEngine(d); setEngineDraft({...d}); setEngineOpen(false); toast.success('Engine saved','Prices updated.'); }
-    catch(e){ toast.error('Save failed',e.message); }
-    finally { setSaving(false); }
+  // ── Task edit helpers ──────────────────────────────────────────
+  const openEdit = (task, e) => {
+    e.stopPropagation();
+    setEditTask(task);
+    setEditDraft({ ...task, materials: (task.materials || []).map(m => ({ ...m })) });
+    setMatSearch('');
+    if (allMats.length === 0) api.pbMaterials({ service }).then(setAllMats).catch(() => {});
   };
+  const closeEdit = () => { setEditTask(null); setEditDraft(null); };
+  const updEdit = (key, val) => setEditDraft(d => ({ ...d, [key]: val }));
+  const updMatQty = (material_id, qty) => setEditDraft(d => ({
+    ...d,
+    materials: d.materials.map(m => m.material_id === material_id ? { ...m, qty } : m),
+  }));
+  const removeMat = (material_id) => setEditDraft(d => ({
+    ...d,
+    materials: d.materials.filter(m => m.material_id !== material_id),
+  }));
+  const addMat = (m) => {
+    setEditDraft(d => {
+      if (d.materials.find(x => x.material_id === m.id)) return d; // already added
+      return { ...d, materials: [...d.materials, { material_id: m.id, description: m.description, unit: m.unit, cost: m.cost, qty: 1 }] };
+    });
+    setMatSearch('');
+  };
+  const saveEditTask = async () => {
+    if (!editDraft) return;
+    setEditSaving(true);
+    try {
+      await api.pbUpdateTask(editDraft.id, {
+        name: editDraft.name,
+        hours: editDraft.hours,
+        difficulty: editDraft.difficulty,
+        description: editDraft.description,
+        notes: editDraft.notes,
+        time_range: editDraft.time_range,
+        sub_cost: parseFloat(editDraft.sub_cost) || 0,
+      });
+      await api.pbUpdateTaskMaterials(editDraft.id, editDraft.materials.map(m => ({ material_id: m.material_id, qty: parseFloat(m.qty) || 1 })));
+      // Refresh task list
+      setTasks(ts => ts.map(t => t.id === editDraft.id ? { ...t, ...editDraft } : t));
+      toast.success('Task saved', editDraft.name + ' updated.');
+      closeEdit();
+    } catch(e) { toast.error('Save failed', e.message); }
+    finally { setEditSaving(false); }
+  };
+
+  // mat picker search results (exclude already-added)
+  const matPickerResults = useMemo(() => {
+    if (!matSearch.trim()) return [];
+    const q = matSearch.toLowerCase();
+    const added = new Set((editDraft?.materials || []).map(m => m.material_id));
+    return allMats.filter(m => !added.has(m.id) && (m.description.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))).slice(0, 8);
+  }, [matSearch, allMats, editDraft?.materials]);
 
   const E = engine;
   // Derive display rates from the HTML engine (reuses calcFlatRate with a zero-mat, 0-hr task)
@@ -9769,42 +21019,197 @@ function NewPricebookPage({user}) {
 
   const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'7px 11px',color:'var(--text)',fontSize:13,width:'100%'};
 
+  // Sub-pricebooks WITHIN the current service. Plumbing has one (no toggle);
+  // HVAC has Install + Service. These are shown as pills at top of the page.
+  const SUBBOOKS_BY_SERVICE = {
+    plumbing: [
+      { service:'plumbing', service_type:'install', label:'Plumbing · Install', icon:'🔧', color:'#C55A11' },
+      { service:'plumbing', service_type:'service', label:'Plumbing · Service', icon:'🚿', color:'#1F7A8C' },
+    ],
+    hvac: [
+      { service:'hvac', service_type:'install', label:'HVAC · Install', icon:'❄️', color:'#C55A11' },
+      { service:'hvac', service_type:'service', label:'HVAC · Service', icon:'🛠',  color:'#1E6B3C' },
+    ],
+    electrical: [
+      { service:'electrical', service_type:'install', label:'Electrical · Install', icon:'⚡', color:'#E8A500' },
+      { service:'electrical', service_type:'service', label:'Electrical · Service', icon:'🛠',  color:'#1E6B3C' },
+    ],
+    restoration: [
+      { service:'restoration', service_type:'dryout',  label:'Restoration · Dryouts',  icon:'💧', color:'#2E5FA3' },
+      { service:'restoration', service_type:'removal', label:'Restoration · Removals', icon:'🧹', color:'#7A4B1A' },
+      { service:'restoration', service_type:'rebuild', label:'Restoration · Rebuilds', icon:'🔨', color:'#5B2D8E' },
+    ],
+    renovations: [
+      { service:'renovations', service_type:'kitchen',  label:'Renovations · Kitchen',  icon:'🍳', color:'#C55A11' },
+      { service:'renovations', service_type:'bathroom', label:'Renovations · Bathroom', icon:'🚿', color:'#1F7A8C' },
+      { service:'renovations', service_type:'home',     label:'Renovations · Whole Home', icon:'🏠', color:'#5B2D8E' },
+    ],
+    pest_control: [
+      { service:'pest_control', service_type:'general',  label:'Pest · General',           icon:'🪳', color:'#1E6B3C' },
+      { service:'pest_control', service_type:'termite',  label:'Pest · Termite',           icon:'🐜', color:'#7A4B1A' },
+      { service:'pest_control', service_type:'wildlife', label:'Pest · Rodents & Wildlife',icon:'🐭', color:'#5B2D8E' },
+    ],
+    pools: [
+      { service:'pools', service_type:'installation', label:'Pools · Installation', icon:'🏗',  color:'#C55A11' },
+      { service:'pools', service_type:'repair',      label:'Pools · Repair',       icon:'🔧', color:'#5B2D8E' },
+      { service:'pools', service_type:'maintenance', label:'Pools · Maintenance',  icon:'🧹', color:'#1E6B3C' },
+    ],
+  };
+  const PRICEBOOKS = SUBBOOKS_BY_SERVICE[service] || SUBBOOKS_BY_SERVICE.plumbing;
+  const activeBook = PRICEBOOKS.find(b => b.service_type === serviceType) || PRICEBOOKS[0];
+
+  // If we somehow land on the wrong service_type for the current service, snap.
+  useEffect(() => {
+    if (activeBook && activeBook.service_type !== serviceType) {
+      setServiceType(activeBook.service_type);
+    }
+  }, [service]);
+
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',gap:0,animation:'fadeUp .3s ease'}}>
       {/* Header */}
-      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-        <div style={{fontFamily:'var(--font-head)',fontSize:24,fontWeight:800,flex:1}}>💲 Flat Rate Pricebook</div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          {E && <div style={{display:'flex',gap:16,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 16px'}}>
-            <span style={{fontSize:11,color:'var(--muted)'}}>Labor Rate <b style={{color:'var(--green)',marginLeft:4}}>{fmt(effectiveRate)}/hr</b></span>
-            <span style={{fontSize:11,color:'var(--muted)'}}>Mat Markup <b style={{color:'var(--blue)',marginLeft:4}}>{markup.toFixed(2)}×</b></span>
-          </div>}
-          <button onClick={()=>setEngineOpen(true)} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 14px',color:'var(--amber)',fontSize:12,fontWeight:700,cursor:'pointer'}}>⚙ Engine</button>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+        <div style={{fontFamily:'var(--font-head)',fontSize:24,fontWeight:800,flex:1}}>
+          💲 Flat Rate Pricebook — <span style={{color:activeBook.color}}>{activeBook.icon} {activeBook.label}</span>
         </div>
+        {E && <div style={{display:'flex',gap:16,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 16px'}}>
+          <span style={{fontSize:11,color:'var(--muted)'}}>Labor Rate <b style={{color:'var(--green)',marginLeft:4}}>{fmt(effectiveRate)}/hr</b></span>
+          <span style={{fontSize:11,color:'var(--muted)'}}>Mat Markup <b style={{color:'var(--blue)',marginLeft:4}}>{markup.toFixed(2)}×</b></span>
+          <span style={{fontSize:11,color:'var(--muted)',borderLeft:'1px solid var(--border)',paddingLeft:12}}>⚙ Engine → <b style={{color:'var(--amber)'}}>Settings → Pricebook</b></span>
+        </div>}
       </div>
 
-      <div style={{display:'flex',gap:0,flex:1,minHeight:0,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-        {/* Category sidebar */}
-        <div style={{width:200,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflowY:'auto'}}>
-          <div style={{padding:'10px 12px 6px',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em'}}>CATEGORIES</div>
-          {PB_CATS.map(cat=>{
-            const active=selCat===cat.id;
+      {/* Sub-pricebook toggle — only when the current service has more than one book.
+          Plumbing has one; HVAC has Install + Service. */}
+      {PRICEBOOKS.length > 1 && (
+        <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+          {PRICEBOOKS.map(b => {
+            const on = b.service_type === serviceType;
             return (
-              <button key={cat.id} onClick={()=>{setSelCat(cat.id);setExpanded(null);setSearch('');}}
-                style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',border:'none',borderLeft:`3px solid ${active?cat.color:'transparent'}`,background:active?`${cat.color}18`:'transparent',cursor:'pointer',textAlign:'left',transition:'all .12s'}}>
-                <span style={{fontSize:16}}>{cat.icon}</span>
-                <span style={{fontFamily:'var(--font-head)',fontSize:13,fontWeight:700,color:active?cat.color:'var(--text)'}}>{cat.name}</span>
+              <button
+                key={b.service_type}
+                onClick={() => setServiceType(b.service_type)}
+                style={{
+                  display:'flex', alignItems:'center', gap:8,
+                  padding:'8px 16px', borderRadius:10,
+                  border:`1.5px solid ${on ? b.color : 'var(--border)'}`,
+                  background: on ? `${b.color}22` : 'var(--surface)',
+                  color: on ? b.color : 'var(--muted)',
+                  fontFamily:'var(--font-head)', fontSize:13, fontWeight:800,
+                  letterSpacing:'.02em', cursor:'pointer',
+                  transition:'all .15s',
+                }}>
+                <span style={{fontSize:16}}>{b.icon}</span>
+                <span>{b.label}</span>
               </button>
             );
           })}
         </div>
+      )}
+
+      <div style={{display:'flex',gap:0,flex:1,minHeight:0,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+        {/* Category sidebar (dynamic per pricebook) */}
+        <div style={{width:230,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflowY:'auto'}}>
+          <div style={{display:'flex',alignItems:'center',padding:'10px 12px 6px'}}>
+            <div style={{flex:1,fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.08em'}}>CATEGORIES</div>
+            <button
+              onClick={async ()=>{
+                const name = window.prompt('New category name (top-level):');
+                if (!name || !name.trim()) return;
+                const icon = window.prompt('Emoji icon (optional, e.g. 🔧):', '📦') || '📦';
+                try {
+                  const c = await api.pbCreateCategory({ service, service_type: serviceType, name: name.trim(), icon });
+                  const refreshed = await api.pbCategories(service, serviceType);
+                  setCats(Array.isArray(refreshed) ? refreshed : []);
+                  setSelCat(c.id);
+                  toast.success('Category added', c.name);
+                } catch(e) { toast.error('Create failed', e.message); }
+              }}
+              title="Add top-level category"
+              style={{fontSize:11,padding:'3px 9px',background:'var(--amberdim)',border:'1px solid var(--amber)',borderRadius:6,color:'var(--amber)',cursor:'pointer',fontWeight:700}}>
+              + Category
+            </button>
+          </div>
+          {cats.length === 0 ? (
+            <div style={{padding:'20px 14px',fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>No categories for this pricebook yet.</div>
+          ) : (() => {
+            // Render top-level first, with children nested underneath.
+            const kidsOf = (pid) => cats.filter(c => c.parent_id === pid);
+            const topLevel = cats.filter(c => !c.parent_id || !cats.some(p => p.id === c.parent_id));
+            return topLevel.flatMap(cat => {
+              const kids = kidsOf(cat.id);
+              const activeTop = selCat === cat.id;
+              const topBtn = (
+                <button key={cat.id} onClick={() => { setSelCat(cat.id); setExpanded(null); setSearch(''); }}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',border:'none',borderLeft:`3px solid ${activeTop?cat.color:'transparent'}`,background:activeTop?`${cat.color}18`:'transparent',cursor:'pointer',textAlign:'left',transition:'all .12s'}}>
+                  <span style={{fontSize:16}}>{cat.icon}</span>
+                  <span style={{flex:1,fontFamily:'var(--font-head)',fontSize:13,fontWeight:700,color:activeTop?cat.color:'var(--text)'}}>{cat.name}</span>
+                  <span style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{cat.task_count ?? ''}</span>
+                </button>
+              );
+              const kidBtns = kids.map(sub => {
+                const activeSub = selCat === sub.id;
+                return (
+                  <button key={sub.id} onClick={() => { setSelCat(sub.id); setExpanded(null); setSearch(''); }}
+                    style={{display:'flex',alignItems:'center',gap:10,padding:'7px 14px 7px 32px',border:'none',borderLeft:`3px solid ${activeSub?sub.color:'transparent'}`,background:activeSub?`${sub.color}18`:'transparent',cursor:'pointer',textAlign:'left',transition:'all .12s'}}>
+                    <span style={{fontSize:13,opacity:.7}}>↳</span>
+                    <span style={{fontSize:13}}>{sub.icon}</span>
+                    <span style={{flex:1,fontSize:12,color:activeSub?sub.color:'var(--muted)',fontWeight:activeSub?700:500}}>{sub.name}</span>
+                    <span style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{sub.task_count ?? ''}</span>
+                  </button>
+                );
+              });
+              const addSubBtn = activeTop ? (
+                <button key={cat.id+'-add'}
+                  onClick={async ()=>{
+                    const name = window.prompt(`Add subcategory under "${cat.name}":`);
+                    if (!name || !name.trim()) return;
+                    const icon = window.prompt('Emoji icon (optional):', '📦') || '📦';
+                    try {
+                      const c = await api.pbCreateCategory({ service, service_type: serviceType, name: name.trim(), icon, parent_id: cat.id });
+                      const refreshed = await api.pbCategories(service, serviceType);
+                      setCats(Array.isArray(refreshed) ? refreshed : []);
+                      setSelCat(c.id);
+                      toast.success('Subcategory added', c.name);
+                    } catch(e) { toast.error('Create failed', e.message); }
+                  }}
+                  style={{display:'flex',alignItems:'center',gap:6,padding:'4px 14px 8px 32px',border:'none',background:'transparent',cursor:'pointer',color:'var(--muted)',fontSize:11,fontStyle:'italic'}}>
+                  + Add subcategory
+                </button>
+              ) : null;
+              return [topBtn, ...kidBtns, addSubBtn].filter(Boolean);
+            });
+          })()}
+        </div>
 
         {/* Task area */}
         <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
-          {/* Search bar */}
-          <div style={{padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
+          {/* Search + Add Task */}
+          <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search tasks…"
-              style={{...INP,width:'100%',background:'var(--bg)'}}/>
+              style={{...INP,flex:1,background:'var(--bg)'}}/>
+            <button
+              onClick={async ()=>{
+                if (!selCat) { toast.error('Pick a category first', 'Select a category on the left to add a task to it.'); return; }
+                const name = window.prompt('New task name:');
+                if (!name || !name.trim()) return;
+                const tag  = window.prompt('Short code / tag (e.g. WH-50-GAS):', '') || '';
+                const hrs  = window.prompt('Billable hours (number, 0 if sub only):', '1') || '0';
+                const subCostStr = window.prompt('Subcontractor cost ($) — leave 0 for in-house work:', '0') || '0';
+                try {
+                  await api.pbCreateTask({
+                    service, service_type: serviceType, category_id: selCat,
+                    name: name.trim(), tag, hours: parseFloat(hrs)||0, sub_cost: parseFloat(subCostStr)||0,
+                  });
+                  const refreshed = await api.pbTasks({ service, service_type: serviceType, category: selCat });
+                  setTasks(Array.isArray(refreshed) ? refreshed : []);
+                  toast.success('Task added', name.trim());
+                } catch(e) { toast.error('Create failed', e.message); }
+              }}
+              disabled={!selCat}
+              style={{padding:'7px 14px',background:'var(--greendim)',border:'1px solid var(--green)',borderRadius:7,color:'var(--green)',fontSize:12,fontWeight:700,cursor:selCat?'pointer':'not-allowed',opacity:selCat?1:0.5,whiteSpace:'nowrap'}}>
+              + Task
+            </button>
           </div>
 
           {/* Task table */}
@@ -9821,6 +21226,7 @@ function NewPricebookPage({user}) {
                     <th style={{padding:'8px 8px',textAlign:'center',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',fontWeight:600,width:60}}>HRS</th>
                     <th style={{padding:'8px 8px',textAlign:'center',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',fontWeight:600,width:80}}>DIFF</th>
                     <th style={{padding:'8px 14px',textAlign:'right',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--blue)',letterSpacing:'.06em',fontWeight:600,width:120}}>FLAT RATE</th>
+                    <th style={{padding:'8px 8px',width:36}}/>
                   </tr>
                 </thead>
                 <tbody>
@@ -9844,10 +21250,14 @@ function NewPricebookPage({user}) {
                             <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:3,background:`${DIFF_COLOR[task.difficulty]||'#888'}22`,color:DIFF_COLOR[task.difficulty]||'#888',border:`1px solid ${DIFF_COLOR[task.difficulty]||'#888'}44`}}>{task.difficulty}</span>
                           </td>
                           <td style={{padding:'10px 14px',textAlign:'right',fontFamily:'var(--font-head)',fontSize:17,fontWeight:800,color:'var(--text)'}}>{engine?fmt(flatRate):'—'}</td>
+                          <td style={{padding:'10px 6px',textAlign:'center'}}>
+                            <button onClick={e=>openEdit(task,e)} title="Edit task" style={{background:'transparent',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:13,opacity:.55,transition:'opacity .15s'}}
+                              onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='.55'}>✎</button>
+                          </td>
                         </tr>
                         {isExp&&(
                           <tr style={{borderBottom:'1px solid var(--border)'}}>
-                            <td colSpan={4} style={{padding:0}}>
+                            <td colSpan={5} style={{padding:0}}>
                               <div style={{background:'var(--bg)',padding:'14px 20px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16}}>
                                 {/* Materials */}
                                 <div>
@@ -9903,96 +21313,571 @@ function NewPricebookPage({user}) {
         </div>
       </div>
 
-      {/* Engine Modal */}
-      {engineOpen&&engineDraft&&(
-        <div style={{position:'fixed',inset:0,background:'#00000088',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setEngineOpen(false)}>
-          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:28,width:600,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:20}}>
-              <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800}}>⚙ Pricing Engine</div>
-              <button onClick={()=>setEngineOpen(false)} style={{background:'transparent',color:'var(--muted)',fontSize:18,cursor:'pointer'}}>✕</button>
-            </div>
-            {/* ── Burden inputs ── */}
-            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>BURDEN</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:16}}>
-              {[
-                ['wage','Tech Wage ($/hr)'],['hrs','Billable Hrs/Yr'],
-                ['fica','FICA %'],['unemp','Unemployment %'],['wc','Workers Comp %'],
-                ['health','Health ($/mo)'],['vehicle','Vehicle ($/mo)'],['fuel','Fuel ($/mo)'],
-                ['tools','Tools ($/mo)'],['uniform','Uniform ($/mo)'],['phone','Phone ($/mo)'],
-              ].map(([k,lbl])=>(
-                <div key={k}>
-                  <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:4}}>{lbl.toUpperCase()}</label>
-                  <input type="number" value={engineDraft[k]??''} onChange={e=>setEngineDraft(d=>({...d,[k]:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
-                </div>
-              ))}
+      {/* ── Task Edit Modal ─────────────────────────────────────── */}
+      {editTask&&editDraft&&(
+        <div style={{position:'fixed',inset:0,background:'#00000088',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={closeEdit}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:28,width:700,maxWidth:'96vw',maxHeight:'92vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:18}} onClick={e=>e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontFamily:'var(--font-head)',fontSize:19,fontWeight:800}}>✎ Edit Task</div>
+                <div style={{fontSize:11,color:'var(--muted)',marginTop:2,fontFamily:'var(--font-mono)'}}>{editTask.tag} · #{editTask.id}</div>
+              </div>
+              <button onClick={closeEdit} style={{background:'transparent',border:'none',color:'var(--muted)',fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
             </div>
 
-            {/* ── Overhead inputs ── */}
-            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>OVERHEAD</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+            {/* Row 1: Name + Hours + Difficulty */}
+            <div style={{display:'grid',gridTemplateColumns:'2fr 100px 130px',gap:12}}>
               <div>
-                <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>NUMBER OF TECHS</label>
-                <input type="number" value={engineDraft.num_techs??''} onChange={e=>setEngineDraft(d=>({...d,num_techs:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
+                <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:4}}>TASK NAME</label>
+                <input value={editDraft.name||''} onChange={e=>updEdit('name',e.target.value)}
+                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--text)',fontSize:13,width:'100%',boxSizing:'border-box'}}/>
               </div>
               <div>
-                <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>OVERHEAD BILLABLE HRS/YR</label>
-                <input type="number" value={engineDraft.oh_hrs??''} onChange={e=>setEngineDraft(d=>({...d,oh_hrs:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
+                <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:4}}>HOURS</label>
+                <input type="number" min="0" step="0.25" value={editDraft.hours||''} onChange={e=>updEdit('hours',e.target.value)}
+                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--amber)',fontWeight:700,fontSize:14,width:'100%',boxSizing:'border-box',fontFamily:'var(--font-mono)'}}/>
+              </div>
+              <div>
+                <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:4}}>DIFFICULTY</label>
+                <select value={editDraft.difficulty||'Moderate'} onChange={e=>updEdit('difficulty',e.target.value)}
+                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--text)',fontSize:13,width:'100%',boxSizing:'border-box'}}>
+                  {['Easy','Moderate','Hard','Complex'].map(d=><option key={d} value={d}>{d}</option>)}
+                </select>
               </div>
             </div>
-            <div style={{marginBottom:16,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:10}}>
-              <div style={{fontSize:10,color:'var(--muted)',letterSpacing:'.06em',marginBottom:6}}>MONTHLY OVERHEAD ITEMS</div>
-              {(engineDraft.oh_items||[]).map((it,i)=>(
-                <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 110px 28px',gap:6,alignItems:'center',marginBottom:4}}>
-                  <input value={it.name} onChange={e=>setEngineDraft(d=>{const arr=[...(d.oh_items||[])];arr[i]={...arr[i],name:e.target.value};return {...d,oh_items:arr};})} style={{...INP,fontSize:12,padding:'5px 8px'}}/>
-                  <input type="number" value={it.monthly} onChange={e=>setEngineDraft(d=>{const arr=[...(d.oh_items||[])];arr[i]={...arr[i],monthly:parseFloat(e.target.value)||0};return {...d,oh_items:arr};})} style={{...INP,fontSize:12,padding:'5px 8px',textAlign:'right',color:'var(--amber)',fontWeight:700}}/>
-                  <button onClick={()=>setEngineDraft(d=>({...d,oh_items:(d.oh_items||[]).filter((_,j)=>j!==i)}))} style={{background:'transparent',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:14}}>✕</button>
-                </div>
-              ))}
-              <button onClick={()=>setEngineDraft(d=>({...d,oh_items:[...(d.oh_items||[]),{name:'New Item',monthly:0}]}))} style={{marginTop:6,background:'var(--surface)',border:'1px dashed var(--border)',borderRadius:6,padding:'6px 10px',color:'var(--muted)',fontSize:11,cursor:'pointer'}}>+ Add Overhead Item</button>
+
+            {/* Row 2: Time Range + Description */}
+            <div style={{display:'grid',gridTemplateColumns:'160px 1fr',gap:12}}>
+              <div>
+                <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:4}}>TIME RANGE</label>
+                <input value={editDraft.time_range||''} onChange={e=>updEdit('time_range',e.target.value)} placeholder="e.g. 1–2 hrs"
+                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--text)',fontSize:13,width:'100%',boxSizing:'border-box'}}/>
+              </div>
+              <div>
+                <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:4}}>DESCRIPTION</label>
+                <input value={editDraft.description||''} onChange={e=>updEdit('description',e.target.value)} placeholder="Short job description shown on invoice"
+                  style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--text)',fontSize:13,width:'100%',boxSizing:'border-box'}}/>
+              </div>
             </div>
 
-            {/* ── Profit & Markup ── */}
-            <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.1em',marginBottom:8}}>PROFIT &amp; MARKUP</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10,marginBottom:20}}>
-              {[['profit','Net Profit %'],['misc','Misc %'],['warranty','Warranty %'],['matmarkup','Extra Mat Markup %']].map(([k,lbl])=>(
-                <div key={k}>
-                  <label style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',display:'block',marginBottom:4}}>{lbl.toUpperCase()}</label>
-                  <input type="number" value={engineDraft[k]??''} onChange={e=>setEngineDraft(d=>({...d,[k]:e.target.value}))} style={{...INP,color:'var(--text)',fontWeight:700}}/>
-                </div>
-              ))}
+            {/* Row 2.5: Sub Cost — if > 0, pricing switches to sub_cost × (1 + sub_markup%)
+                 and bypasses the labor/materials formula. Leave at 0 for in-house work. */}
+            <div style={{background:'#5daf7c10',border:'1px dashed #5daf7c55',borderRadius:8,padding:'10px 12px'}}>
+              <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'#5daf7c',letterSpacing:'.08em',marginBottom:6,fontWeight:700}}>🤝 SUBCONTRACTOR COST ($)</label>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <input type="number" min="0" step="0.01" value={editDraft.sub_cost||''}
+                  onChange={e=>updEdit('sub_cost',e.target.value)}
+                  placeholder="0.00 — what the sub charges us"
+                  style={{flex:1,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--green)',fontWeight:700,fontSize:14,fontFamily:'var(--font-mono)',boxSizing:'border-box'}}/>
+                {parseFloat(editDraft.sub_cost || 0) > 0 ? (() => {
+                  const gp = parseFloat(engine?.sub_gp ?? 65);
+                  const price = parseFloat(editDraft.sub_cost) / Math.max(0.01, 1 - gp/100);
+                  return (
+                    <div style={{fontSize:11,color:'var(--muted)',whiteSpace:'nowrap'}}>
+                      → Customer sees <b style={{color:'var(--green)'}}>${price.toFixed(2)}</b>
+                      <span style={{marginLeft:4,opacity:.7}}>({gp}% gross profit)</span>
+                    </div>
+                  );
+                })() : (
+                  <div style={{fontSize:11,color:'var(--muted)',whiteSpace:'nowrap'}}>Leave 0 to use normal labor + materials pricing.</div>
+                )}
+              </div>
             </div>
 
-            {/* ── Derived display (live) ── */}
-            {(()=>{
-              const probe = calcFlatRate({materials:[],hours:0}, engineDraft);
+            {/* Notes */}
+            <div>
+              <label style={{display:'block',fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:4}}>TECHNICIAN NOTES</label>
+              <textarea rows={2} value={editDraft.notes||''} onChange={e=>updEdit('notes',e.target.value)} placeholder="Internal notes, warnings, tips for the tech…"
+                style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'8px 11px',color:'var(--text)',fontSize:12,width:'100%',boxSizing:'border-box',resize:'vertical',fontFamily:'inherit'}}/>
+            </div>
+
+            {/* Materials */}
+            <div>
+              <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.08em',marginBottom:8,paddingBottom:5,borderBottom:'1px solid var(--border)'}}>MATERIALS</div>
+
+              {/* Existing materials */}
+              {editDraft.materials.length === 0
+                ? <div style={{fontSize:12,color:'var(--muted)',fontStyle:'italic',marginBottom:8}}>No materials — labor only.</div>
+                : (
+                  <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+                    {editDraft.materials.map(m=>(
+                      <div key={m.material_id} style={{display:'grid',gridTemplateColumns:'1fr 80px 60px 28px',alignItems:'center',gap:8,padding:'5px 8px',background:'var(--surface2)',borderRadius:6,border:'1px solid var(--border)'}}>
+                        <span style={{fontSize:12,color:'var(--text)'}}>{m.description}</span>
+                        <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)',textAlign:'right'}}>{m.unit} · ${parseFloat(m.cost||0).toFixed(2)}</span>
+                        <input type="number" min="0.01" step="0.5" value={m.qty} onChange={e=>updMatQty(m.material_id,e.target.value)}
+                          style={{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'4px 6px',color:'var(--amber)',fontWeight:700,fontSize:12,fontFamily:'var(--font-mono)',width:'100%',boxSizing:'border-box',textAlign:'center'}}/>
+                        <button onClick={()=>removeMat(m.material_id)} title="Remove" style={{background:'transparent',border:'none',color:'#f56565',cursor:'pointer',fontSize:14,padding:0}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+
+              {/* Material picker */}
+              <div style={{position:'relative'}}>
+                <input value={matSearch} onChange={e=>setMatSearch(e.target.value)} placeholder="🔍 Search to add a material…"
+                  style={{background:'var(--bg)',border:'1px dashed var(--border)',borderRadius:6,padding:'7px 11px',color:'var(--text)',fontSize:12,width:'100%',boxSizing:'border-box'}}/>
+                {matPickerResults.length > 0 && (
+                  <div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:6,zIndex:10,boxShadow:'0 4px 20px #0006',maxHeight:220,overflowY:'auto'}}>
+                    {matPickerResults.map(m=>(
+                      <div key={m.id} onClick={()=>addMat(m)}
+                        style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)',transition:'background .1s'}}
+                        onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        <span style={{fontSize:12,color:'var(--text)'}}>{m.description}</span>
+                        <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{m.unit} · <b style={{color:'var(--amber)'}}>${parseFloat(m.cost||0).toFixed(2)}</b></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Live price preview */}
+            {engine && (()=>{
+              const { flatRate, matCost, laborRate, mu } = calcFlatRate(editDraft, engine);
+              const lc = parseFloat(editDraft.hours||0) * laborRate;
               return (
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginBottom:20}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,padding:12}}>
                   {[
-                    ['Burdened',fmt(probe.burdened)+'/hr','#22c55e'],
-                    ['Overhead',fmt(probe.ohPerHr)+'/hr','#a855f7'],
-                    ['Labor Rate',fmt(probe.laborRate)+'/hr','#f59e0b'],
-                    ['Mat Markup',probe.mu.toFixed(2)+'×','#38bdf8'],
+                    ['Labor',`${fmt(lc)}`,'#818cf8'],
+                    ['Mat (raw)',`${fmt(matCost)}`,'#38bdf8'],
+                    ['Mat (markup)',`${fmt(matCost*mu)}`,'#38bdf8'],
+                    ['FLAT RATE',`${fmt(flatRate)}`,'var(--amber)'],
                   ].map(([lbl,val,clr])=>(
-                    <div key={lbl} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'10px 14px',textAlign:'center'}}>
-                      <div style={{fontSize:10,color:'var(--muted)',marginBottom:4}}>{lbl}</div>
-                      <div style={{fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,color:clr}}>{val}</div>
+                    <div key={lbl} style={{textAlign:'center'}}>
+                      <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--font-mono)',marginBottom:3}}>{lbl}</div>
+                      <div style={{fontFamily:'var(--font-head)',fontSize:15,fontWeight:800,color:clr}}>{val}</div>
                     </div>
                   ))}
                 </div>
               );
             })()}
-            <button onClick={saveEngine} disabled={saving} style={{width:'100%',background:'var(--amber)',color:'#000',border:'none',borderRadius:8,padding:12,fontFamily:'var(--font-head)',fontSize:16,fontWeight:800,cursor:'pointer'}}>
-              {saving?'Saving…':'✓ Save & Recalculate All Prices'}
-            </button>
+
+            {/* Footer buttons */}
+            <div style={{display:'flex',justifyContent:'flex-end',gap:10,paddingTop:4}}>
+              <button onClick={closeEdit} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 22px',color:'var(--muted)',fontSize:13,cursor:'pointer'}}>Cancel</button>
+              <button onClick={saveEditTask} disabled={editSaving}
+                style={{background:'var(--amber)',border:'none',borderRadius:8,padding:'9px 22px',color:'#000',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                {editSaving ? 'Saving…' : '✓ Save Changes'}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
+
+    </div>
+  );
+}
+
+// ── ImportExportPage ──────────────────────────────────────────────────────
+const IE_SECTIONS = [
+  { id:'import_customers', label:'Customers',      icon:'👥', color:'#3b82f6',
+    desc:'Customer names, phones, emails, addresses.',
+    exportType:'customers', importType:'customers',
+    importCols:['name','phone','email','address','city','state','zip','customer_type','notes'],
+    exportCols:'id, name, phone, email, address, city, state, zip, customer_type, notes, created_at',
+  },
+  { id:'import_jobs', label:'Jobs',               icon:'🔧', color:'#10b981',
+    desc:'Job history including status, tech, address, dates.',
+    exportType:'jobs', importType:null,
+    importCols:[],
+    exportCols:'id, job_number, customer_name, customer_phone, address, city, state, zip, status, service_type, technician, notes, scheduled_date',
+  },
+  { id:'import_invoices', label:'Invoices',        icon:'📄', color:'#f59e0b',
+    desc:'Invoice totals, status, payment info.',
+    exportType:'invoices', importType:null,
+    importCols:[],
+    exportCols:'id, invoice_number, customer_name, status, subtotal, tax, total, amount_paid, balance, due_date',
+  },
+  { id:'import_inventory', label:'Inventory',      icon:'📦', color:'#8b5cf6',
+    desc:'Items, SKUs, quantities, costs, categories.',
+    exportType:'inventory', importType:'inventory',
+    importCols:['sku','barcode','name','category','item_type','min_qty','max_qty','cost','price','vendor','vendor_sku'],
+    exportCols:'id, sku, barcode, name, category, item_type, min_qty, max_qty, cost, price, vendor, vendor_sku, qty_on_hand',
+  },
+  { id:'import_pricebook', label:'Pricebook',      icon:'💲', color:'#f97316',
+    desc:'Tasks + materials for every flat-rate job.',
+    exportType:'pricebook', importType:'pricebook',
+    importCols:['task_id','task_name','hours','difficulty','task_description','notes','time_range'],
+    importTypeAlt:'pricebook_materials',
+    importColsAlt:['task_id','task_name','material_id','material_description','material_qty'],
+    exportCols:'task_id, category, task_name, tag, hours, time_range, difficulty, task_description, notes, material_id, material_description, material_unit, material_unit_cost, material_qty, material_line_cost',
+  },
+];
+
+function parseCSVClient(text) {
+  const lines = text.trim().split('\n').filter(Boolean);
+  if (!lines.length) return { headers: [], rows: [] };
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const rows = lines.slice(1).map(line => {
+    const vals = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    vals.push(cur.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i] !== undefined ? vals[i].replace(/^"|"$/g, '') : ''; });
+    return obj;
+  });
+  return { headers, rows };
+}
+
+function ImportExportPage({ defaultSection }) {
+  const token = localStorage.getItem('dps_token');
+  const initSection = IE_SECTIONS.find(s => s.id === defaultSection) || IE_SECTIONS[0];
+  const [section, setSection] = useState(initSection);
+  const [mode, setMode] = useState('export'); // 'export' | 'import'
+
+  // Import state
+  const [importMethod, setImportMethod] = useState('file'); // 'file' | 'sheet'
+  // For sections with two import modes (e.g. pricebook: task fields vs. materials)
+  const [importSubMode, setImportSubMode] = useState('primary'); // 'primary' | 'alt'
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [csvText, setCsvText] = useState('');
+  const [preview, setPreview] = useState(null); // { headers, rows, total }
+  const [previewing, setPreviewing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null);
+  const [dupAction, setDupAction] = useState('update'); // 'update' | 'skip'
+
+  // Reset state when section changes
+  useEffect(() => {
+    setPreview(null); setResult(null); setCsvText(''); setSheetUrl(''); setImportSubMode('primary');
+  }, [section.id]);
+
+  // Which import type + columns are active right now
+  const activeImportType = importSubMode === 'alt' && section.importTypeAlt
+    ? section.importTypeAlt : section.importType;
+  const activeImportCols = importSubMode === 'alt' && section.importColsAlt
+    ? section.importColsAlt : section.importCols;
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target.result;
+      setCsvText(text);
+      const parsed = parseCSVClient(text);
+      setPreview({ ...parsed, total: parsed.rows.length });
+      setResult(null);
+    };
+    reader.readAsText(file);
+  };
+
+  const fetchSheet = async () => {
+    if (!sheetUrl.trim()) return;
+    setPreviewing(true);
+    try {
+      const data = await api.fetchGoogleSheet(sheetUrl.trim());
+      setPreview(data);
+      setResult(null);
+    } catch(e) { toast.error('Fetch failed', e.message); }
+    finally { setPreviewing(false); }
+  };
+
+  const runImport = async () => {
+    if (!preview || !activeImportType) return;
+    setImporting(true);
+    try {
+      const body = importMethod === 'sheet'
+        ? { sheetUrl: sheetUrl.trim(), dupAction }
+        : { rows: preview.rows, dupAction };
+      const r = await api.importData(activeImportType, body);
+      setResult(r);
+      // Build a friendly summary that works for all result shapes
+      const parts = [];
+      if (r.inserted   !== undefined) parts.push(`${r.inserted} inserted`);
+      if (r.updated    !== undefined) parts.push(`${r.updated} updated`);
+      if (r.tasksUpdated !== undefined) parts.push(`${r.tasksUpdated} tasks updated`);
+      if (r.matsSet    !== undefined) parts.push(`${r.matsSet} materials set`);
+      if (r.skipped    !== undefined) parts.push(`${r.skipped} skipped`);
+      toast.success('Import complete', parts.join(', '));
+    } catch(e) { toast.error('Import failed', e.message); }
+    finally { setImporting(false); }
+  };
+
+  // Export URL (direct link — triggers browser download via token header)
+  const exportUrl = (type, params = {}) => {
+    const qs = new URLSearchParams({ ...params, _token: token }).toString();
+    return `/api/import-export/export/${type}?${qs}`;
+  };
+
+  const INP = {background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',color:'var(--text)',fontSize:13,width:'100%',boxSizing:'border-box'};
+
+  return (
+    <div style={{ animation: 'fadeUp .4s ease' }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontFamily: 'var(--font-head)', fontSize: 22, fontWeight: 800 }}>📊 Import & Export</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+          Export any table as CSV (works with Google Sheets) · Import updated data back in
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
+
+        {/* Sidebar */}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+          {IE_SECTIONS.map(s => {
+            const active = section.id === s.id;
+            return (
+              <button key={s.id} onClick={() => setSection(s)}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', border: 'none',
+                  borderLeft: `3px solid ${active ? s.color : 'transparent'}`,
+                  background: active ? `${s.color}18` : 'transparent',
+                  cursor: 'pointer', textAlign: 'left', transition: 'all .12s' }}>
+                <span style={{ fontSize: 18 }}>{s.icon}</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 400, color: active ? s.color : 'var(--text)' }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{s.desc}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Main panel */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Mode tabs */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', borderRadius: 10, padding: 4, width: 'fit-content' }}>
+            {[['export','⬇ Export'], ['import','⬆ Import']].map(([m, lbl]) => (
+              <button key={m} onClick={() => { setMode(m); setPreview(null); setResult(null); }}
+                style={{ padding: '8px 20px', borderRadius: 7, border: 'none', fontSize: 13, fontWeight: mode===m ? 700 : 400,
+                  background: mode===m ? 'var(--surface)' : 'transparent',
+                  color: mode===m ? 'var(--text)' : 'var(--muted)', cursor: 'pointer', transition: 'all .12s' }}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {/* ── EXPORT PANEL ── */}
+          {mode === 'export' && (
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 28 }}>
+              <div style={{ fontFamily: 'var(--font-head)', fontSize: 17, fontWeight: 700, marginBottom: 6 }}>
+                {section.icon} Export {section.label}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
+                Downloads a CSV file with all {section.label.toLowerCase()} data. Open in Google Sheets via <b>File → Import</b>.
+              </div>
+
+              <div style={{ marginBottom: 20, padding: 16, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 8 }}>COLUMNS INCLUDED</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {section.exportCols.split(',').map(c => (
+                    <span key={c} style={{ fontSize: 11, padding: '3px 8px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>
+                      {c.trim()}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Google Sheets workflow */}
+              <div style={{ marginBottom: 20, padding: 16, background: '#1e3a2a', border: '1px solid #2d6a4f', borderRadius: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#5daf7c', marginBottom: 8 }}>📋 Google Sheets Workflow</div>
+                {[
+                  '1. Click "Download CSV" below',
+                  '2. In Google Sheets: File → Import → Upload → select the CSV',
+                  '3. Make your changes in Sheets',
+                  '4. File → Download → Comma-separated values (.csv)',
+                  '5. Or: File → Share → Publish to web → CSV → copy the link',
+                  '6. Come back here → Import → paste the link or upload the file',
+                ].map((step, i) => (
+                  <div key={i} style={{ fontSize: 12, color: '#a7d7b8', marginBottom: 4 }}>{step}</div>
+                ))}
+              </div>
+
+              <a href={exportUrl(section.exportType)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--amber)', color: '#000', borderRadius: 10, padding: '12px 28px', textDecoration: 'none', fontSize: 14, fontWeight: 800 }}>
+                ⬇ Download {section.label} CSV
+              </a>
+            </div>
+          )}
+
+          {/* ── IMPORT PANEL ── */}
+          {mode === 'import' && (
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 28 }}>
+              <div style={{ fontFamily: 'var(--font-head)', fontSize: 17, fontWeight: 700, marginBottom: 6 }}>
+                {section.icon} Import {section.label}
+              </div>
+
+              {!section.importType ? (
+                <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>📥</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{section.label} import not available</div>
+                  <div style={{ fontSize: 13 }}>This data type is export-only. Use it for reporting and analysis.</div>
+                </div>
+              ) : (<>
+
+                {/* Sub-mode tabs (only shown when section has an alt import, e.g. pricebook) */}
+                {section.importTypeAlt && (
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--surface2)', borderRadius: 8, padding: 3, width: 'fit-content' }}>
+                    {[
+                      ['primary', '📋 Task Fields', 'Update hours, difficulty, description'],
+                      ['alt',     '🔩 Task Materials', 'Set which materials are in each job'],
+                    ].map(([m, lbl, hint]) => (
+                      <button key={m} onClick={() => { setImportSubMode(m); setPreview(null); setResult(null); setCsvText(''); setSheetUrl(''); }}
+                        style={{ padding: '8px 16px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: importSubMode===m ? 700 : 400,
+                          background: importSubMode===m ? section.color : 'transparent',
+                          color: importSubMode===m ? '#fff' : 'var(--muted)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                        <span>{lbl}</span>
+                        <span style={{ fontSize: 10, opacity: 0.75 }}>{hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Expected columns */}
+                <div style={{ marginBottom: 16, padding: 12, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 6 }}>EXPECTED CSV COLUMNS</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {activeImportCols.map(c => (
+                      <span key={c} style={{ fontSize: 11, padding: '3px 8px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, fontFamily: 'var(--font-mono)', color: 'var(--amber)' }}>{c}</span>
+                    ))}
+                  </div>
+                  {importSubMode === 'alt' && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                      Tip: use the exported pricebook CSV — it already has all these columns. Just trim rows you don't want to change.
+                    </div>
+                  )}
+                </div>
+
+                {/* Method tabs */}
+                <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'var(--surface2)', borderRadius: 8, padding: 3, width: 'fit-content' }}>
+                  {[['file','📁 Upload CSV File'], ['sheet','📋 Google Sheets URL']].map(([m, lbl]) => (
+                    <button key={m} onClick={() => { setImportMethod(m); setPreview(null); setResult(null); }}
+                      style={{ padding: '7px 16px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: importMethod===m ? 700 : 400,
+                        background: importMethod===m ? 'var(--surface)' : 'transparent',
+                        color: importMethod===m ? 'var(--text)' : 'var(--muted)', cursor: 'pointer' }}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+
+                {/* File upload */}
+                {importMethod === 'file' && (
+                  <div style={{ marginBottom: 16 }}>
+                    <input type="file" accept=".csv,text/csv" onChange={handleFileUpload}
+                      style={{ display: 'none' }} id="csv-upload"/>
+                    <label htmlFor="csv-upload" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: 'var(--surface2)', border: '2px dashed var(--border)', borderRadius: 10, cursor: 'pointer', fontSize: 13, color: 'var(--muted)' }}>
+                      📁 Choose CSV File
+                    </label>
+                    {csvText && <span style={{ fontSize: 12, color: '#5daf7c', marginLeft: 12 }}>✓ {preview?.total} rows loaded</span>}
+                  </div>
+                )}
+
+                {/* Google Sheets URL */}
+                {importMethod === 'sheet' && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                      In Google Sheets: <b>File → Share → Publish to web</b> → select the sheet → <b>Comma-separated values (.csv)</b> → Publish → copy the URL
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
+                        placeholder="https://docs.google.com/spreadsheets/d/.../pub?gid=0&single=true&output=csv"
+                        style={{ ...INP, flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12 }}/>
+                      <button onClick={fetchSheet} disabled={previewing || !sheetUrl.trim()}
+                        style={{ padding: '9px 16px', background: '#3b82f6', border: 'none', borderRadius: 8, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        {previewing ? 'Fetching…' : 'Fetch & Preview'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview table */}
+                {preview && preview.rows.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                      Preview — first 5 rows of {preview.total} total
+                    </div>
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface2)' }}>
+                            {preview.headers.map(h => (
+                              <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontWeight: 600, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.rows.slice(0, 5).map((row, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                              {preview.headers.map(h => (
+                                <td key={h} style={{ padding: '6px 10px', color: 'var(--text)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row[h]}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Import result */}
+                {result && (
+                  <div style={{ marginBottom: 16, padding: 14, background: '#1e3a2a', border: '1px solid #2d6a4f', borderRadius: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#5daf7c', marginBottom: 8 }}>✓ Import Complete</div>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      {[
+                        result.total        !== undefined && ['Total rows',      result.total,        'var(--muted)'],
+                        result.inserted     !== undefined && ['Inserted',         result.inserted,     '#5daf7c'],
+                        result.updated      !== undefined && ['Updated',          result.updated,      '#38bdf8'],
+                        result.tasksUpdated !== undefined && ['Tasks updated',    result.tasksUpdated, '#38bdf8'],
+                        result.matsSet      !== undefined && ['Materials set',    result.matsSet,      '#a78bfa'],
+                        result.duplicates   !== undefined && result.duplicates > 0 && ['Duplicates skipped', result.duplicates, '#f59e0b'],
+                        result.skipped      !== undefined && ['Skipped',          result.skipped,      '#f59e0b'],
+                      ].filter(Boolean).map(([l,v,c]) => (
+                        <div key={l} style={{ textAlign: 'center' }}>
+                          <div style={{ fontFamily: 'var(--font-head)', fontSize: 22, fontWeight: 800, color: c }}>{v}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{l}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Duplicate handling — only for inventory */}
+                {preview && preview.rows.length > 0 && !result && section.importType === 'inventory' && (
+                  <div style={{ marginBottom: 14, padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                    <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 10 }}>⚠️ DUPLICATE SKU HANDLING</div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      {[['update','Update existing items with new data'],['skip','Skip duplicates — only insert new items']].map(([val, label]) => (
+                        <button key={val} onClick={() => setDupAction(val)}
+                          style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: `2px solid ${dupAction === val ? '#5daf7c' : 'var(--border)'}`, background: dupAction === val ? '#5daf7c22' : 'var(--surface)', color: dupAction === val ? '#5daf7c' : 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+                          <span style={{ marginRight: 6 }}>{dupAction === val ? '●' : '○'}</span>{label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Import button */}
+                {preview && preview.rows.length > 0 && !result && (
+                  <button onClick={runImport} disabled={importing}
+                    style={{ background: importing ? 'var(--surface2)' : '#5daf7c', color: importing ? 'var(--muted)' : '#fff', border: 'none', borderRadius: 10, padding: '12px 28px', fontSize: 14, fontWeight: 800, cursor: importing ? 'not-allowed' : 'pointer' }}>
+                    {importing ? 'Importing…' : `⬆ Import ${preview.total} Rows into DPS`}
+                  </button>
+                )}
+              </>)}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 // ── EstimatesPage ─────────────────────────────────────────────────────────
-function EstimatesPage({user}) {
+function EstimatesPage({ user, initialId, onDidOpen } = {}) {
   const [estimates,setEstimates] = useState([]);
   const [loading,setLoading] = useState(true);
   const [detail,setDetail] = useState(null);
@@ -10005,19 +21890,47 @@ function EstimatesPage({user}) {
   const [customers,setCustomers] = useState([]);
   const [newForm,setNewForm] = useState({customer_id:'',notes:'',tax_rate:'0.0825'});
   const [engine,setEngine] = useState(null);
-  const [pbTasks,setPbTasks] = useState([]);
-  const [pbCat,setPbCat] = useState('wh');
-  const [pbSearch,setPbSearch] = useState('');
-  const [pbLoading,setPbLoading] = useState(false);
+  const [showEstPb,setShowEstPb] = useState(false);
   const [addingItem,setAddingItem] = useState(false);
+  // Notes editing
+  const [estNotes,setEstNotes] = useState('');
+  const [savingEstNotes,setSavingEstNotes] = useState(false);
+  const [estNotesSaved,setEstNotesSaved] = useState(false);
+  const [estAiLoading,setEstAiLoading] = useState(false);
 
   const load = useCallback(()=>{ setLoading(true); api.getEstimates().then(setEstimates).finally(()=>setLoading(false)); },[]);
-  useEffect(()=>{ load(); api.pbEngine().then(setEngine); api.getCustomers().then(d=>setCustomers(Array.isArray(d)?d:d.customers||[])).catch(()=>{}); },[load]);
+  useEffect(()=>{ load(); api.pbEngine('plumbing').then(setEngine); api.getCustomers().then(d=>setCustomers(Array.isArray(d)?d:d.customers||[])).catch(()=>{}); },[load]);
+  useEffect(()=>{ setEstNotes(detail?.notes||''); setEstNotesSaved(false); },[detail?.id]);
+
+  // Auto-open a specific estimate when the parent hands us an id.
   useEffect(()=>{
+    if (initialId) {
+      api.getEstimate(initialId).then(setDetail).catch(()=>{});
+      onDidOpen && onDidOpen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialId]);
+
+  const saveEstNotes = async()=>{
     if(!detail) return;
-    setPbLoading(true);
-    api.pbTasks({category:pbCat}).then(setPbTasks).finally(()=>setPbLoading(false));
-  },[pbCat,detail]);
+    setSavingEstNotes(true);
+    try {
+      await api.updateEstimate(detail.id,{notes:estNotes});
+      setDetail(d=>({...d,notes:estNotes}));
+      setEstNotesSaved(true); setTimeout(()=>setEstNotesSaved(false),2000);
+    } catch(e){ toast.error('Save failed',e.message); }
+    finally { setSavingEstNotes(false); }
+  };
+
+  const rewriteEstNotes = async()=>{
+    if(!estNotes.trim()) return;
+    setEstAiLoading(true);
+    try {
+      const {text} = await api.aiRewrite(estNotes,'plumbing service');
+      setEstNotes(text);
+    } catch(e){ toast.error('AI Error',e.message||'Could not rewrite notes'); }
+    finally { setEstAiLoading(false); }
+  };
 
   const fmt = n=>'$'+parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   const STATUS_COLOR = {draft:'#6b7aaa',sent:'#3b82f6',signed:'#22c55e',declined:'#f97316',expired:'#6b7280',converted:'#a855f7'};
@@ -10107,7 +22020,6 @@ function EstimatesPage({user}) {
   };
   const onSigUp = ()=>setIsDrawing(false);
 
-  const filteredPbTasks = pbSearch ? pbTasks.filter(t=>t.name.toLowerCase().includes(pbSearch.toLowerCase())) : pbTasks;
 
   if(detail) return (
     <div style={{animation:'fadeUp .3s ease'}}>
@@ -10172,35 +22084,49 @@ function EstimatesPage({user}) {
           )}
         </div>
 
-        {/* Pricebook picker */}
+        {/* Pricebook picker — opens MobilePricebookPicker sheet */}
         {detail.status==='draft'&&(
-          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',fontFamily:'var(--font-head)',fontSize:13,fontWeight:700}}>Add from Pricebook</div>
-            <div style={{padding:'8px 10px',borderBottom:'1px solid var(--border)',display:'flex',gap:6,flexWrap:'wrap'}}>
-              {PB_CATS.map(c=>(
-                <button key={c.id} onClick={()=>setPbCat(c.id)}
-                  style={{fontSize:10,padding:'3px 8px',borderRadius:4,border:`1px solid ${pbCat===c.id?c.color:'var(--border)'}`,background:pbCat===c.id?`${c.color}22`:'transparent',color:pbCat===c.id?c.color:'var(--muted)',cursor:'pointer',fontWeight:pbCat===c.id?700:400}}>{c.icon} {c.name.split(' ')[0]}</button>
-              ))}
-            </div>
-            <input value={pbSearch} onChange={e=>setPbSearch(e.target.value)} placeholder="Search…"
-              style={{margin:'6px 10px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,padding:'5px 9px',color:'var(--text)',fontSize:12}}/>
-            <div style={{flex:1,overflowY:'auto'}}>
-              {pbLoading ? <div style={{padding:12}}><div className="skel" style={{height:32,borderRadius:4}}/></div> :
-              filteredPbTasks.map(task=>{
-                const {flatRate} = engine?calcFlatRate(task,engine):{flatRate:0};
-                return (
-                  <button key={task.id} onClick={()=>addTask(task)}
-                    style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',border:'none',borderBottom:'1px solid var(--border)',background:'transparent',cursor:'pointer',textAlign:'left',transition:'background .1s'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <span style={{fontSize:12,fontWeight:600,flex:1,marginRight:8}}>{task.name}</span>
-                    <span style={{fontFamily:'var(--font-head)',fontSize:13,fontWeight:800,color:'var(--amber)',flexShrink:0}}>{engine?fmt(flatRate):'—'}</span>
-                  </button>
-                );
-              })}
-            </div>
+          <div>
+            <button onClick={()=>setShowEstPb(true)} disabled={addingItem}
+              style={{width:'100%',padding:'14px',background:'var(--surface)',
+                border:'2px dashed var(--border)',borderRadius:12,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:10,
+                color:'var(--blue)',fontSize:14,fontWeight:700,
+                transition:'border-color .15s,background .15s'}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--blue)';e.currentTarget.style.background='var(--surface2)';}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.background='var(--surface)';}}>
+              <span style={{fontSize:20}}>💲</span>
+              {addingItem ? 'Adding…' : '+ Add from Pricebook'}
+            </button>
+            <MobilePricebookPicker
+              open={showEstPb}
+              onClose={()=>setShowEstPb(false)}
+              onPick={task=>{ setShowEstPb(false); addTask(task); }}
+              calcPrice={task=>engine?calcFlatRate(task,engine).flatRate:0}
+            />
           </div>
         )}
+      </div>
+
+      {/* Notes */}
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:18,marginTop:16}}>
+        <div style={{fontSize:10,fontFamily:'var(--font-mono)',color:'var(--amber)',letterSpacing:'.08em',marginBottom:10,fontWeight:600}}>NOTES</div>
+        <textarea
+          value={estNotes}
+          onChange={e=>{setEstNotes(e.target.value);setEstNotesSaved(false);}}
+          placeholder="Add notes for this estimate — visible to the customer when sent..."
+          style={{width:'100%',minHeight:100,background:'var(--surface2)',border:'1px solid var(--border2)',borderRadius:8,padding:'10px 12px',color:'var(--text)',fontSize:13,resize:'vertical',boxSizing:'border-box',lineHeight:1.6}}
+        />
+        <div style={{display:'flex',gap:8,marginTop:8}}>
+          <button onClick={rewriteEstNotes} disabled={estAiLoading||!estNotes.trim()}
+            style={{flex:1,padding:'8px 14px',background:estAiLoading?'var(--surface2)':'linear-gradient(135deg,#6366f1,#8b5cf6)',border:'1px solid #6366f144',borderRadius:8,color:estAiLoading?'var(--muted)':'#fff',fontSize:12,fontWeight:600,cursor:estAiLoading||!estNotes.trim()?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6,opacity:!estNotes.trim()?0.4:1}}>
+            {estAiLoading?<><Spinner size={12}/> Rewriting…</>:'✨ Make it sound better'}
+          </button>
+          <button onClick={saveEstNotes} disabled={savingEstNotes}
+            style={{flex:1,padding:'8px',background:estNotesSaved?'var(--greendim)':savingEstNotes?'var(--surface2)':'var(--green)',border:'none',borderRadius:8,color:estNotesSaved?'var(--green)':savingEstNotes?'var(--muted)':'#fff',fontSize:13,fontWeight:700,cursor:savingEstNotes?'not-allowed':'pointer'}}>
+            {estNotesSaved?'✓ Saved!':savingEstNotes?'Saving…':'Save Notes'}
+          </button>
+        </div>
       </div>
 
       {/* In-person signature modal */}
@@ -10326,19 +22252,50 @@ function EstimatesPage({user}) {
   );
 }
 
+// Wraps Jobs / Estimates / Invoices under one top-nav tab. Sub-tabs live
+// here so the sidebar stays lean while every job-adjacent record stays
+// one click away from the job that owns it.
+function JobsHubPage({ user }) {
+  const [tab, setTab] = useState('jobs');
+  // When JobsPage's drill-in modal wants to open a specific estimate/invoice, we
+  // switch tabs and hand the target id to the child so it can pop its detail panel.
+  const [initialDocId, setInitialDocId] = useState(null);
+  const openDoc = (docType, id) => { setInitialDocId(id); setTab(docType); };
+  const tabStyle = (id, color) => ({
+    padding: '9px 22px', borderRadius: 8, cursor: 'pointer',
+    background: tab === id ? color + '22' : 'transparent',
+    border: '1px solid ' + (tab === id ? color : 'var(--border)'),
+    color: tab === id ? color : 'var(--muted)',
+    fontSize: 13, fontWeight: 700, letterSpacing: '.02em',
+  });
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
+      <div style={{ display:'flex', gap:8, marginBottom:16, flexShrink:0 }}>
+        <button onClick={()=>setTab('jobs')}      style={tabStyle('jobs',      'var(--amber)')}>🧰 Jobs</button>
+        <button onClick={()=>setTab('estimates')} style={tabStyle('estimates', '#a78bfa')}>📄 Estimates</button>
+        <button onClick={()=>setTab('invoices')}  style={tabStyle('invoices',  'var(--green)')}>🧾 Invoices</button>
+      </div>
+      <div style={{ flex:1, minHeight:0, overflow:'auto' }}>
+        {tab === 'jobs'      && <JobsPage onOpenDoc={openDoc}/>}
+        {tab === 'estimates' && <EstimatesPage user={user} initialId={initialDocId} onDidOpen={()=>setInitialDocId(null)}/>}
+        {tab === 'invoices'  && <InvoicesPage initialId={initialDocId} onDidOpen={()=>setInitialDocId(null)}/>}
+      </div>
+    </div>
+  );
+}
+
 const NAV = [
   {id:"dashboard",  label:"Dashboard",  icon:"🏠"},
   {id:"dispatch",   label:"Dispatch",   icon:"📋"},
   {id:"customers",  label:"Customers",  icon:"👤"},
-  {id:"invoices",   label:"Invoices",   icon:"🧾"},
-  {id:"estimates",  label:"Estimates",  icon:"📄"},
+  {id:"jobs",       label:"Jobs",       icon:"🧰"},
   {id:"pricebook",  label:"Pricebook",  icon:"💲"},
   {id:"inbox",      label:"Inbox",      icon:"💬"},
   {id:"calls",      label:"Calls",      icon:"📞"},
   {id:"reports",    label:"Reports",    icon:"📊"},
   {id:"gps",        label:"GPS Fleet",  icon:"🗺️"},
-  {id:"marketing",  label:"Marketing",  icon:"📣", soon:true},
-  {id:"accounting", label:"Accounting", icon:"💼", soon:true},
+  {id:"marketing",  label:"Marketing",  icon:"📣"},
+  {id:"accounting", label:"Accounting", icon:"💼"},
 ];
 
 const SETTINGS_NAV = [
@@ -10348,6 +22305,42 @@ const SETTINGS_NAV = [
   {id:"pricebook",    label:"Pricebook"},
 ];
 
+function ClockButton() {
+  const [clockedIn, setClockedIn] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getPunchStatus().then(d => setClockedIn(!!d.clocked_in)).catch(() => {});
+  }, []);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      if (clockedIn) {
+        await api.clockOut();
+        setClockedIn(false);
+      } else {
+        await api.clockIn();
+        setClockedIn(true);
+      }
+    } catch(e) { toast.error('Clock error', e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <button onClick={toggle} disabled={busy}
+      style={{
+        background: clockedIn ? '#c5303018' : '#27674918',
+        border: `1px solid ${clockedIn ? '#c5303044' : '#27674944'}`,
+        color: clockedIn ? '#fc8181' : '#68d391',
+        fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 5, cursor: 'pointer',
+        whiteSpace: 'nowrap', letterSpacing: '.03em',
+      }}>
+      {busy ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}
+    </button>
+  );
+}
+
 export default function App() {
   const { user, logout } = useAuth();
   const [page, setPage] = useState("dashboard");
@@ -10355,6 +22348,8 @@ export default function App() {
   const [expanded, setExpanded] = useState(true);
   const [settingsTab, setSettingsTab] = useState('account');
   const [callPop, setCallPop] = useState(null);
+  // Global dispatch alerts: { [job_id]: { job_id, dispatch_alert, technician_name, ts } }
+  const [activeAlerts, setActiveAlerts] = useState({});
   const SW = expanded ? 200 : 52;
 
   useEffect(()=>{
@@ -10370,130 +22365,188 @@ export default function App() {
     return ()=>clearTimeout(t);
   },[]);
 
+  // Load any pre-existing active alerts on mount
+  useEffect(()=>{
+    api.getJobs({ dispatch_alert: 'active', limit: 50 }).then(data => {
+      const jobs = Array.isArray(data) ? data : (data?.jobs || []);
+      const map = {};
+      jobs.filter(j => j.dispatch_alert).forEach(j => {
+        map[j.id] = { job_id: j.id, dispatch_alert: j.dispatch_alert,
+          technician_name: j.technician_name, ts: j.updated_at,
+          project_id: j.project_id || null, parent_job_id: j.parent_job_id || null };
+      });
+      setActiveAlerts(map);
+    }).catch(()=>{});
+  },[]);
+
+  // Subscribe to WS at app level for real-time alert flags
+  useEffect(()=>{
+    const ws = connectGpsWebSocket(msg => {
+      if (msg.type === 'dispatch_alert') {
+        setActiveAlerts(prev => {
+          if (!msg.dispatch_alert) {
+            // Alert cleared
+            const next = { ...prev };
+            delete next[msg.job_id];
+            return next;
+          }
+          return { ...prev, [msg.job_id]: {
+            job_id:          msg.job_id,
+            dispatch_alert:  msg.dispatch_alert,
+            technician_name: msg.technician_name,
+            project_id:      msg.project_id || null,
+            parent_job_id:   msg.parent_job_id || null,
+            ts:              msg.ts,
+          }};
+        });
+      }
+    });
+    return () => ws?.close();
+  },[]);
+
+  const dismissAlert = async (jobId) => {
+    try {
+      await api.patch(`/jobs/${jobId}`, { dispatch_alert: null });
+      setActiveAlerts(prev => { const n = {...prev}; delete n[jobId]; return n; });
+    } catch {}
+  };
+
   const navLabel = NAV.find(n=>n.id===page)?.label || (page==="settings"?"Settings":"");
 
   return (
     <>
       <style>{GF}{G}{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{height:"100vh",display:"flex",overflow:"hidden"}}>
+      <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
-        {/* ── Sidebar ── */}
-        <aside style={{width:expanded?210:52,background:"#0a0d22",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0,transition:"width .2s",overflow:"hidden",zIndex:50}}>
-          {/* Logo */}
-          <div style={{padding:"16px 12px 14px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexShrink:0,minHeight:60}}>
-            <svg width="28" height="24" viewBox="0 0 40 34" fill="none" style={{flexShrink:0}}>
-              <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
-              <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
-              <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
-            </svg>
-            {expanded && (
-              <div style={{overflow:"hidden"}}>
-                <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:15,fontWeight:800,color:"var(--text)",lineHeight:1,whiteSpace:"nowrap"}}>Davis Plumbing</div>
-                <div style={{fontFamily:"var(--font-mono)",fontSize:6,letterSpacing:".18em",color:"var(--blue)",marginTop:2,whiteSpace:"nowrap"}}>DIGITAL PLUMBING SOFTWARE</div>
+        {/* ── Top header (dark ribbon + nav strip) ── */}
+        <header style={{background:"#0a0d22",flexShrink:0,zIndex:50}}>
+
+          {/* Row 1: Brand + utilities */}
+          <div style={{height:50,display:"flex",alignItems:"center",padding:"0 20px",gap:14,borderBottom:"1px solid rgba(255,255,255,.08)"}}>
+            {/* Logo + company name */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginRight:12,flexShrink:0}}>
+              <svg width="26" height="22" viewBox="0 0 40 34" fill="none">
+                <polygon points="8,34 0,0 32,0 40,34" fill="#E20613"/>
+                <line x1="10" y1="10" x2="38" y2="10" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
+                <line x1="11" y1="16" x2="39" y2="16" stroke="#fff" strokeWidth="1.2" strokeOpacity=".3"/>
+              </svg>
+              <div>
+                <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:14,fontWeight:800,color:"#fff",lineHeight:1.1,whiteSpace:"nowrap"}}>Davis Plumbing</div>
+                <div style={{fontFamily:"var(--font-mono)",fontSize:6,letterSpacing:".18em",color:"#4a9edd",marginTop:2,whiteSpace:"nowrap"}}>DIGITAL PLUMBING SOFTWARE</div>
               </div>
-            )}
-          </div>
-
-          {/* Nav items */}
-          <nav style={{flex:1,padding:"10px 6px",overflowY:"auto",overflowX:"hidden"}}>
-            {NAV.map(item=>{
-              const active = page===item.id;
-              return (
-                <button key={item.id} onClick={()=>{if(!item.soon) setPage(item.id);}}
-                  title={!expanded?item.label:undefined}
-                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:expanded?"9px 10px":"9px 0",justifyContent:expanded?"flex-start":"center",borderRadius:7,background:active?"var(--reddim)":"transparent",border:"none",color:item.soon?"var(--dim)":active?"var(--red)":"var(--muted)",fontSize:13,fontWeight:active?600:400,marginBottom:2,position:"relative",cursor:item.soon?"default":"pointer",whiteSpace:"nowrap",overflow:"hidden"}}>
-                  {active&&<div style={{position:"absolute",left:0,top:4,bottom:4,width:3,background:"var(--red)",borderRadius:"0 2px 2px 0"}}/>}
-                  <span style={{fontSize:15,flexShrink:0,width:18,textAlign:"center"}}>{item.icon}</span>
-                  {expanded&&<span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</span>}
-                  {expanded&&item.soon&&<span style={{marginLeft:"auto",fontSize:8,background:"var(--dim)",color:"var(--muted)",borderRadius:3,padding:"1px 4px",fontWeight:600,flexShrink:0}}>SOON</span>}
-                </button>
-              );
-            })}
-            <div style={{height:1,background:"var(--border)",margin:"8px 4px"}}/>
-            <button onClick={()=>setPage("settings")}
-              title={!expanded?"Settings":undefined}
-              style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:expanded?"9px 10px":"9px 0",justifyContent:expanded?"flex-start":"center",borderRadius:7,background:page==="settings"?"var(--reddim)":"transparent",border:"none",color:page==="settings"?"var(--red)":"var(--muted)",fontSize:13,fontWeight:page==="settings"?600:400,position:"relative",cursor:"pointer",whiteSpace:"nowrap"}}>
-              {page==="settings"&&<div style={{position:"absolute",left:0,top:4,bottom:4,width:3,background:"var(--red)",borderRadius:"0 2px 2px 0"}}/>}
-              <span style={{fontSize:15,flexShrink:0,width:18,textAlign:"center"}}>⚙️</span>
-              {expanded&&<span>Settings</span>}
-            </button>
-          </nav>
-
-          {/* User footer */}
-          <div style={{padding:"10px 8px",borderTop:"1px solid var(--border)",flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 6px",borderRadius:7,cursor:"pointer"}}
-              onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
-              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-              <div style={{width:28,height:28,borderRadius:14,background:"var(--border2)",border:"1px solid var(--blue)33",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"var(--blue)",fontFamily:"var(--font-mono)",flexShrink:0}}>
-                {user?.initials||user?.name?.slice(0,2)||"?"}
-              </div>
-              {expanded&&(
-                <div style={{overflow:"hidden",flex:1}}>
-                  <div style={{fontSize:12,fontWeight:600,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.name}</div>
-                  <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{user?.role}</div>
-                </div>
-              )}
-              {expanded&&<button onClick={logout} style={{background:"transparent",color:"var(--muted)",fontSize:10,padding:"3px 7px",borderRadius:4,border:"1px solid var(--border)",flexShrink:0}}>Out</button>}
-            </div>
-          </div>
-        </aside>
-
-        {/* ── Main column ── */}
-        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-
-          {/* Topbar */}
-          <header style={{height:46,background:"#0a0d22",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",padding:"0 16px",gap:12,flexShrink:0}}>
-            <button onClick={()=>setExpanded(p=>!p)} style={{background:"transparent",padding:4,color:"var(--muted)",borderRadius:4,flexShrink:0}}>
-              <Icon n="menu" size={16} color="var(--muted)"/>
-            </button>
-            <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
-              <span style={{color:"var(--muted)"}}>DPS</span>
-              <span style={{color:"var(--border2)"}}>›</span>
-              <span style={{color:"var(--text)",fontWeight:600}}>{navLabel}</span>
             </div>
 
             {/* Call pop */}
             {callPop && (
-              <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--reddim)",border:"1px solid var(--red)44",borderRadius:8,padding:"4px 12px",animation:"glow 2s infinite"}}>
-                <div style={{width:6,height:6,borderRadius:"50%",background:"var(--red)",animation:"pulse2 1s infinite"}}/>
-                <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--red)"}}>INCOMING · {callPop.phone} · {callPop.customer}</span>
-                <button onClick={()=>setCallPop(null)} style={{background:"transparent",color:"var(--red)",opacity:.7,padding:2}}>
-                  <Icon n="x" size={11} color="var(--red)"/>
+              <div style={{display:"flex",alignItems:"center",gap:8,background:"#E2061322",border:"1px solid #E2061344",borderRadius:8,padding:"4px 12px",animation:"glow 2s infinite"}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:"#E20613",animation:"pulse2 1s infinite"}}/>
+                <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#E20613"}}>INCOMING · {callPop.phone} · {callPop.customer}</span>
+                <button onClick={()=>setCallPop(null)} style={{background:"transparent",color:"#E20613",opacity:.7,padding:2}}>
+                  <Icon n="x" size={11} color="#E20613"/>
                 </button>
               </div>
             )}
 
             <div style={{flex:1}}/>
-            <div style={{fontFamily:"var(--font-mono)",fontSize:12,color:"var(--muted)",letterSpacing:".06em"}}>
-              {time.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
-            </div>
-          </header>
 
-          {/* Content */}
-          <main style={{flex:1,overflow:"auto",padding:22,background:"var(--bg)"}} className="scrollbar-thin">
-            {page==="dashboard"    && <ErrorBoundary name="Dashboard"><DashboardPage/></ErrorBoundary>}
-            {page==="dispatch"     && <ErrorBoundary name="Dispatch"><DispatchPage/></ErrorBoundary>}
-            {page==="jobs"         && <ErrorBoundary name="Jobs"><JobsPage/></ErrorBoundary>}
-            {page==="customers"    && <ErrorBoundary name="Customers"><CustomersPage/></ErrorBoundary>}
-            {page==="inbox"        && <ErrorBoundary name="Inbox"><InboxPage/></ErrorBoundary>}
-            {page==="invoices"     && <ErrorBoundary name="Invoices"><InvoicesPage/></ErrorBoundary>}
-            {page==="estimates"    && <ErrorBoundary name="Estimates"><EstimatesPage user={user}/></ErrorBoundary>}
-            {page==="pricebook"    && <ErrorBoundary name="Pricebook"><NewPricebookPage user={user}/></ErrorBoundary>}
-            {page==="reports"      && <ErrorBoundary name="Reports"><ReportsPage/></ErrorBoundary>}
-            {page==="gps"          && <ErrorBoundary name="GPS"><GPSPage/></ErrorBoundary>}
-            {page==="calls"        && <ErrorBoundary name="Calls"><CallsPage user={user}/></ErrorBoundary>}
-            {page==="settings" && (
-              <ErrorBoundary name="Settings">
-                <div style={{display:"flex",height:"100%",margin:-22,overflow:"hidden"}}>
-                  <SettingsSidebar activeId={settingsTab} onSelect={setSettingsTab}/>
-                  <div style={{flex:1,overflow:"auto",padding:24}} className="scrollbar-thin">
-                    <SettingsContent tab={settingsTab} user={user} logout={logout}/>
+            {/* ── Dispatch alert flags — visible on every tab ── */}
+            {Object.values(activeAlerts).map(alert => (
+              <div key={alert.job_id}
+                style={{display:"flex",alignItems:"center",gap:8,background:"#f5656518",
+                  border:"2px solid #f56565",borderRadius:8,padding:"4px 10px",
+                  animation:"glow 1.5s infinite",cursor:"pointer",flexShrink:0,maxWidth:300}}
+                onClick={()=>{ setPage("dispatch"); }}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:"#f56565",animation:"pulse2 .9s infinite",flexShrink:0}}/>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:10,fontFamily:"var(--font-mono)",color:"#f56565",fontWeight:700,letterSpacing:".06em",whiteSpace:"nowrap"}}>
+                    🚨 ALERT · {alert.technician_name || 'TECHNICIAN'}
+                  </div>
+                  <div style={{fontSize:10,color:"rgba(245,101,101,.8)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}}>
+                    {alert.dispatch_alert}
                   </div>
                 </div>
-              </ErrorBoundary>
-            )}
-          </main>
-        </div>
+                <button
+                  onClick={e=>{ e.stopPropagation(); dismissAlert(alert.job_id); }}
+                  style={{background:"transparent",border:"none",color:"#f56565",opacity:.7,padding:"2px 4px",cursor:"pointer",flexShrink:0,fontSize:14,lineHeight:1}}>
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {/* Clock */}
+            <div style={{fontFamily:"var(--font-mono)",fontSize:12,color:"rgba(255,255,255,.45)",letterSpacing:".06em",flexShrink:0}}>
+              {time.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+            </div>
+
+            {/* User chip */}
+            <div style={{display:"flex",alignItems:"center",gap:9,paddingLeft:12,borderLeft:"1px solid rgba(255,255,255,.1)",flexShrink:0}}>
+              <div style={{width:28,height:28,borderRadius:14,background:"#1e2d5a",border:"1px solid rgba(29,112,183,.4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#4a9edd",fontFamily:"var(--font-mono)"}}>
+                {user?.initials||user?.name?.slice(0,2)||"?"}
+              </div>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:"#fff",whiteSpace:"nowrap"}}>{user?.name}</div>
+                <div style={{fontSize:9,color:"rgba(255,255,255,.4)",fontFamily:"var(--font-mono)",textTransform:"uppercase",letterSpacing:".06em"}}>{user?.role}</div>
+              </div>
+              <ClockButton/>
+              <button onClick={logout} style={{background:"transparent",color:"rgba(255,255,255,.4)",fontSize:10,padding:"3px 9px",borderRadius:5,border:"1px solid rgba(255,255,255,.15)"}}>
+                Sign out
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Nav tabs */}
+          <div style={{display:"flex",alignItems:"stretch",padding:"0 12px",height:40,gap:0}}>
+            {NAV.map(item=>{
+              const active = page===item.id;
+              return (
+                <button key={item.id} onClick={()=>{if(!item.soon) setPage(item.id);}}
+                  style={{display:"flex",alignItems:"center",gap:6,padding:"0 13px",height:40,
+                    background:"transparent",border:"none",borderBottom:active?"3px solid #E20613":"3px solid transparent",
+                    color:item.soon?"rgba(255,255,255,.25)":active?"#fff":"rgba(255,255,255,.7)",
+                    fontSize:13,fontWeight:active?600:400,cursor:item.soon?"default":"pointer",
+                    whiteSpace:"nowrap",transition:"color .15s",flexShrink:0}}>
+                  <span style={{fontSize:16,filter:item.soon?"grayscale(1) opacity(0.3)":active?"none":"opacity(0.85)"}}>{item.icon}</span>
+                  <span>{item.label}</span>
+                  {item.soon&&<span style={{fontSize:7,background:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.3)",borderRadius:3,padding:"1px 4px",fontWeight:700,marginLeft:2}}>SOON</span>}
+                </button>
+              );
+            })}
+            <div style={{flex:1}}/>
+            <button onClick={()=>setPage("settings")}
+              style={{display:"flex",alignItems:"center",gap:6,padding:"0 13px",height:40,
+                background:"transparent",border:"none",borderBottom:page==="settings"?"3px solid #E20613":"3px solid transparent",
+                color:page==="settings"?"#fff":"rgba(255,255,255,.7)",
+                fontSize:13,fontWeight:page==="settings"?600:400,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              <span style={{fontSize:16,filter:page==="settings"?"none":"opacity(0.85)"}}>⚙️</span>
+              <span>Settings</span>
+            </button>
+          </div>
+        </header>
+
+        {/* ── Content ── */}
+        <main style={{flex:1,overflow:"auto",padding:22,background:"var(--bg)"}} className="scrollbar-thin">
+          {page==="dashboard"    && <ErrorBoundary name="Dashboard"><DashboardPage/></ErrorBoundary>}
+          {page==="dispatch"     && <ErrorBoundary name="Dispatch"><DispatchPage activeAlerts={activeAlerts}/></ErrorBoundary>}
+          {page==="jobs"         && <ErrorBoundary name="Jobs"><JobsHubPage user={user}/></ErrorBoundary>}
+          {page==="customers"    && <ErrorBoundary name="Customers"><CustomersPage/></ErrorBoundary>}
+          {page==="inbox"        && <ErrorBoundary name="Inbox"><InboxPage/></ErrorBoundary>}
+          {page==="pricebook"    && <ErrorBoundary name="Pricebook"><ServicePricebooksPage user={user}/></ErrorBoundary>}
+          {page==="reports"      && <ErrorBoundary name="Reports"><ReportsPage/></ErrorBoundary>}
+          {page==="accounting"   && <ErrorBoundary name="Accounting"><AccountingPage/></ErrorBoundary>}
+          {page==="marketing"    && <ErrorBoundary name="Marketing"><MarketingPage/></ErrorBoundary>}
+          {page==="gps"          && <ErrorBoundary name="GPS"><GPSPage/></ErrorBoundary>}
+          {page==="calls"        && <ErrorBoundary name="Calls"><CallsPage user={user}/></ErrorBoundary>}
+          {page==="settings" && (
+            <ErrorBoundary name="Settings">
+              <div style={{display:"flex",height:"100%",margin:-22,overflow:"hidden"}}>
+                <SettingsSidebar activeId={settingsTab} onSelect={setSettingsTab}/>
+                <div style={{flex:1,overflow:"auto",padding:24}} className="scrollbar-thin">
+                  <SettingsContent tab={settingsTab} user={user} logout={logout}/>
+                </div>
+              </div>
+            </ErrorBoundary>
+          )}
+        </main>
 
         <ToastContainer/>
       </div>

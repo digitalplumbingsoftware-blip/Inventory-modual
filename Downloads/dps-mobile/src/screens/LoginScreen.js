@@ -6,7 +6,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import * as SecureStore from 'expo-secure-store';
 import { C } from '../theme';
-import { getTechs, loginWithPin } from '../services/api';
+import { getTechs, loginWithPin, BASE_URL } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 
 export default function LoginScreen() {
@@ -27,7 +27,7 @@ export default function LoginScreen() {
     try {
       // Use admin credentials stored from previous login, or use a public endpoint
       // For now, we use a static tech list endpoint (no auth required for PIN login flow)
-      const res = await fetch('http://192.168.86.33:4000/api/auth/techs-for-pin');
+      const res = await fetch(`${BASE_URL}/api/auth/techs-for-pin`);
       const data = await res.json();
       setTechs(data || []);
     } catch (e) {

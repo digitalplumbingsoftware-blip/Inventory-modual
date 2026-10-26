@@ -80,25 +80,51 @@ const DEFAULT_HOLIDAYS = [
   { name: "New Year's Eve",        date: '12-31', open: true  },
 ];
 
+const VALID_WEEK_END_DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
 router.get('/business-hours', authenticate, async (_req, res) => {
   try {
     const r = await pool.query(`SELECT config FROM integrations WHERE name='business_hours'`);
     const cfg = r.rows[0]?.config ?? {};
     res.json({
-      hours:    cfg.hours    ?? DEFAULT_HOURS,
-      holidays: cfg.holidays ?? DEFAULT_HOLIDAYS,
+      hours:      cfg.hours      ?? DEFAULT_HOURS,
+      holidays:   cfg.holidays   ?? DEFAULT_HOLIDAYS,
+      weekEndDay: cfg.weekEndDay ?? 'saturday',
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/business-hours', authenticate, async (req, res) => {
   try {
-    const { hours, holidays } = req.body;
+    const { hours, holidays, weekEndDay } = req.body;
+    const validatedWeekEndDay = VALID_WEEK_END_DAYS.includes(weekEndDay) ? weekEndDay : 'saturday';
     await pool.query(`
       INSERT INTO integrations(name,config) VALUES('business_hours',$1)
       ON CONFLICT(name) DO UPDATE SET config=$1, updated_at=NOW()
-    `, [JSON.stringify({ hours, holidays })]);
+    `, [JSON.stringify({ hours, holidays, weekEndDay: validatedWeekEndDay })]);
     res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Pricing Model ──────────────────────────────────────────────
+// Values: 'flat_rate' | 'time_material'
+// flat_rate    → material usage recorded but NOT billed on invoice
+// time_material → material usage recorded AND added as invoice line item
+router.get('/pricing-model', authenticate, async (_req, res) => {
+  try {
+    const r = await pool.query(`SELECT config FROM integrations WHERE name='pricing_model'`);
+    res.json({ model: r.rows[0]?.config?.model ?? 'time_material' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/pricing-model', authenticate, async (req, res) => {
+  try {
+    const model = req.body.model === 'flat_rate' ? 'flat_rate' : 'time_material';
+    await pool.query(`
+      INSERT INTO integrations(name,config) VALUES('pricing_model',$1)
+      ON CONFLICT(name) DO UPDATE SET config=$1, updated_at=NOW()
+    `, [JSON.stringify({ model })]);
+    res.json({ ok: true, model });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

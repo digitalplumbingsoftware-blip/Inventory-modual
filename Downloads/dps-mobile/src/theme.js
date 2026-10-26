@@ -17,9 +17,10 @@ export const C = {
 };
 
 export const STATUS = {
-  scheduled: { color: C.muted,   label: 'SCHEDULED' },
-  en_route:  { color: C.blue,    label: 'EN ROUTE'  },
-  on_site:   { color: C.amber,   label: 'ON SITE'   },
-  completed: { color: C.green,   label: 'COMPLETED' },
-  cancelled: { color: C.dim,     label: 'CANCELLED' },
+  scheduled:     { color: C.muted,   label: 'SCHEDULED'     },
+  en_route:      { color: C.blue,    label: 'EN ROUTE'      },
+  on_site:       { color: C.amber,   label: 'ON SITE'       },
+  ready_to_call: { color: C.purple,  label: 'READY TO CALL' },
+  completed:     { color: C.green,   label: 'COMPLETED'     },
+  cancelled:     { color: C.dim,     label: 'CANCELLED'     },
 };

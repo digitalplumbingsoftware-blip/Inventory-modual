@@ -79,4 +79,33 @@ router.post('/wisetack/webhook', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Generic credential storage for additional integrations ──────────────────
+// Used by Acorn Finance, Stripe, FreshBooks, and any other integration that
+// just needs a key/value config saved in the integrations table.
+const GENERIC_INTEGRATIONS = ['acorn','stripe','freshbooks','caller_id','online_payments','twilio','review_settings','google_business','yelp_business'];
+
+router.get('/:name', authenticate, async (req, res) => {
+  if (!GENERIC_INTEGRATIONS.includes(req.params.name)) {
+    return res.status(404).json({ error: 'Unknown integration' });
+  }
+  try {
+    const r = await query("SELECT config FROM integrations WHERE name=$1", [req.params.name]);
+    res.json(r.rows[0] ? r.rows[0].config : {});
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/:name', authenticate, async (req, res) => {
+  if (!GENERIC_INTEGRATIONS.includes(req.params.name)) {
+    return res.status(404).json({ error: 'Unknown integration' });
+  }
+  try {
+    const config = req.body || {};
+    await query(
+      "INSERT INTO integrations (name, config) VALUES ($1,$2) ON CONFLICT (name) DO UPDATE SET config=$2, updated_at=NOW()",
+      [req.params.name, JSON.stringify(config)]
+    );
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

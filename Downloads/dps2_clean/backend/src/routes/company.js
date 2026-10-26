@@ -45,7 +45,8 @@ function generateMapKitToken(teamId, keyId, privateKeyPem, origin) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '../../public/uploads');
+    // Must match the static-serve path in index.js: /uploads → <root>/uploads
+    const dir = path.join(__dirname, '../../../../uploads');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -64,18 +65,74 @@ router.get('/settings', authenticate, async (req, res) => {
 // POST /api/company/settings
 router.post('/settings', authenticate, upload.single('logo'), async (req, res) => {
   try {
-    const { name, phone, email, address, city, state, zip, url, ein,
-            res_service, res_new, com_service, com_new } = req.body;
-    const logo_url = req.file ? '/uploads/company_logo' + require('path').extname(req.file.originalname) : undefined;
-    const fields = { name, phone, email, address, city, state, zip, url, ein,
-      res_service: res_service === 'true', res_new: res_new === 'true',
-      com_service: com_service === 'true', com_new: com_new === 'true',
-      updated_at: new Date() };
+    const b = req.body;
+
+    // Helper: FormData booleans arrive as strings
+    const bool  = v => v === 'true' || v === true;
+    // Helper: arrays were JSON.stringified in the frontend before appending
+    const arr   = v => { try { return JSON.parse(v) } catch { return [] } };
+    // Helper: text with empty-string fallback
+    const txt   = v => (v == null ? '' : String(v));
+
+    const logo_url = req.file ? '/uploads/company_logo' + path.extname(req.file.originalname) : undefined;
+
+    const fields = {
+      // Basic info
+      name:     txt(b.name),
+      phone:    txt(b.phone),
+      email:    txt(b.email),
+      address:  txt(b.address),
+      city:     txt(b.city),
+      state:    txt(b.state),
+      zip:      txt(b.zip),
+      url:      txt(b.url),
+      ein:      txt(b.ein),
+      // Job types
+      res_service: bool(b.res_service),
+      res_new:     bool(b.res_new),
+      com_service: bool(b.com_service),
+      com_new:     bool(b.com_new),
+      // Brand colors
+      brand_primary:   txt(b.brand_primary)   || '#e8a84a',
+      brand_secondary: txt(b.brand_secondary) || '#1a2a4a',
+      brand_accent:    txt(b.brand_accent)    || '#5daf7c',
+      // Services enabled
+      service_plumbing:    bool(b.service_plumbing),
+      service_hvac:        bool(b.service_hvac),
+      service_electrical:  bool(b.service_electrical),
+      service_restoration: bool(b.service_restoration),
+      service_renovations: bool(b.service_renovations),
+      service_pest_control: bool(b.service_pest_control),
+      service_pools:        bool(b.service_pools),
+      // Service customer types (JSON arrays)
+      svc_types_plumbing:    JSON.stringify(arr(b.svc_types_plumbing)),
+      svc_types_hvac:        JSON.stringify(arr(b.svc_types_hvac)),
+      svc_types_electrical:  JSON.stringify(arr(b.svc_types_electrical)),
+      svc_types_restoration: JSON.stringify(arr(b.svc_types_restoration)),
+      svc_types_pest_control: JSON.stringify(arr(b.svc_types_pest_control)),
+      svc_types_pools:        JSON.stringify(arr(b.svc_types_pools)),
+      svc_types_renovations: JSON.stringify(arr(b.svc_types_renovations)),
+      // Service license numbers
+      svc_license_plumbing:    txt(b.svc_license_plumbing),
+      svc_license_hvac:        txt(b.svc_license_hvac),
+      svc_license_electrical:  txt(b.svc_license_electrical),
+      svc_license_restoration: txt(b.svc_license_restoration),
+      svc_license_renovations: txt(b.svc_license_renovations),
+      svc_license_pest_control: txt(b.svc_license_pest_control),
+      svc_license_pools:        txt(b.svc_license_pools),
+      updated_at: new Date(),
+    };
+
     if (logo_url) fields.logo_url = logo_url;
-    const keys = Object.keys(fields);
-    const setClause = keys.map((k,i) => k + ' = $' + (i+1)).join(', ');
-    const vals = keys.map(k => fields[k]);
-    await query('UPDATE company_settings SET ' + setClause + ' WHERE id = $' + (keys.length+1), [...vals, 'main']);
+
+    const keys      = Object.keys(fields);
+    const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    const vals      = keys.map(k => fields[k]);
+
+    await query(
+      `UPDATE company_settings SET ${setClause} WHERE id = $${keys.length + 1}`,
+      [...vals, 'main']
+    );
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -195,6 +252,184 @@ router.get('/apple-maps-token', authenticate, async (_req, res) => {
   }
 });
 
+// ── Payment Methods ───────────────────────────────────────────
+
+// Ensure column exists (idempotent)
+async function ensurePaymentMethodsColumn() {
+  try {
+    await query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS payment_methods JSONB`);
+  } catch(e) { /* ignore */ }
+}
+ensurePaymentMethodsColumn();
+
+// GET /api/company/payment-methods
+// Each method now supports: id, label, icon, enabled, sort_order, is_default,
+// surcharge_pct, surcharge_fixed, gl_account_id, description, visible_to, is_custom
+router.get('/payment-methods', authenticate, async (req, res) => {
+  try {
+    const { rows } = await query('SELECT payment_methods FROM company_settings WHERE id=$1', ['main']);
+    const stored = rows[0]?.payment_methods;
+
+    // Check which financing integrations are connected
+    const { rows: intRows } = await query(
+      `SELECT name, config FROM integrations WHERE name IN ('wisetack','acorn')`
+    );
+    const financing = {};
+    for (const row of intRows) {
+      financing[row.name] = !!(row.config?.api_key || row.config?.partner_id || row.config?.connected);
+    }
+
+    // Default methods if nothing saved yet — built-in 3 with sensible defaults
+    const defaults = [
+      { id:'cash',        label:'Cash',                enabled:true,  icon:'💵', sort_order:0, is_default:false, surcharge_pct:0, surcharge_fixed:0, description:'Tap-to-pay, on-site cash collection.', visible_to:'all',      is_custom:false },
+      { id:'check',       label:'Check',               enabled:true,  icon:'📝', sort_order:1, is_default:false, surcharge_pct:0, surcharge_fixed:0, description:'Personal or business checks. Check number recorded.', visible_to:'all', is_custom:false },
+      { id:'credit_card', label:'Credit / Debit Card', enabled:true,  icon:'💳', sort_order:2, is_default:true,  surcharge_pct:0, surcharge_fixed:0, description:'Charged via Square or Stripe.', visible_to:'all', is_custom:false },
+    ];
+
+    let methods = Array.isArray(stored) && stored.length ? stored : defaults;
+
+    // Backfill missing fields on legacy rows so the UI never sees undefined
+    methods = methods.map((m, i) => ({
+      sort_order: i,
+      is_default: false,
+      surcharge_pct: 0,
+      surcharge_fixed: 0,
+      visible_to: 'all',
+      is_custom: !['cash','check','credit_card','wisetack','acorn','stripe'].includes(m.id),
+      ...m,
+    }));
+
+    // Merge financing integrations dynamically
+    const finRows = [
+      { id:'wisetack', label:'Wisetack Financing', icon:'🏦', integration:'wisetack', description:'Customer financing via Wisetack.', sort_order: 100, is_default:false, surcharge_pct:0, surcharge_fixed:0, visible_to:'all', is_custom:false },
+      { id:'acorn',    label:'Acorn Finance',       icon:'🌰', integration:'acorn',    description:'Multi-lender financing via Acorn.', sort_order: 101, is_default:false, surcharge_pct:0, surcharge_fixed:0, visible_to:'all', is_custom:false },
+    ];
+    for (const fin of finRows) {
+      if (financing[fin.integration]) {
+        const exists = methods.find(m => m.id === fin.id);
+        if (!exists) methods = [...methods, { ...fin, enabled: false, type: 'financing' }];
+      }
+    }
+
+    methods.sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999));
+    res.json(methods);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/company/payment-methods — accepts the full method array
+router.put('/payment-methods', authenticate, async (req, res) => {
+  try {
+    const { methods } = req.body;
+    if (!Array.isArray(methods)) return res.status(400).json({ error: 'methods must be an array' });
+    // Enforce single default
+    let foundDefault = false;
+    const cleaned = methods.map((m, i) => {
+      const isDef = !!m.is_default && !foundDefault && m.enabled;
+      if (isDef) foundDefault = true;
+      return {
+        ...m,
+        enabled:         !!m.enabled,
+        is_default:      isDef,
+        sort_order:      Number.isFinite(m.sort_order) ? m.sort_order : i,
+        surcharge_pct:   parseFloat(m.surcharge_pct) || 0,
+        surcharge_fixed: parseFloat(m.surcharge_fixed) || 0,
+      };
+    });
+    await query(
+      'UPDATE company_settings SET payment_methods=$1 WHERE id=$2',
+      [JSON.stringify(cleaned), 'main']
+    );
+    res.json({ ok: true, count: cleaned.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Invoice Defaults (numbering, due days, late fees, reminders, footer) ───
+(async () => {
+  try {
+    await query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS invoice_defaults JSONB DEFAULT '{}'::jsonb`);
+  } catch(e) { /* ignore */ }
+})();
+
+router.get('/invoice-defaults', authenticate, async (_req, res) => {
+  try {
+    const { rows } = await query(`SELECT invoice_defaults FROM company_settings WHERE id='main'`);
+    const stored = rows[0]?.invoice_defaults || {};
+    // Defaults
+    res.json({
+      number_prefix:         '',
+      number_next:           1001,
+      number_pad:            4,                      // zero-pad width
+      default_due_days:      30,
+      default_terms_text:    'Payment due within 30 days. A finance charge of 1.5%/month may apply to past-due balances.',
+      default_footer:        'Thank you for your business!',
+      late_fee_enabled:      false,
+      late_fee_type:         'percent',              // percent | fixed
+      late_fee_value:        1.5,                    // 1.5% per month, or $X
+      late_fee_grace_days:   5,                      // start charging N days after due
+      reminder_enabled:      true,
+      reminder_before_due:   3,                      // days before due to send heads-up (0 = off)
+      reminder_on_due:       true,                   // send on due date
+      reminder_after_due_1:  7,                      // first follow-up X days after due
+      reminder_after_due_2:  14,                     // second follow-up
+      reminder_after_due_3:  30,                     // final notice
+      ...stored,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/invoice-defaults', authenticate, async (req, res) => {
+  try {
+    await query(
+      `UPDATE company_settings SET invoice_defaults=$1 WHERE id='main'`,
+      [JSON.stringify(req.body || {})]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Supply Houses ─────────────────────────────────────────────
+(async () => {
+  try {
+    await query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS supply_houses JSONB DEFAULT '[]'::jsonb`);
+  } catch(e) { /* ignore */ }
+})();
+
+// GET /api/company/supply-houses
+router.get('/supply-houses', authenticate, async (_req, res) => {
+  try {
+    const { rows } = await query(`SELECT supply_houses FROM company_settings WHERE id='main'`);
+    res.json(rows[0]?.supply_houses || []);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/company/supply-houses
+router.put('/supply-houses', authenticate, async (req, res) => {
+  try {
+    const { houses } = req.body;
+    if (!Array.isArray(houses)) return res.status(400).json({ error: 'houses must be an array' });
+    await query(`UPDATE company_settings SET supply_houses=$1 WHERE id='main'`, [JSON.stringify(houses)]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/company/subcontractors
+router.get('/subcontractors', authenticate, async (_req, res) => {
+  try {
+    const { rows } = await query(`SELECT subcontractors FROM company_settings WHERE id='main'`);
+    res.json(rows[0]?.subcontractors || []);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/company/subcontractors
+router.put('/subcontractors', authenticate, async (req, res) => {
+  try {
+    const { subcontractors } = req.body;
+    if (!Array.isArray(subcontractors)) return res.status(400).json({ error: 'subcontractors must be an array' });
+    await query(`UPDATE company_settings SET subcontractors=$1 WHERE id='main'`, [JSON.stringify(subcontractors)]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/company/enabled-services — returns array of enabled service keys
 router.get('/enabled-services', authenticate, async (_req, res) => {
   try {
@@ -206,9 +441,82 @@ router.get('/enabled-services', authenticate, async (_req, res) => {
     if (s.service_electrical  === true  || s.service_electrical  === 'true')  services.push('electrical');
     if (s.service_restoration === true  || s.service_restoration === 'true')  services.push('restoration');
     if (s.service_renovations === true  || s.service_renovations === 'true')  services.push('renovations');
+    if (s.service_pest_control === true || s.service_pest_control === 'true') services.push('pest_control');
+    if (s.service_pools        === true || s.service_pools        === 'true') services.push('pools');
     // Always at least plumbing if nothing is set
     if (services.length === 0) services.push('plumbing');
     res.json(services);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH /api/company/service-enabled — flip one service on/off
+// body: { service: 'hvac' | 'electrical' | ..., enabled: bool }
+router.patch('/service-enabled', authenticate, async (req, res) => {
+  try {
+    const { service, enabled } = req.body || {};
+    const allowed = new Set([
+      'plumbing','hvac','electrical','restoration','renovations','pest_control','pools',
+    ]);
+    if (!allowed.has(service)) {
+      return res.status(400).json({ error: `Unknown service: ${service}` });
+    }
+    const col = `service_${service}`;
+    const val = !!enabled;
+    // Ensure the row exists (id='main' is the single settings row)
+    await query(
+      `INSERT INTO company_settings (id, ${col}) VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET ${col} = $1`,
+      [val]
+    );
+    res.json({ ok: true, service, enabled: val });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Invoice Layout ────────────────────────────────────────────
+
+async function ensureInvoiceLayoutColumn() {
+  try {
+    await query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS invoice_layout JSONB DEFAULT '{}'::jsonb`);
+  } catch(e) { /* ignore */ }
+}
+ensureInvoiceLayoutColumn();
+
+// GET /api/company/invoice-layout
+router.get('/invoice-layout', authenticate, async (req, res) => {
+  try {
+    await query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS invoice_layout JSONB DEFAULT '{}'::jsonb`).catch(()=>{});
+    const { rows } = await query(
+      `SELECT invoice_layout, name, address, phone, email, logo_url,
+              brand_primary, brand_secondary, brand_accent
+       FROM company_settings WHERE id=$1`,
+      ['main']
+    );
+    const row = rows[0] || {};
+    const layout = row.invoice_layout || {};
+    const company = {
+      name:            row.name,
+      address:         row.address,
+      phone:           row.phone,
+      email:           row.email,
+      logo_url:        row.logo_url,
+      brand_primary:   row.brand_primary   || '#e8a84a',
+      brand_secondary: row.brand_secondary || '#1a2a4a',
+      brand_accent:    row.brand_accent    || '#5daf7c',
+    };
+    res.json({ ...layout, _company: company });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/company/invoice-layout
+router.put('/invoice-layout', authenticate, async (req, res) => {
+  try {
+    await query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS invoice_layout JSONB DEFAULT '{}'::jsonb`).catch(()=>{});
+    const layout = req.body;
+    await query(
+      `UPDATE company_settings SET invoice_layout=$1 WHERE id=$2`,
+      [JSON.stringify(layout), 'main']
+    );
+    res.json({ ok: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

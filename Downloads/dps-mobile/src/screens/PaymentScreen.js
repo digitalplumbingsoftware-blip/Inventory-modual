@@ -5,13 +5,14 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { C } from '../theme';
-import api from '../services/api';
+import api, { recordInvoicePayment } from '../services/api';
 
 const TIPS = [0, 10, 15, 20];
 
 export default function PaymentScreen({ route, navigation }) {
-  const { jobId, customerName } = route.params || {};
-  const [amount, setAmount] = useState('');
+  const { jobId, customerName, invoiceId, invoiceTotal } = route.params || {};
+  // Pre-fill with invoice total if provided
+  const [amount, setAmount] = useState(invoiceTotal ? String(parseFloat(invoiceTotal).toFixed(2)) : '');
   const [tipPercent, setTipPercent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -76,6 +77,10 @@ export default function PaymentScreen({ route, navigation }) {
         },
       });
       setResult(res.data);
+      // Mark invoice as paid via credit card
+      if (invoiceId) {
+        try { await recordInvoicePayment(invoiceId, total, 'credit_card'); } catch (_) { /* non-fatal */ }
+      }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch(e) {
       Alert.alert('Payment Failed', e.response?.data?.error || 'Please try again.');
@@ -95,6 +100,7 @@ export default function PaymentScreen({ route, navigation }) {
         <View style={styles.receiptCard}>
           {[
             ['Customer', customerName || '—'],
+            ...(invoiceId ? [['Invoice', '#' + invoiceId.slice(0, 8)]] : []),
             ['Service Amount', '$' + baseAmount.toFixed(2)],
             ['Tip', '$' + tipAmount.toFixed(2)],
             ['Total Charged', '$' + total.toFixed(2)],

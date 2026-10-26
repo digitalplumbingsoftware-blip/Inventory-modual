@@ -3,24 +3,22 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator
 } from 'react-native';
-import api from '../services/api';
+import { getEstimates } from '../services/api';
 
 export default function EstimatesHomeScreen({ navigation }) {
-  const [stats, setStats] = useState(null);
   const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/invoices?type=estimate&limit=5').catch(() => ({ data: { invoices: [] } })),
-    ]).then(([estRes]) => {
-      setRecent(estRes.data.invoices || estRes.data || []);
-    }).finally(() => setLoading(false));
+    getEstimates({ limit: 5 })
+      .then(data => setRecent(Array.isArray(data) ? data : (data.estimates || [])))
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   const statusColor = {
-    draft: '#64748b', sent: '#4a9eff', accepted: '#3ecf8e',
-    declined: '#f56565', invoiced: '#a78bfa',
+    draft: '#64748b', sent: '#4a9eff', signed: '#3ecf8e',
+    converted: '#f5a623', declined: '#f56565', expired: '#64748b',
   };
 
   return (
@@ -30,11 +28,11 @@ export default function EstimatesHomeScreen({ navigation }) {
       <View style={styles.heroRow}>
         <TouchableOpacity
           style={[styles.heroBtn, styles.heroBtnPrimary]}
-          onPress={() => navigation.navigate('NewEstimate')}
+          onPress={() => navigation.navigate('EstimatesList')}
         >
-          <Text style={styles.heroBtnIcon}>✏️</Text>
-          <Text style={styles.heroBtnLabel}>New Estimate</Text>
-          <Text style={styles.heroBtnSub}>Build from scratch</Text>
+          <Text style={styles.heroBtnIcon}>📄</Text>
+          <Text style={styles.heroBtnLabel}>All Estimates</Text>
+          <Text style={styles.heroBtnSub}>View & manage</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -43,7 +41,7 @@ export default function EstimatesHomeScreen({ navigation }) {
         >
           <Text style={styles.heroBtnIcon}>💰</Text>
           <Text style={styles.heroBtnLabel}>Pricebook</Text>
-          <Text style={styles.heroBtnSub}>272 jobs · 5 tiers</Text>
+          <Text style={styles.heroBtnSub}>148 tasks · flat rate</Text>
         </TouchableOpacity>
       </View>
 
@@ -95,7 +93,7 @@ export default function EstimatesHomeScreen({ navigation }) {
             <TouchableOpacity
               key={est.id}
               style={styles.estimateRow}
-              onPress={() => navigation.navigate('EstimateDetail', { id: est.id })}
+              onPress={() => navigation.navigate('EstimateDetail', { estimateId: est.id })}
             >
               <View style={styles.estimateLeft}>
                 <Text style={styles.estimateCustomer}>{est.customer_name || 'Unknown'}</Text>

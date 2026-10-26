@@ -1,11 +1,12 @@
 const jwt = require("jsonwebtoken");
 
 function authenticate(req, res, next) {
+  // Accept token from Authorization header OR ?_token= query param (for CSV download links)
   const header = req.headers.authorization;
-  if (!header || !header.startsWith("Bearer ")) {
+  const token = (header && header.startsWith("Bearer ")) ? header.slice(7) : req.query._token;
+  if (!token) {
     return res.status(401).json({ error: "No token provided" });
   }
-  const token = header.slice(7);
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();

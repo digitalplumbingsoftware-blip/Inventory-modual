@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "design-mockups",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "5555", "-s", "design-mockups"],
+      "port": 5555
+    }
+  ]
+}

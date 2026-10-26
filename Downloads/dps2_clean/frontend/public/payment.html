@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>DPS — Take Payment</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0b0e13;--surface:#111520;--surface2:#171d2a;
+      --border:#232b3e;--border2:#2d3a52;
+      --green:#3ecf8e;--amber:#f5a623;--red:#f56565;
+      --text:#e2e8f5;--muted:#64748b;
+    }
+    body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:20px}
+    h1{font-family:'DM Mono',monospace;font-size:13px;letter-spacing:.1em;color:var(--muted);margin-bottom:6px}
+    .logo{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+    .logo-text{font-size:24px;font-weight:700;color:#e8f0eb}
+    .logo-sub{font-size:8px;letter-spacing:.16em;color:#5daf7c;margin-top:1px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:440px}
+    .section-label{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:.08em;margin-bottom:6px}
+    .amount-row{display:flex;gap:10px;margin-bottom:20px}
+    .amount-input{flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px 16px;font-size:22px;font-family:'DM Mono',monospace;color:var(--text);width:100%}
+    .amount-input:focus{border-color:var(--green);outline:none}
+    #card-container{background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:14px;margin-bottom:16px;min-height:90px}
+    .pay-btn{width:100%;padding:16px;background:var(--green);border:none;border-radius:10px;color:#0b0e13;font-size:16px;font-weight:700;cursor:pointer;transition:opacity .15s;letter-spacing:.02em}
+    .pay-btn:hover{opacity:.9}
+    .pay-btn:disabled{opacity:.4;cursor:not-allowed}
+    .result-box{margin-top:16px;padding:14px 16px;border-radius:10px;font-size:13px;display:none}
+    .result-box.success{background:#3ecf8e18;border:1px solid #3ecf8e44;color:#3ecf8e;display:block}
+    .result-box.error{background:#f5656518;border:1px solid #f5656544;color:#f56565;display:block}
+    .detail-row{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border)}
+    .detail-row:last-child{border-bottom:none}
+    .detail-key{color:var(--muted)}
+    .detail-val{font-family:'DM Mono',monospace;color:var(--text)}
+    .test-cards{margin-top:20px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px}
+    .test-card-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)}
+    .test-card-row:last-child{border-bottom:none}
+    .copy-btn{font-size:9px;font-family:'DM Mono',monospace;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:2px 8px;color:var(--muted);cursor:pointer}
+    .copy-btn:hover{color:var(--green);border-color:var(--green)}
+    #loading{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);text-align:center;padding:20px}
+    .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .tip-row{display:flex;gap:8px;margin-bottom:16px}
+    .tip-btn{flex:1;padding:8px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;color:var(--muted);font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .15s}
+    .tip-btn.active,.tip-btn:hover{background:#f5a62322;border-color:var(--amber);color:var(--amber)}
+  </style>
+</head>
+<body>
+
+  <!-- Logo -->
+  <div class="logo">
+    <svg width="36" height="36" viewBox="0 0 48 48" fill="none">
+      <circle cx="24" cy="24" r="22" stroke="#5daf7c" stroke-width="1.6" fill="none"/>
+      <path d="M8 20 Q12 16 16 20 Q20 24 24 20 Q28 16 32 20 Q36 24 40 20" stroke="#5daf7c" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      <path d="M8 26 Q12 22 16 26 Q20 30 24 26 Q28 22 32 26 Q36 30 40 26" stroke="#5daf7c" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      <circle cx="24" cy="23" r="2.2" fill="#5daf7c"/>
+    </svg>
+    <div>
+      <div class="logo-text">DPS</div>
+      <div class="logo-sub">DIGITAL PLUMBING SOFTWARE</div>
+    </div>
+  </div>
+
+  <div id="loading"><span class="spinner"></span> Loading payment form...</div>
+
+  <div class="card" id="payment-form" style="display:none">
+    <h1>TAKE PAYMENT</h1>
+
+    <!-- Amount -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">AMOUNT ($)</div>
+      <input id="amount" class="amount-input" type="number" min="0.01" step="0.01" placeholder="0.00" value=""/>
+    </div>
+
+    <!-- Tip -->
+    <div>
+      <div class="section-label" style="margin-bottom:8px">TIP</div>
+      <div class="tip-row">
+        <button class="tip-btn" data-pct="0" onclick="selectTip(this)">No Tip</button>
+        <button class="tip-btn" data-pct="15" onclick="selectTip(this)">15%</button>
+        <button class="tip-btn" data-pct="18" onclick="selectTip(this)">18%</button>
+        <button class="tip-btn" data-pct="20" onclick="selectTip(this)">20%</button>
+      </div>
+    </div>
+
+    <!-- Card field -->
+    <div class="section-label">CARD</div>
+    <div id="card-container"></div>
+
+    <!-- Total display -->
+    <div style="display:flex;justify-content:space-between;margin-bottom:16px;padding:10px 14px;background:var(--surface2);border-radius:8px">
+      <span style="font-size:13px;color:var(--muted)">Total</span>
+      <span id="total-display" style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#3ecf8e">$0.00</span>
+    </div>
+
+    <button id="pay-btn" class="pay-btn" disabled>Charge Card →</button>
+
+    <div id="result" class="result-box"></div>
+  </div>
+
+  <!-- Sandbox test cards (only shown in sandbox) -->
+  <div class="test-cards" id="test-cards" style="display:none;max-width:440px;width:100%">
+    <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--amber);margin-bottom:8px">⚡ SANDBOX TEST CARDS</div>
+    <div class="test-card-row">
+      <span style="font-size:11px;font-family:'DM Mono',monospace">4111 1111 1111 1111</span>
+      <span style="font-size:10px;color:#3ecf8e">✓ Success</span>
+      <button class="copy-btn" onclick="copyCard('4111111111111111')">COPY</button>
+    </div>
+    <div class="test-card-row">
+      <span style="font-size:11px;font-family:'DM Mono',monospace">4000 0000 0000 0002</span>
+      <span style="font-size:10px;color:#f56565">✗ Declined</span>
+      <button class="copy-btn" onclick="copyCard('4000000000000002')">COPY</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px">CVV: 111 · Expiry: 11/25 · ZIP: 94103</div>
+  </div>
+
+<script>
+  // ── Config from DPS backend ──────────────────────────────────
+  const API_BASE = window.location.origin;
+  let squareConfig = null;
+  let card = null;
+  let tipPct = 0;
+
+  function selectTip(btn) {
+    document.querySelectorAll('.tip-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    tipPct = parseInt(btn.dataset.pct);
+    updateTotal();
+  }
+
+  function updateTotal() {
+    const amount = parseFloat(document.getElementById('amount').value) || 0;
+    const tip = amount * (tipPct / 100);
+    const total = amount + tip;
+    document.getElementById('total-display').textContent = '$' + total.toFixed(2);
+    document.getElementById('pay-btn').disabled = total <= 0 || !card;
+  }
+
+  document.getElementById('amount').addEventListener('input', updateTotal);
+
+  function copyCard(n) {
+    navigator.clipboard?.writeText(n);
+  }
+
+  function showResult(type, html) {
+    const el = document.getElementById('result');
+    el.className = 'result-box ' + type;
+    el.innerHTML = html;
+  }
+
+  async function init() {
+    try {
+      // Get Square config from backend
+      const token = localStorage.getItem('dps_token');
+      const headers = token ? { Authorization: 'Bearer ' + token } : {};
+      const r = await fetch(API_BASE + '/api/square/config', { headers });
+      squareConfig = await r.json();
+
+      // Load Square Web Payments SDK
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = squareConfig.sdkUrl;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+
+      // Initialize Square payments
+      const payments = window.Square.payments(
+        squareConfig.applicationId,
+        squareConfig.locationId
+      );
+
+      card = await payments.card({
+        style: {
+          '.input-container': {
+            borderColor: '#232b3e',
+            borderRadius: '8px',
+          },
+          '.input-container.is-focus': {
+            borderColor: '#3ecf8e',
+          },
+          input: {
+            color: '#e2e8f5',
+            fontFamily: '"DM Mono", monospace',
+            fontSize: '14px',
+          },
+          'input::placeholder': { color: '#3d4f6e' },
+          '.message-text': { color: '#f56565' },
+        },
+      });
+      await card.attach('#card-container');
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('payment-form').style.display = 'block';
+
+      // Show test cards in sandbox
+      if (squareConfig.environment === 'sandbox') {
+        document.getElementById('test-cards').style.display = 'block';
+      }
+
+      // Wire up pay button
+      document.getElementById('pay-btn').addEventListener('click', handlePayment);
+
+    } catch (err) {
+      document.getElementById('loading').innerHTML =
+        '<span style="color:#f56565">⚠ Could not load payment form: ' + err.message + '</span><br>' +
+        '<span style="font-size:11px;color:#64748b">Make sure you\'re logged in and backend is running.</span>';
+    }
+  }
+
+  async function handlePayment() {
+    const btn = document.getElementById('pay-btn');
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+
+    try {
+      // Tokenize card
+      const result = await card.tokenize();
+      if (result.status !== 'OK') {
+        throw new Error(result.errors?.[0]?.message || 'Card tokenization failed');
+      }
+
+      const amount = parseFloat(document.getElementById('amount').value);
+      const tip = amount * (tipPct / 100);
+      const amount_cents = Math.round(amount * 100);
+      const tip_cents = Math.round(tip * 100);
+
+      // Send to DPS backend
+      const token = localStorage.getItem('dps_token');
+      const res = await fetch(API_BASE + '/api/square/payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        },
+        body: JSON.stringify({
+          source_id: result.token,
+          amount_cents,
+          tip_cents,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        showResult('success', `
+          <div style="font-size:14px;font-weight:700;margin-bottom:10px">✓ Payment Successful</div>
+          <div class="detail-row"><span class="detail-key">Amount</span><span class="detail-val">$${data.amount_charged.toFixed(2)}</span></div>
+          <div class="detail-row"><span class="detail-key">Card</span><span class="detail-val">${data.card_brand || ''} ····${data.last4 || ''}</span></div>
+          <div class="detail-row"><span class="detail-key">Payment ID</span><span class="detail-val">${data.payment_id?.slice(0,16)}…</span></div>
+          ${data.receipt_url ? `<div style="margin-top:10px"><a href="${data.receipt_url}" target="_blank" style="color:#4a9eff;font-size:12px">→ View Receipt</a></div>` : ''}
+        `);
+        // Reset form
+        document.getElementById('amount').value = '';
+        updateTotal();
+        await card.clear();
+        btn.textContent = 'Charge Card →';
+      } else {
+        throw new Error(data.error || 'Payment failed');
+      }
+    } catch (err) {
+      showResult('error', `<strong>Payment failed:</strong> ${err.message}`);
+      btn.disabled = false;
+      btn.textContent = 'Charge Card →';
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
