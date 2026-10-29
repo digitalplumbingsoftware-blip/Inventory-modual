@@ -3586,6 +3586,50 @@ function formatPhone(raw) {
   return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7,11)}`;
 }
 
+// ─── Outstanding balance warning (call-taking / booking) ──────
+// Shows the customer's unpaid invoices so the CSR can mention them on the call.
+function OutstandingBalanceAlert({ customerId, compact = false }) {
+  const [invoices, setInvoices] = useState(null);
+  useEffect(() => {
+    if (!customerId) return;
+    let cancel = false;
+    setInvoices(null);
+    api.getCustomerOpenInvoices(customerId).then(r => { if (!cancel) setInvoices(r || []); }).catch(() => { if (!cancel) setInvoices([]); });
+    return () => { cancel = true; };
+  }, [customerId]);
+  if (!invoices?.length) return null;
+
+  const fmt$ = n => `$${parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const total   = invoices.reduce((s,i) => s + parseFloat(i.balance), 0);
+  const overdue = invoices.filter(i => i.overdue);
+  const red = '#e5484d';
+  return (
+    <div role="alert" style={{background:`${red}10`,border:`1px solid ${red}55`,borderLeft:`4px solid ${red}`,borderRadius:10,padding:compact?'8px 12px':'10px 14px'}}>
+      <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
+        <span style={{fontSize:13,fontWeight:800,color:red}}>⚠ Outstanding balance {fmt$(total)}</span>
+        <span style={{fontSize:11,color:'var(--muted)'}}>
+          {invoices.length} unpaid invoice{invoices.length!==1?'s':''}{overdue.length ? ` · ` : ''}
+          {overdue.length > 0 && <b style={{color:red}}>{overdue.length} overdue ({fmt$(overdue.reduce((s,i)=>s+parseFloat(i.balance),0))})</b>}
+        </span>
+      </div>
+      {!compact && (
+        <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:8}}>
+          {invoices.slice(0,4).map(i => (
+            <div key={i.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:11,fontFamily:'var(--font-mono)'}}>
+              <span style={{color:'var(--muted)'}}>INV #{i.invoice_number}</span>
+              <span style={{flex:1,color:i.overdue?red:'var(--muted)'}}>
+                {i.due_date ? `${i.overdue?'was due':'due'} ${new Date(String(i.due_date).slice(0,10)+'T00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}` : 'no due date'}
+              </span>
+              <span style={{fontWeight:700,color:i.overdue?red:'var(--text)'}}>{fmt$(i.balance)}</span>
+            </div>
+          ))}
+          {invoices.length > 4 && <div style={{fontSize:10,color:'var(--muted)'}}>+{invoices.length-4} more</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── JOB EDIT MODAL (from Calls page) ─────────────────────────────────────────
 function JobEditModal({ jobId, onClose, jobTypes = [], arrivalWindows = [] }) {
   const [job, setJob]         = useState(null);
@@ -4119,6 +4163,8 @@ function CallsPage({user}) {
                 </div>
 
                 <div style={{padding:'14px 16px',display:'flex',flexDirection:'column',gap:12}}>
+
+                  <OutstandingBalanceAlert customerId={c.id}/>
 
                   {/* Phones */}
                   {allPhones.length > 0 && (
@@ -10921,26 +10967,32 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
     api.getPhoneSettings().then(s=>setQuestions(s?.questionnaire||[])).catch(()=>{});
   }, []);
 
-  // Debounced lookup — phone number → phoneLookup, name → customer search
+  // Debounced lookup. Partial input (an area code, part of a name or street) lists
+  // every match to pick from; a customer is auto-selected only once the input fully
+  // identifies them — a complete phone number, full name, or exact street address.
   useEffect(() => {
     const q = rawSearch.trim();
     if (q.length < 2) { setLookup(null); setNewCust(null); setCustSaved(null); return; }
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(async () => {
       setLookupLoading(true);
+      setNewCust(null);
       try {
         const digits = q.replace(/\D/g,'');
-        if (digits.length >= 10) {
-          // phone lookup — returns {customer, jobs, ...}
+        const phoneish = /^[\d\s()+.\-]+$/.test(q);
+        if (phoneish && digits.length >= 10) {
+          // full phone number — returns {customer, jobs}
           const data = await api.phoneLookup(q);
           setLookup(data);
           if (!data.customer) setNewCust({first_name:'',last_name:'',phone:q,email:'',street:'',city:'',state:'TX',zip:'',marketing_src:''});
         } else {
-          // name search
           const res = await api.getCustomers({ q });
           const list = Array.isArray(res) ? res : (res?.customers || []);
-          setLookup({ results: list, customer: list.length === 1 ? list[0] : null });
-          if (list.length === 1) setLookup({ customer: list[0], jobs: [] });
+          const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').trim();
+          const exact = phoneish ? [] : list.filter(c =>
+            [`${c.first_name} ${c.last_name}`, `${c.last_name}, ${c.first_name}`, c.business_name, ...(c.addresses||[]).map(a => a?.street)]
+              .some(v => v && norm(v) === norm(q)));
+          setLookup({ results: list, customer: exact.length === 1 ? exact[0] : null, jobs: [] });
         }
       } catch { setLookup(null); }
       finally { setLookupLoading(false); }
@@ -11044,10 +11096,17 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
               )}
             </div>
 
-            {/* Name search results list */}
-            {nameResults.length > 1 && !activeCustomer && (
+            {/* No matches for a partial search */}
+            {lookup?.results && nameResults.length === 0 && !activeCustomer && !lookupLoading && (
+              <div style={{fontSize:12,color:'var(--muted)',padding:'4px 4px'}}>No customers match “{rawSearch.trim()}”. Keep typing, or enter the full phone number to add a new customer.</div>
+            )}
+
+            {/* Search results list — stays up until the input fully identifies one customer */}
+            {nameResults.length > 0 && !activeCustomer && (
               <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
-                <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',padding:'8px 14px',letterSpacing:'.06em',borderBottom:'1px solid var(--border)'}}>SELECT CUSTOMER</div>
+                <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',padding:'8px 14px',letterSpacing:'.06em',borderBottom:'1px solid var(--border)'}}>
+                  {nameResults.length} MATCH{nameResults.length!==1?'ES':''} · SELECT CUSTOMER
+                </div>
                 {nameResults.map(c=>(
                   <div key={c.id}
                     onClick={()=>{ setLookup({customer:c, jobs:[]}); }}
@@ -11060,6 +11119,12 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
                       {c.phone&&<div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{formatPhone(c.phone)}</div>}
                       {c.addresses?.[0]&&<div style={{fontSize:11,color:'var(--muted)'}}>{c.addresses[0].street}</div>}
                     </div>
+                    {parseFloat(c.open_balance) > 0 && (
+                      <div title={`${c.open_invoice_count} unpaid invoice${c.open_invoice_count!==1?'s':''}`} style={{textAlign:'right',flexShrink:0}}>
+                        <div style={{fontSize:12,fontWeight:800,color:'#e5484d',fontFamily:'var(--font-mono)'}}>${Math.round(c.open_balance).toLocaleString()} due</div>
+                        {c.overdue_invoice_count > 0 && <div style={{fontSize:9,fontWeight:700,color:'#e5484d'}}>{c.overdue_invoice_count} OVERDUE</div>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -11080,6 +11145,7 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
                     style={{fontSize:11,padding:'3px 8px',background:'transparent',border:'1px solid var(--border)',borderRadius:6,color:'var(--muted)',cursor:'pointer'}}>✕ Change</button>
                 </div>
                 <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:8}}>
+                  <OutstandingBalanceAlert customerId={activeCustomer.id}/>
                   {activeCustomer.addresses?.[0]&&(
                     <div>
                       <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:2}}>ADDRESS</div>
@@ -22243,6 +22309,15 @@ export default function App() {
   const [expanded, setExpanded] = useState(true);
   const [settingsTab, setSettingsTab] = useState('account');
   const [callPop, setCallPop] = useState(null);
+  const [callPopDue, setCallPopDue] = useState(null);   // { total, overdue } owed by the caller
+  useEffect(() => {
+    setCallPopDue(null);
+    if (!callPop?.id) return;
+    api.getCustomerOpenInvoices(callPop.id).then(inv => {
+      if (!inv?.length) return;
+      setCallPopDue({ total: inv.reduce((s,i) => s + parseFloat(i.balance), 0), overdue: inv.filter(i => i.overdue).length });
+    }).catch(() => {});
+  }, [callPop?.id]);
   // Global dispatch alerts: { [job_id]: { job_id, dispatch_alert, technician_name, ts } }
   const [activeAlerts, setActiveAlerts] = useState({});
   const SW = expanded ? 200 : 52;
@@ -22328,6 +22403,11 @@ export default function App() {
               <div style={{display:"flex",alignItems:"center",gap:8,background:"#E2061322",border:"1px solid #E2061344",borderRadius:8,padding:"4px 12px",animation:"glow 2s infinite"}}>
                 <div style={{width:6,height:6,borderRadius:"50%",background:"#E20613",animation:"pulse2 1s infinite"}}/>
                 <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#E20613"}}>INCOMING · {callPop.phone} · {callPop.customer}</span>
+                {callPopDue && (
+                  <span title={`${callPopDue.overdue} overdue invoice${callPopDue.overdue!==1?"s":""}`} style={{fontSize:10,fontWeight:800,fontFamily:"var(--font-mono)",background:"#e5484d",color:"#fff",borderRadius:4,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                    ${Math.round(callPopDue.total).toLocaleString()} DUE{callPopDue.overdue ? ` · ${callPopDue.overdue} OVERDUE` : ""}
+                  </span>
+                )}
                 <button onClick={()=>setCallPop(null)} style={{background:"transparent",color:"#E20613",opacity:.7,padding:2}}>
                   <Icon n="x" size={11} color="#E20613"/>
                 </button>

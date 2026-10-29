@@ -2,6 +2,17 @@ const router = require("express").Router();
 const { query } = require("../db/pool");
 const { authenticate } = require("../middleware/auth");
 
+// Invoices the customer still owes on (sent to them, not paid or voided)
+const OPEN_INVOICE_STATUSES = "('sent','approved')";
+const OPEN_BALANCE_SQL = `
+  (SELECT COALESCE(SUM(i.total - COALESCE(i.amount_paid,0)),0) FROM invoices i
+     WHERE i.customer_id = c.id AND i.status IN ${OPEN_INVOICE_STATUSES}) AS open_balance,
+  (SELECT COUNT(*)::int FROM invoices i
+     WHERE i.customer_id = c.id AND i.status IN ${OPEN_INVOICE_STATUSES}
+       AND i.total - COALESCE(i.amount_paid,0) > 0.005) AS open_invoice_count,
+  (SELECT COUNT(*)::int FROM invoices i
+     WHERE i.customer_id = c.id AND i.status IN ${OPEN_INVOICE_STATUSES}
+       AND i.total - COALESCE(i.amount_paid,0) > 0.005 AND i.due_date < CURRENT_DATE) AS overdue_invoice_count`;
 
 // GET /api/customers?phone=7135552041  (call pop lookup)
 // GET /api/customers?q=smith  (search)
@@ -28,17 +39,36 @@ router.get("/", authenticate, async (req, res) => {
     }
 
     if (q) {
+      // Typed digits (e.g. an area code "713") match anywhere in any stored phone,
+      // ignoring formatting. Words match full name, business, email or address.
+      const term = q.trim();
+      const digits = term.replace(/\D/g, "");
+      const phoneish = digits.length >= 3 && /^[\d\s()+.\-]+$/.test(term);
       const { rows } = await query(`
-        SELECT c.*, json_agg(a.*) FILTER (WHERE a.id IS NOT NULL) as addresses
+        SELECT c.*,
+          (SELECT json_agg(a.* ORDER BY a.is_primary DESC, a.created_at ASC) FROM addresses a WHERE a.customer_id = c.id) AS addresses,
+          (SELECT COUNT(*)::int FROM jobs j WHERE j.customer_id = c.id) AS job_count,
+          ${OPEN_BALANCE_SQL}
         FROM customers c
-        LEFT JOIN addresses a ON a.customer_id = c.id
-        WHERE to_tsvector('english', c.first_name || ' ' || c.last_name || ' ' || COALESCE(c.email,'') || ' ' || COALESCE(c.phone,''))
-              @@ plainto_tsquery('english', $1)
-           OR c.first_name ILIKE $2 OR c.last_name ILIKE $2
-           OR a.street ILIKE $2 OR a.city ILIKE $2 OR a.zip ILIKE $2
-        GROUP BY c.id
-        LIMIT $3 OFFSET $4
-      `, [q, `%${q}%`, limit, offset]);
+        WHERE ($3 AND (
+                 regexp_replace(COALESCE(c.phone,''),  '[^0-9]', '', 'g') LIKE $4
+              OR regexp_replace(COALESCE(c.phone2,''), '[^0-9]', '', 'g') LIKE $4
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(c.phones,'[]'::jsonb)) p
+                         WHERE regexp_replace(p->>'value', '[^0-9]', '', 'g') LIKE $4)))
+           OR (NOT $3 AND (
+                 (c.first_name || ' ' || c.last_name) ILIKE $1
+              OR (c.last_name || ' ' || c.first_name) ILIKE $1
+              OR c.last_name || ', ' || c.first_name ILIKE $1
+              OR COALESCE(c.business_name,'') ILIKE $1
+              OR COALESCE(c.email,'') ILIKE $1
+              OR EXISTS (SELECT 1 FROM addresses a WHERE a.customer_id = c.id
+                         AND (a.street ILIKE $1 OR a.city ILIKE $1 OR a.zip ILIKE $1))))
+        ORDER BY ((c.first_name || ' ' || c.last_name) ILIKE $2) DESC,
+          -- numbers that start with the typed digits (area code first) before mid-number matches
+          ($3 AND right(regexp_replace(COALESCE(c.phone,''), '[^0-9]', '', 'g'), 10) LIKE $7) DESC,
+          c.last_name, c.first_name
+        LIMIT $5 OFFSET $6
+      `, [`%${term}%`, `${term}%`, phoneish, `%${digits}%`, Math.min(parseInt(limit) || 25, 100), offset, `${digits.replace(/^1(?=\d{10})/, "")}%`]);
       return res.json(rows);
     }
 
@@ -57,6 +87,22 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // GET /api/customers/:id
+// GET /api/customers/:id/open-invoices — unpaid invoices, oldest due first (call-taker warning)
+router.get("/:id/open-invoices", authenticate, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT id, invoice_number, total, COALESCE(amount_paid,0) AS amount_paid,
+        total - COALESCE(amount_paid,0) AS balance, due_date, created_at,
+        (due_date < CURRENT_DATE) AS overdue
+      FROM invoices
+      WHERE customer_id = $1 AND status IN ${OPEN_INVOICE_STATUSES}
+        AND total - COALESCE(amount_paid,0) > 0.005
+      ORDER BY due_date NULLS LAST, created_at
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get("/:id", authenticate, async (req, res) => {
   const { rows } = await query(`
     SELECT c.*,
