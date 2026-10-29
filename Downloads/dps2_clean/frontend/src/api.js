@@ -52,6 +52,7 @@ export const api = {
   getCustomer: (id) => req("GET", `/customers/${id}`),
   lookupPhone: (phone) => req("GET", `/customers?phone=${encodeURIComponent(phone)}`),
   getCustomerOpenInvoices: (id) => req("GET", `/customers/${id}/open-invoices`),
+  collectCustomerPayment: (id, data) => req("POST", `/customers/${id}/collect-payment`, data),
   createCustomer: (data) => req("POST", "/customers", data),
 
   // Technicians

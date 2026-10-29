@@ -1,6 +1,8 @@
 const router = require("express").Router();
-const { query } = require("../db/pool");
+const { v4: uuidv4 } = require("uuid");
+const { pool, query } = require("../db/pool");
 const { authenticate } = require("../middleware/auth");
+const { getSquareClient, squareLocationId } = require("../lib/square");
 
 // Invoices the customer still owes on (sent to them, not paid or voided)
 const OPEN_INVOICE_STATUSES = "('sent','approved')";
@@ -100,6 +102,105 @@ router.get("/:id/open-invoices", authenticate, async (req, res) => {
       ORDER BY due_date NULLS LAST, created_at
     `, [req.params.id]);
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/customers/:id/collect-payment — one payment applied across the customer's
+// selected open invoices, oldest due first. Card payments are charged through Square
+// (source_id = card token from the Web Payments SDK); other methods are recorded.
+// Body: { invoice_ids[], amount (applied to invoices), surcharge, method, check_number, source_id }
+router.post("/:id/collect-payment", authenticate, async (req, res) => {
+  const { invoice_ids = [], method, check_number, source_id } = req.body;
+  const amount    = Math.round(parseFloat(req.body.amount) * 100) / 100;
+  const surcharge = Math.round((parseFloat(req.body.surcharge) || 0) * 100) / 100;
+  if (!invoice_ids.length) return res.status(400).json({ error: "Select at least one invoice" });
+  if (!(amount > 0))       return res.status(400).json({ error: "Enter an amount" });
+  if (!method)             return res.status(400).json({ error: "Pick a payment method" });
+  const isCard = method === "credit_card";
+  if (isCard && !source_id) return res.status(400).json({ error: "Enter the card details" });
+
+  try {
+    const { rows: invoices } = await query(`
+      SELECT id, invoice_number, total, total - COALESCE(amount_paid,0) AS balance
+      FROM invoices
+      WHERE customer_id = $1 AND id = ANY($2::uuid[]) AND status IN ${OPEN_INVOICE_STATUSES}
+        AND total - COALESCE(amount_paid,0) > 0.005
+      ORDER BY due_date NULLS LAST, created_at
+    `, [req.params.id, invoice_ids]);
+    if (!invoices.length) return res.status(400).json({ error: "Those invoices are already paid" });
+    const due = invoices.reduce((s, i) => s + parseFloat(i.balance), 0);
+    if (amount > due + 0.005) return res.status(400).json({ error: `Amount is more than the $${due.toFixed(2)} owed on the selected invoices` });
+
+    // Charge the card first — nothing is recorded unless Square accepts it
+    let charge = null;
+    if (isCard) {
+      const locationId = squareLocationId();
+      if (!locationId) return res.status(400).json({ error: "Square isn't set up (SQUARE_LOCATION_ID)" });
+      try {
+        const { result } = await getSquareClient().paymentsApi.createPayment({
+          idempotencyKey: uuidv4(),
+          sourceId: source_id,
+          amountMoney: { amount: BigInt(Math.round((amount + surcharge) * 100)), currency: "USD" },
+          locationId,
+          note: `Invoice${invoices.length > 1 ? "s" : ""} #${invoices.map(i => i.invoice_number).join(", #")}`,
+          referenceId: req.params.id,
+        });
+        charge = result.payment;
+      } catch (err) {
+        const first = err?.result?.errors?.[0];
+        return res.status(402).json({ error: first?.detail || err.message, code: first?.code });
+      }
+    }
+
+    // Apply oldest-due first, all or nothing
+    const client = await pool.connect();
+    const applied = [];
+    try {
+      await client.query("BEGIN");
+      let remaining = amount;
+      for (const inv of invoices) {
+        if (remaining <= 0.005) break;
+        const part = Math.min(remaining, parseFloat(inv.balance));
+        remaining = Math.round((remaining - part) * 100) / 100;
+        const full = part >= parseFloat(inv.balance) - 0.005;
+        await client.query(`
+          UPDATE invoices
+          SET amount_paid = COALESCE(amount_paid,0) + $2,
+              status  = CASE WHEN $3 THEN 'paid' ELSE status END,
+              paid_at = CASE WHEN $3 THEN NOW() ELSE paid_at END,
+              payment_method = $4,
+              check_number = COALESCE($5, check_number),
+              square_payment_id = COALESCE($6, square_payment_id)
+          WHERE id = $1
+        `, [inv.id, part, full, method, check_number || null, charge?.id || null]);
+        // Surcharge rides on the first payment row so collected totals match what was charged
+        const extra = applied.length === 0 ? surcharge : 0;
+        await client.query(`
+          INSERT INTO payments (invoice_id, amount, method, square_payment_id, square_receipt_url, notes, created_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `, [inv.id, part + extra, method, charge?.id || null, charge?.receiptUrl || null,
+            [extra ? `includes $${extra.toFixed(2)} surcharge` : null, check_number ? `check #${check_number}` : null].filter(Boolean).join("; ") || null,
+            req.user.id]);
+        applied.push({ invoice_id: inv.id, invoice_number: inv.invoice_number, amount: part, paid_in_full: full });
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      // The card went through but we couldn't record it — say so loudly so the office can fix it by hand
+      if (charge) console.error(`Square charge ${charge.id} succeeded but recording failed:`, err.message);
+      throw charge ? new Error(`Card was charged (Square ${charge.id}) but the payment couldn't be recorded: ${err.message}`) : err;
+    } finally {
+      client.release();
+    }
+
+    res.json({
+      success: true,
+      applied,
+      charged: amount + surcharge,
+      receipt_url: charge?.receiptUrl || null,
+      card_brand: charge?.cardDetails?.card?.cardBrand || null,
+      last4: charge?.cardDetails?.card?.last4 || null,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

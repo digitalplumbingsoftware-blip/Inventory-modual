@@ -1,18 +1,9 @@
 const router = require("express").Router();
-const { Client, Environment } = require("square");
 const { v4: uuidv4 } = require("uuid");
 const { query } = require("../db/pool");
 const { authenticate } = require("../middleware/auth");
 
-function getSquareClient() {
-  return new Client({
-    accessToken: process.env.SQUARE_ACCESS_TOKEN,
-    environment:
-      process.env.SQUARE_ENVIRONMENT === "production"
-        ? Environment.Production
-        : Environment.Sandbox,
-  });
-}
+const { getSquareClient } = require("../lib/square");
 
 // GET /api/square/config  — returns public config for frontend SDK
 router.get("/config", authenticate, (_req, res) => {
@@ -115,9 +106,15 @@ router.post("/payment", authenticate, async (req, res) => {
          VALUES ($1, $2, 'square_card', $3, $4, $5)`,
         [invoice_id, (amount_cents + tip_cents) / 100, payment.id, payment.receiptUrl, req.user.id]
       );
+      // Apply the charge (not the tip) to the balance; only mark paid once it's covered
       await query(
-        `UPDATE invoices SET status='paid', square_payment_id=$1, paid_at=NOW() WHERE id=$2`,
-        [payment.id, invoice_id]
+        `UPDATE invoices
+         SET amount_paid = COALESCE(amount_paid,0) + $3,
+             status  = CASE WHEN COALESCE(amount_paid,0) + $3 >= total - 0.005 THEN 'paid' ELSE status END,
+             paid_at = CASE WHEN COALESCE(amount_paid,0) + $3 >= total - 0.005 THEN NOW() ELSE paid_at END,
+             square_payment_id = $1
+         WHERE id = $2`,
+        [payment.id, invoice_id, amount_cents / 100]
       );
     }
 

@@ -3586,25 +3586,260 @@ function formatPhone(raw) {
   return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7,11)}`;
 }
 
-// ─── Outstanding balance warning (call-taking / booking) ──────
-// Shows the customer's unpaid invoices so the CSR can mention them on the call.
-function OutstandingBalanceAlert({ customerId, compact = false }) {
+// ─── Collect payment (CSR, from the outstanding-balance alert) ──
+// Square Web Payments SDK is loaded once per page.
+let squareSdkPromise = null;
+function loadSquareSdk() {
+  if (!squareSdkPromise) {
+    squareSdkPromise = api.squareConfig().then(cfg => new Promise((resolve, reject) => {
+      if (!cfg?.applicationId || !cfg?.locationId) return reject(new Error('Square is not configured'));
+      if (window.Square) return resolve(cfg);
+      const s = document.createElement('script');
+      s.src = cfg.sdkUrl; s.onload = () => resolve(cfg); s.onerror = () => reject(new Error('Could not load Square'));
+      document.head.appendChild(s);
+    }));
+    squareSdkPromise.catch(() => { squareSdkPromise = null; });   // allow a retry
+  }
+  return squareSdkPromise;
+}
+
+function CollectPaymentModal({ customerId, customerName, onClose, onPaid }) {
   const [invoices, setInvoices] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [amount, setAmount]     = useState('');
+  const [methods, setMethods]   = useState([]);
+  const [method, setMethod]     = useState(null);
+  const [checkNum, setCheckNum] = useState('');
+  const [card, setCard]         = useState(null);       // Square card element
+  const [cardErr, setCardErr]   = useState('');
+  const [sandbox, setSandbox]   = useState(false);
+  const [busy, setBusy]         = useState(false);
+  const [done, setDone]         = useState(null);       // success response
+  const cardRef = useRef(null);
+
+  const fmt$ = n => `$${parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const red = '#e5484d';
+
   useEffect(() => {
-    if (!customerId) return;
+    api.getCustomerOpenInvoices(customerId).then(r => {
+      const list = r || [];
+      setInvoices(list);
+      setSelected(list.map(i => i.id));
+      setAmount(list.reduce((s,i) => s + parseFloat(i.balance), 0).toFixed(2));
+    }).catch(() => setInvoices([]));
+    api.getPaymentMethods().then(list => {
+      const enabled = (Array.isArray(list) ? list : []).filter(m => m.enabled && m.visible_to !== 'customer');
+      setMethods(enabled);
+      setMethod(enabled.find(m => m.is_default) || null);
+    }).catch(() => setMethods([{id:'cash',label:'Cash',icon:'💵'},{id:'check',label:'Check',icon:'📝'},{id:'credit_card',label:'Card',icon:'💳'}]));
+  }, [customerId]);
+
+  // Mount Square's card fields while "card" is the chosen method
+  const isCard = method?.id === 'credit_card';
+  useEffect(() => {
+    if (!isCard || done) return;
+    let el = null, cancelled = false;
+    setCardErr('');
+    loadSquareSdk().then(async cfg => {
+      if (cancelled) return;
+      setSandbox(cfg.environment !== 'production');
+      el = await window.Square.payments(cfg.applicationId, cfg.locationId).card();
+      if (cancelled) { el.destroy(); return; }
+      await el.attach(cardRef.current);
+      setCard(el);
+    }).catch(e => !cancelled && setCardErr(e.message));
+    return () => { cancelled = true; setCard(null); el?.destroy?.(); };
+  }, [isCard, done]);
+
+  const selectedInv = (invoices || []).filter(i => selected.includes(i.id));
+  const selectedDue = selectedInv.reduce((s,i) => s + parseFloat(i.balance), 0);
+  const toggle = id => setSelected(prev => {
+    const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+    setAmount((invoices||[]).filter(i => next.includes(i.id)).reduce((s,i) => s + parseFloat(i.balance), 0).toFixed(2));
+    return next;
+  });
+  const base = Math.min(parseFloat(amount) || 0, selectedDue);
+  const surcharge = method ? +((base * (parseFloat(method.surcharge_pct) || 0) / 100) + (parseFloat(method.surcharge_fixed) || 0)).toFixed(2) : 0;
+  const total = +(base + (base > 0 ? surcharge : 0)).toFixed(2);
+  const over = (parseFloat(amount) || 0) > selectedDue + 0.005;
+
+  const submit = async () => {
+    if (!selected.length) return toast.warn('Select an invoice');
+    if (!(base > 0) || over) return toast.warn('Check the amount');
+    if (!method) return toast.warn('Pick a payment method');
+    setBusy(true);
+    try {
+      let source_id;
+      if (isCard) {
+        if (!card) throw new Error('Card form is still loading');
+        const tok = await card.tokenize();
+        if (tok.status !== 'OK') throw new Error(tok.errors?.[0]?.message || 'Check the card details');
+        source_id = tok.token;
+      }
+      const res = await api.collectCustomerPayment(customerId, {
+        invoice_ids: selected, amount: base, surcharge: base > 0 ? surcharge : 0,
+        method: method.id, check_number: method.id === 'check' ? checkNum : undefined, source_id,
+      });
+      setDone(res);
+      onPaid?.(res);
+    } catch (e) { toast.error('Payment not taken', e.message); }
+    finally { setBusy(false); }
+  };
+
+  const lbl = {fontSize:10,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',display:'block',marginBottom:6};
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:4000,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,.6)',padding:16}}
+      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div role="dialog" aria-label="Collect payment" style={{background:'var(--surface)',borderRadius:16,width:'100%',maxWidth:500,maxHeight:'92vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.45)'}} className="scrollbar-thin">
+        <div style={{display:'flex',alignItems:'center',gap:10,padding:'18px 22px 12px',borderBottom:'1px solid var(--border)'}}>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800}}>Collect Payment</div>
+            <div style={{fontSize:12,color:'var(--muted)'}}>{customerName}</div>
+          </div>
+          <button onClick={onClose} disabled={busy} aria-label="Close" style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'5px 11px',color:'var(--muted)',fontSize:12,cursor:'pointer'}}>✕</button>
+        </div>
+
+        {done ? (
+          <div style={{padding:'26px 22px',textAlign:'center'}}>
+            <div style={{fontSize:40}}>✅</div>
+            <div style={{fontFamily:'var(--font-head)',fontSize:22,fontWeight:800,marginTop:6}}>{fmt$(done.charged)} collected</div>
+            {done.last4 && <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{done.card_brand?.replace(/_/g,' ')} ending {done.last4}</div>}
+            <div style={{margin:'16px auto 0',maxWidth:320,textAlign:'left',display:'flex',flexDirection:'column',gap:4}}>
+              {done.applied.map(a => (
+                <div key={a.invoice_id} style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'var(--font-mono)'}}>
+                  <span>INV #{a.invoice_number} {a.paid_in_full ? <b style={{color:'#2f9e62'}}>PAID</b> : <span style={{color:'var(--muted)'}}>partial</span>}</span>
+                  <span>{fmt$(a.amount)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'center',marginTop:20}}>
+              {done.receipt_url && <a href={done.receipt_url} target="_blank" rel="noreferrer" style={{padding:'9px 16px',border:'1px solid var(--border)',borderRadius:9,fontSize:13,fontWeight:600,color:'var(--text)',textDecoration:'none'}}>View receipt</a>}
+              <button onClick={onClose} style={{padding:'9px 22px',background:'var(--blue)',border:'none',borderRadius:9,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>Done</button>
+            </div>
+          </div>
+        ) : invoices === null ? (
+          <div style={{padding:40,display:'flex',justifyContent:'center'}}><Spinner/></div>
+        ) : invoices.length === 0 ? (
+          <div style={{padding:'30px 22px',textAlign:'center',fontSize:13,color:'var(--muted)'}}>This customer doesn't owe anything.</div>
+        ) : (
+          <div style={{padding:'16px 22px 20px',display:'flex',flexDirection:'column',gap:16}}>
+            {/* Invoices */}
+            <div>
+              <label style={lbl}>INVOICES TO PAY</label>
+              <div style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                {invoices.map((i,idx) => {
+                  const on = selected.includes(i.id);
+                  return (
+                    <label key={i.id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderTop:idx?'1px solid var(--border)':'none',cursor:'pointer',background:on?'var(--surface2)':'transparent'}}>
+                      <input type="checkbox" checked={on} onChange={() => toggle(i.id)} disabled={busy}/>
+                      <span style={{fontFamily:'var(--font-mono)',fontSize:12,fontWeight:600}}>INV #{i.invoice_number}</span>
+                      <span style={{flex:1,fontSize:11,color:i.overdue?red:'var(--muted)'}}>
+                        {i.due_date ? `${i.overdue?'Overdue · was due':'Due'} ${new Date(String(i.due_date).slice(0,10)+'T00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : 'No due date'}
+                      </span>
+                      <span style={{fontFamily:'var(--font-mono)',fontSize:13,fontWeight:700,color:i.overdue?red:'var(--text)'}}>{fmt$(i.balance)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label style={lbl}>AMOUNT <span style={{textTransform:'none',letterSpacing:0}}>· {fmt$(selectedDue)} selected</span></label>
+              <div style={{display:'flex',alignItems:'center',background:'var(--bg)',border:`1px solid ${over?red:'var(--border2)'}`,borderRadius:9,overflow:'hidden'}}>
+                <span style={{padding:'0 12px',fontSize:20,color:'var(--muted)'}}>$</span>
+                <input value={amount} onChange={e => setAmount(e.target.value)} type="number" step="0.01" min="0" disabled={busy}
+                  style={{flex:1,background:'none',border:'none',padding:'10px 0',fontSize:22,fontWeight:600,color:'var(--text)',fontFamily:'var(--font-mono)'}}/>
+                {parseFloat(amount) !== +selectedDue.toFixed(2) && (
+                  <button onClick={() => setAmount(selectedDue.toFixed(2))} style={{margin:6,padding:'4px 10px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,fontSize:11,fontWeight:600,color:'var(--muted)',cursor:'pointer'}}>Pay in full</button>
+                )}
+              </div>
+              {over && <div style={{fontSize:11,color:red,marginTop:4}}>More than the {fmt$(selectedDue)} owed on the selected invoices.</div>}
+              {!over && base > 0 && base < selectedDue - 0.005 && <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Partial payment — applied to the oldest invoice first.</div>}
+            </div>
+
+            {/* Method */}
+            <div>
+              <label style={lbl}>PAYMENT METHOD</label>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(92px,1fr))',gap:8}}>
+                {methods.map(m => {
+                  const sel = method?.id === m.id;
+                  const sc = (parseFloat(m.surcharge_pct)||0) || (parseFloat(m.surcharge_fixed)||0);
+                  return (
+                    <button key={m.id} onClick={() => setMethod(m)} disabled={busy} aria-pressed={sel}
+                      style={{position:'relative',padding:'10px 6px',borderRadius:10,border:`1.5px solid ${sel?'var(--blue)':'var(--border)'}`,background:sel?'var(--surface2)':'var(--bg)',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                      {sc > 0 && <span style={{position:'absolute',top:3,right:5,fontSize:8,fontWeight:700,color:'#f97316',fontFamily:'var(--font-mono)'}}>+{m.surcharge_pct ? `${m.surcharge_pct}%` : `$${m.surcharge_fixed}`}</span>}
+                      <span style={{fontSize:18}}>{m.icon || '💰'}</span>
+                      <span style={{fontSize:11,fontWeight:700,color:sel?'var(--text)':'var(--muted)',textAlign:'center',lineHeight:1.2}}>{m.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {isCard && (
+              <div>
+                <label style={lbl}>CARD DETAILS</label>
+                <div ref={cardRef} style={{minHeight:50}}/>
+                {!card && !cardErr && <div style={{fontSize:11,color:'var(--muted)'}}>Loading secure card form…</div>}
+                {cardErr && <div style={{fontSize:11,color:red}}>⚠ {cardErr}</div>}
+                {sandbox && card && <div style={{fontSize:10,color:'var(--muted)',marginTop:4}}>Square test mode — use card 4111 1111 1111 1111, any future date, CVV 111, ZIP 12345. No real money moves.</div>}
+              </div>
+            )}
+            {method?.id === 'check' && (
+              <div>
+                <label style={lbl}>CHECK NUMBER</label>
+                <input value={checkNum} onChange={e => setCheckNum(e.target.value)} placeholder="e.g. 1042" disabled={busy}
+                  style={{width:'100%',background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,padding:'9px 12px',fontSize:15,color:'var(--text)'}}/>
+              </div>
+            )}
+
+            {surcharge > 0 && base > 0 && (
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'var(--font-mono)',color:'#f97316'}}>
+                <span>{method.label} surcharge</span><span>+{fmt$(surcharge)}</span>
+              </div>
+            )}
+
+            <button onClick={submit} disabled={busy || !method || !(base > 0) || over || (isCard && !card)}
+              style={{padding:'13px',background:'#2f9e62',border:'none',borderRadius:10,color:'#fff',fontWeight:800,fontSize:15,cursor:'pointer',opacity:(busy||!method||!(base>0)||over||(isCard&&!card))?0.5:1}}>
+              {busy ? 'Processing…' : isCard ? `Charge ${fmt$(total)}` : `Record ${fmt$(total)} ${method ? method.label : ''} payment`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Outstanding balance warning (call-taking / booking) ──────
+// Shows the customer's unpaid invoices so the CSR can mention them on the call;
+// clicking it opens Collect Payment.
+function OutstandingBalanceAlert({ customerId, customerName, compact = false }) {
+  const [invoices, setInvoices] = useState(null);
+  const [collecting, setCollecting] = useState(false);
+  const load = useCallback(() => {
+    if (!customerId) return () => {};
     let cancel = false;
-    setInvoices(null);
     api.getCustomerOpenInvoices(customerId).then(r => { if (!cancel) setInvoices(r || []); }).catch(() => { if (!cancel) setInvoices([]); });
     return () => { cancel = true; };
   }, [customerId]);
-  if (!invoices?.length) return null;
+  useEffect(() => { setInvoices(null); return load(); }, [load]);
+  const modal = collecting && (
+    <CollectPaymentModal customerId={customerId} customerName={customerName}
+      onClose={() => setCollecting(false)} onPaid={() => load()}/>
+  );
+  if (!invoices?.length) return modal || null;
 
   const fmt$ = n => `$${parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
   const total   = invoices.reduce((s,i) => s + parseFloat(i.balance), 0);
   const overdue = invoices.filter(i => i.overdue);
   const red = '#e5484d';
   return (
-    <div role="alert" style={{background:`${red}10`,border:`1px solid ${red}55`,borderLeft:`4px solid ${red}`,borderRadius:10,padding:compact?'8px 12px':'10px 14px'}}>
+    <>
+    {modal}
+    <div role="button" tabIndex={0} title="Collect payment" onClick={() => setCollecting(true)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCollecting(true); } }}
+      style={{background:`${red}10`,border:`1px solid ${red}55`,borderLeft:`4px solid ${red}`,borderRadius:10,padding:compact?'8px 12px':'10px 14px',cursor:'pointer'}}>
       <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
         <span style={{fontSize:13,fontWeight:800,color:red}}>⚠ Outstanding balance {fmt$(total)}</span>
         <span style={{fontSize:11,color:'var(--muted)'}}>
@@ -3626,7 +3861,11 @@ function OutstandingBalanceAlert({ customerId, compact = false }) {
           {invoices.length > 4 && <div style={{fontSize:10,color:'var(--muted)'}}>+{invoices.length-4} more</div>}
         </div>
       )}
+      <div style={{display:'flex',justifyContent:'flex-end',marginTop:compact?4:8}}>
+        <span style={{fontSize:12,fontWeight:700,color:'#fff',background:red,borderRadius:7,padding:'5px 12px'}}>💳 Collect Payment →</span>
+      </div>
     </div>
+    </>
   );
 }
 
@@ -4164,7 +4403,7 @@ function CallsPage({user}) {
 
                 <div style={{padding:'14px 16px',display:'flex',flexDirection:'column',gap:12}}>
 
-                  <OutstandingBalanceAlert customerId={c.id}/>
+                  <OutstandingBalanceAlert customerId={c.id} customerName={isCommercial && c.business_name ? c.business_name : `${c.first_name} ${c.last_name}`}/>
 
                   {/* Phones */}
                   {allPhones.length > 0 && (
@@ -11145,7 +11384,7 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
                     style={{fontSize:11,padding:'3px 8px',background:'transparent',border:'1px solid var(--border)',borderRadius:6,color:'var(--muted)',cursor:'pointer'}}>✕ Change</button>
                 </div>
                 <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:8}}>
-                  <OutstandingBalanceAlert customerId={activeCustomer.id}/>
+                  <OutstandingBalanceAlert customerId={activeCustomer.id} customerName={custName}/>
                   {activeCustomer.addresses?.[0]&&(
                     <div>
                       <div style={{fontSize:9,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em',marginBottom:2}}>ADDRESS</div>
@@ -22310,6 +22549,7 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState('account');
   const [callPop, setCallPop] = useState(null);
   const [callPopDue, setCallPopDue] = useState(null);   // { total, overdue } owed by the caller
+  const [callCollect, setCallCollect] = useState(false);
   useEffect(() => {
     setCallPopDue(null);
     if (!callPop?.id) return;
@@ -22398,15 +22638,20 @@ export default function App() {
               <ServiceCoreLogo size={32}/>
             </div>
 
+            {callCollect && callPop?.id && (
+              <CollectPaymentModal customerId={callPop.id} customerName={callPop.customer}
+                onClose={() => setCallCollect(false)}
+                onPaid={() => api.getCustomerOpenInvoices(callPop.id).then(inv => setCallPopDue(inv?.length ? { total: inv.reduce((s,i) => s + parseFloat(i.balance), 0), overdue: inv.filter(i => i.overdue).length } : null)).catch(() => {})}/>
+            )}
             {/* Call pop */}
             {callPop && (
               <div style={{display:"flex",alignItems:"center",gap:8,background:"#E2061322",border:"1px solid #E2061344",borderRadius:8,padding:"4px 12px",animation:"glow 2s infinite"}}>
                 <div style={{width:6,height:6,borderRadius:"50%",background:"#E20613",animation:"pulse2 1s infinite"}}/>
                 <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#E20613"}}>INCOMING · {callPop.phone} · {callPop.customer}</span>
                 {callPopDue && (
-                  <span title={`${callPopDue.overdue} overdue invoice${callPopDue.overdue!==1?"s":""}`} style={{fontSize:10,fontWeight:800,fontFamily:"var(--font-mono)",background:"#e5484d",color:"#fff",borderRadius:4,padding:"1px 6px",whiteSpace:"nowrap"}}>
-                    ${Math.round(callPopDue.total).toLocaleString()} DUE{callPopDue.overdue ? ` · ${callPopDue.overdue} OVERDUE` : ""}
-                  </span>
+                  <button onClick={() => setCallCollect(true)} title="Collect payment" style={{fontSize:10,fontWeight:800,fontFamily:"var(--font-mono)",background:"#e5484d",color:"#fff",border:"none",borderRadius:4,padding:"1px 6px",whiteSpace:"nowrap",cursor:"pointer"}}>
+                    ${Math.round(callPopDue.total).toLocaleString()} DUE{callPopDue.overdue ? ` · ${callPopDue.overdue} OVERDUE` : ""} ›
+                  </button>
                 )}
                 <button onClick={()=>setCallPop(null)} style={{background:"transparent",color:"#E20613",opacity:.7,padding:2}}>
                   <Icon n="x" size={11} color="#E20613"/>
