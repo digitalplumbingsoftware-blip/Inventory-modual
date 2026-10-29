@@ -553,490 +553,325 @@ function useCompanyServices() {
   return services; // array of lowercase strings e.g. ['plumbing','hvac']
 }
 
-// ─── DASHBOARD PAGE (ServiceTitan-style) ──────────────────────
-function DashboardPage() {
-  const {data:stats, loading, reload} = useApi(() => api.dashboardStats());
-  const {data:jobs, loading:jobsLoading} = useApi(() => api.getJobs({date: new Date().toISOString().split("T")[0]}));
-  const {data:techs} = useApi(() => api.getTechnicians());
-  const {data:lowStock} = useApi(() => api.getLowStock());
-  const [livePositions, setLivePositions] = useState([]);
-  const [todayJobsLive, setTodayJobsLive] = useState(null);
+// ─── Dashboard ───────────────────────────────────────────────
+// Home tab: Housecall Pro-style "what needs me today" (greeting, quick actions,
+// today's schedule, needs-attention queue) on top of ServiceTitan-style
+// performance (period KPIs with deltas, sales vs collected trend, tech scorecard).
+const DASH_PERIODS = [
+  {id:'today', label:'Today',      vs:'vs. yesterday'},
+  {id:'week',  label:'This Week',  vs:'vs. same point last week'},
+  {id:'month', label:'This Month', vs:'vs. same point last month'},
+  {id:'year',  label:'This Year',  vs:'vs. same point last year'},
+];
+
+// Local-time bounds for a period, plus the same elapsed window one period back
+function dashRange(period, now = new Date()) {
+  const start = new Date(now); start.setHours(0,0,0,0);
+  if (period === 'week')  start.setDate(start.getDate() - start.getDay());
+  if (period === 'month') start.setDate(1);
+  if (period === 'year')  start.setMonth(0, 1);
+  const end = new Date(start);
+  const prevStart = new Date(start);
+  if (period === 'today') { end.setDate(end.getDate()+1);         prevStart.setDate(prevStart.getDate()-1); }
+  if (period === 'week')  { end.setDate(end.getDate()+7);         prevStart.setDate(prevStart.getDate()-7); }
+  if (period === 'month') { end.setMonth(end.getMonth()+1);       prevStart.setMonth(prevStart.getMonth()-1); }
+  if (period === 'year')  { end.setFullYear(end.getFullYear()+1); prevStart.setFullYear(prevStart.getFullYear()-1); }
+  const prevTo = new Date(prevStart.getTime() + (now - start));
+  // The "today" chart shows the last 7 days so there's a trend to read
+  const trendFrom = new Date(start); if (period === 'today') trendFrom.setDate(trendFrom.getDate()-6);
+  return {
+    from:start.toISOString(), to:end.toISOString(),
+    prev_from:prevStart.toISOString(), prev_to:prevTo.toISOString(),
+    trend_from:trendFrom.toISOString(),
+    bucket: period === 'year' ? 'month' : 'day',
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
+}
+
+function DashboardPage({ onNavigate = () => {} }) {
+  const { user } = useAuth();
+  const [period, setPeriod] = useState(() => { try { return localStorage.getItem('dps_dashPeriod') || 'month'; } catch { return 'month'; } });
   const [now, setNow] = useState(new Date());
-  const [dashLayout, setDashLayout] = useState(() => localStorage.getItem('dps_dashLayout') || 'command');
+  const range = useMemo(() => dashRange(period), [period]);
+  const {data:ov, loading, reload} = useApi(() => api.dashboardOverview(range), [range.from, range.to]);
+  const {data:jobs, loading:jobsLoading} = useApi(() => api.getJobs({date: new Date().toLocaleDateString('en-CA')}));
+  const [liveStatus, setLiveStatus] = useState({});   // job_id → status pushed over WS
+  const [hoverBar, setHoverBar] = useState(null);
 
-  const switchLayout = (l) => { setDashLayout(l); localStorage.setItem('dps_dashLayout', l); };
+  const pickPeriod = p => { setPeriod(p); try { localStorage.setItem('dps_dashPeriod', p); } catch {} };
 
-  useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
-
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
   useEffect(() => {
-    api.gpsLive().then(setLivePositions).catch(()=>{});
     const ws = connectGpsWebSocket(msg => {
-      if(msg.type === "gps_ping") {
-        setLivePositions(prev => {
-          const filtered = prev.filter(p => p.technician_id !== msg.technician_id);
-          return [...filtered, {technician_id:msg.technician_id, lat:msg.lat, lng:msg.lng, color:msg.color||"#5daf7c", initials:msg.initials, name:msg.name}];
-        });
-      }
-      if(msg.type === "job_status") {
-        setTodayJobsLive(prev => {
-          const base = prev || jobs || [];
-          return base.map(j => j.id === msg.job_id ? { ...j, status: msg.status } : j);
-        });
-      }
+      if (msg.type === 'job_status') setLiveStatus(prev => ({ ...prev, [msg.job_id]: msg.status }));
     });
     return () => ws?.close();
   }, []);
 
-  const fmt$ = n => `$${Math.round(parseFloat(n||0)).toLocaleString()}`;
-  const todayJobs = todayJobsLive || jobs || [];
-  const byStatus = s => todayJobs.filter(j=>j.status===s);
-  const unassigned = byStatus('unassigned');
-  const onSite = byStatus('on_site');
-  const enRoute = byStatus('en_route');
-  const completed = byStatus('completed');
-  const totalRevToday = parseFloat(stats?.revenue_today||0);
+  const fmt$  = n => `$${Math.round(parseFloat(n||0)).toLocaleString()}`;
+  const fmtK$ = n => { const v = parseFloat(n||0); return v >= 10000 ? `$${(v/1000).toFixed(v>=100000?0:1)}k` : fmt$(v); };
+  const pct   = n => n == null ? '—' : `${Math.round(n*100)}%`;
+  const cur = ov?.current, prev = ov?.previous;
+  const vsLabel = DASH_PERIODS.find(p => p.id === period)?.vs;
 
-  // Attach GPS position to each tech
-  const techsWithPos = (techs||[]).map(t=>{
-    const pos = livePositions.find(p=>p.technician_id===t.id);
-    const myJobs = todayJobs.filter(j=>j.technician_id===t.id);
-    const activeJob = myJobs.find(j=>j.status==='on_site'||j.status==='en_route');
-    return {...t, pos, myJobs, activeJob, jobsDone:myJobs.filter(j=>j.status==='completed').length};
-  });
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = user?.first_name || user?.name?.split(' ')[0] || '';
 
-  // ── Shared helpers ────────────────────────────────────────────
-  const compPct = Math.round(completed.length / Math.max(todayJobs.length, 1) * 100);
-  const chartVals = (stats?.revenue_chart||[]).map(r => parseFloat(r.revenue));
-  const chartMax  = Math.max(...chartVals, 1);
-  const techRevenue = stats?.revenue_by_tech || [];
-  const maxTechRev = Math.max(...techRevenue.map(t => parseFloat(t.revenue)), 1);
+  // Today's schedule, with live status overrides
+  const todayJobs = (jobs || [])
+    .map(j => liveStatus[j.id] ? { ...j, status: liveStatus[j.id] } : j)
+    .filter(j => j.status !== 'cancelled')
+    .sort((a,b) => new Date(a.scheduled_start||0) - new Date(b.scheduled_start||0));
+  const countBy = s => todayJobs.filter(j => j.status === s).length;
 
-  // Tiny sparkline for KPI cards (SVG, 60×24)
-  const Sparkline = () => {
-    if (!chartVals.length) return null;
-    const w=60, h=24, pts=chartVals;
-    const xs = pts.map((_,i)=>(i/(pts.length-1||1))*w);
-    const ys = pts.map(v=>h - Math.max(2,(v/chartMax)*(h-2)));
-    const d  = xs.map((x,i)=>`${i===0?'M':'L'}${x},${ys[i]}`).join(' ');
-    return <svg width={w} height={h} style={{overflow:'visible'}}><path d={d} fill="none" stroke="var(--green)" strokeWidth="1.5" opacity="0.7"/></svg>;
+  // ── Pieces ───────────────────────────────────────────────────
+  const Delta = ({cur, prev, kind='money'}) => {
+    if (prev == null || cur == null) return <span style={{fontSize:11,color:'var(--muted)'}}>—</span>;
+    let diff, text;
+    if (kind === 'rate') { diff = cur - prev; text = `${diff>=0?'+':''}${Math.round(diff*100)} pts`; }
+    else {
+      if (!prev) return <span style={{fontSize:11,color:'var(--muted)'}}>{cur ? 'new' : '—'}</span>;
+      diff = (cur - prev) / prev; text = `${diff>=0?'+':''}${Math.round(diff*100)}%`;
+    }
+    const up = diff >= 0, flat = Math.abs(diff) < 0.005;
+    const color = flat ? 'var(--muted)' : up ? '#2f9e62' : '#e5484d';
+    return <span style={{fontSize:11,fontWeight:700,color,background:flat?'transparent':`${up?'#5daf7c':'#f56565'}14`,borderRadius:4,padding:'1px 6px'}}>{flat?'±0%':`${up?'▲':'▼'} ${text.replace(/^[+-]/,'')}`}</span>;
   };
 
-  // 7-day bar chart
-  const BarChart = ({height=90}) => (
-    chartVals.length > 0 ? (
-      <div style={{display:"flex",alignItems:"flex-end",gap:5,height}}>
-        {(stats?.revenue_chart||[]).map((d,i)=>{
-          const h = Math.max(4,(chartVals[i]/chartMax)*(height-20));
-          const isToday = i===chartVals.length-1;
-          return (
-            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              {isToday && <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{fmt$(d.revenue)}</div>}
-              <div style={{width:"100%",height:h,borderRadius:"3px 3px 0 0",background:isToday?"var(--accent)":"var(--accent)44",transition:"height .6s"}}/>
-              <div style={{fontSize:8,fontFamily:"var(--font-mono)",color:isToday?"var(--text)":"var(--muted)"}}>{d.label}</div>
-            </div>
-          );
-        })}
+  const Panel = ({title, right, children, style={}, pad=true}) => (
+    <section style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,display:'flex',flexDirection:'column',minWidth:0,...style}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'14px 18px 10px'}}>
+        <h3 style={{fontFamily:'var(--font-head)',fontSize:15,fontWeight:700,margin:0,flex:1}}>{title}</h3>
+        {right}
       </div>
-    ) : <div style={{height,display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>
+      <div style={{padding: pad ? '0 18px 16px' : '0 0 8px', flex:1, minHeight:0}}>{children}</div>
+    </section>
   );
 
-  // Tech revenue leaderboard rows
-  const TechLeaderboard = ({limit}) => {
-    const list = limit ? techRevenue.slice(0,limit) : techRevenue;
-    if (!list.length) return <div style={{fontSize:12,color:"var(--muted)",padding:"12px 0",textAlign:"center"}}>No revenue data yet today.</div>;
-    return list.map((t,i) => {
-      const rev = parseFloat(t.revenue);
-      const pct = (rev / maxTechRev) * 100;
-      const c = t.color || '#5daf7c';
-      return (
-        <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:i<list.length-1?"1px solid var(--border)":"none"}}>
-          <div style={{width:34,height:34,borderRadius:"50%",background:`${c}22`,border:`2px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontWeight:700,fontSize:12,color:c,flexShrink:0}}>
-            {t.initials||t.name?.[0]||"?"}
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
-              <span style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</span>
-              <span style={{fontFamily:"var(--font-mono)",fontSize:15,fontWeight:800,color:rev>0?"var(--green)":"var(--muted)",flexShrink:0,marginLeft:12}}>{fmt$(rev)}</span>
-            </div>
-            <div style={{height:5,background:"var(--surface2)",borderRadius:3,overflow:"hidden",marginBottom:3}}>
-              <div style={{height:"100%",width:`${pct}%`,background:c,borderRadius:3,transition:"width .8s"}}/>
-            </div>
-            <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{t.job_count} job{t.job_count!=1?"s":""} today</div>
-          </div>
-        </div>
-      );
-    });
+  const LinkBtn = ({children, onClick}) => (
+    <button onClick={onClick} style={{background:'none',border:'none',color:'var(--blue)',fontSize:12,fontWeight:600,cursor:'pointer',padding:0}}>{children}</button>
+  );
+
+  const kpis = [
+    {label:'Sales',           value:fmtK$(cur?.sales),     delta:<Delta cur={cur?.sales} prev={prev?.sales}/>,                 accent:'#4a9eff', hint:'Invoiced, excluding voids'},
+    {label:'Collected',       value:fmtK$(cur?.collected), delta:<Delta cur={cur?.collected} prev={prev?.collected}/>,         accent:'#5daf7c',  hint:'Payments received'},
+    {label:'Jobs Completed',  value:cur?.jobs_completed ?? '—', delta:<Delta cur={cur?.jobs_completed} prev={prev?.jobs_completed}/>, accent:'#6366f1', hint:'Marked complete'},
+    {label:'Avg Ticket',      value:fmt$(cur?.avg_ticket), delta:<Delta cur={cur?.avg_ticket} prev={prev?.avg_ticket}/>,       accent:'#a78bfa', hint:'Sales ÷ invoices'},
+    {label:'Close Rate',      value:pct(cur?.close_rate),  delta:<Delta cur={cur?.close_rate} prev={prev?.close_rate} kind="rate"/>, accent:'#e8a84a', hint:`${cur?.estimates_presented ?? 0} estimates presented`},
+    {label:'Open A/R',        value:fmtK$(ov?.ar?.open),   delta:ov?.ar?.overdue_count ? <span style={{fontSize:11,fontWeight:700,color:'var(--red)'}}>{ov.ar.overdue_count} overdue · {fmtK$(ov.ar.overdue_amount)}</span> : <span style={{fontSize:11,color:'var(--muted)'}}>{ov?.ar?.open_count ?? 0} open invoices</span>, accent:ov?.ar?.overdue_count?'#f56565':'var(--muted)', hint:'Unpaid balance, all time'},
+  ];
+
+  const att = ov?.attention || {};
+  const attention = [
+    {key:'unassigned', n:att.unassigned_jobs,   icon:'🧰', label:'Unassigned jobs',          sub:'Need a technician',                         page:'dispatch',   tone:'#f56565'},
+    {key:'unsched',    n:att.unscheduled_jobs,  icon:'📅', label:'Jobs to schedule',         sub:'No date set',                               page:'jobs',       tone:'#e8a84a'},
+    {key:'overdue',    n:ov?.ar?.overdue_count, icon:'🧾', label:'Overdue invoices',         sub:`${fmt$(ov?.ar?.overdue_amount)} past due`,  page:'accounting', tone:'#f56565'},
+    {key:'estimates',  n:att.open_estimates,    icon:'📝', label:'Estimates awaiting approval', sub:`${fmt$(att.open_estimates_amount)} potential`, page:'jobs',   tone:'#4a9eff'},
+    {key:'followups',  n:att.followups_due,     icon:'📞', label:'Follow-ups due',           sub:'Customers to call back',                    page:'customers',  tone:'#a78bfa'},
+    {key:'counts',     n:att.counts_due,        icon:'📋', label:'Cycle counts due',         sub:'Truck/warehouse counts',                    page:'settings',   tone:'#a78bfa'},
+    {key:'stock',      n:att.low_stock,         icon:'📦', label:'Low-stock items',          sub:'At or below minimum',                       page:'settings',   tone:'#e8a84a'},
+  ].filter(a => a.n > 0);
+
+  // Trend chart (sales vs collected)
+  const trend = ov?.trend || [];
+  const trendMax = Math.max(1, ...trend.map(t => Math.max(t.sales, t.collected)));
+  const bucketLabel = b => {
+    const [y,m,d] = String(b).slice(0,10).split('-').map(Number);
+    const dt = new Date(y, m-1, d);
+    if (period === 'year') return dt.toLocaleDateString('en-US',{month:'short'});
+    if (period === 'month') return String(d);
+    return dt.toLocaleDateString('en-US',{weekday:'short'});
   };
-
-  // Dispatch rows
-  const DispatchRows = ({cols}) => {
-    // cols: 'dense' | 'full'
-    const dense = cols === 'dense';
-    return (
-      <>
-        {todayJobs.length===0 && <div style={{padding:"24px 16px",color:"var(--muted)",fontSize:12,textAlign:"center"}}>No jobs scheduled today.</div>}
-        {todayJobs.map((j,i)=>{
-          const sm = statusMeta[j.status]||statusMeta.available;
-          const time = j.scheduled_start ? new Date(j.scheduled_start).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "—";
-          return (
-            <div key={j.id} style={{
-              display:"grid",
-              gridTemplateColumns: dense ? "72px 1fr 130px 100px 84px" : "90px 1fr 150px 140px 90px 100px",
-              padding: dense ? "8px 16px" : "10px 16px",
-              borderBottom: i<todayJobs.length-1 ? "1px solid var(--border)" : "none",
-              alignItems:"center",
-              transition:"background .12s",
-            }}
-            onMouseEnter={e=>e.currentTarget.style.background="var(--surface2)"}
-            onMouseLeave={e=>e.currentTarget.style.background=""}>
-              <div style={{fontFamily:"var(--font-mono)",fontSize:11,color:"var(--muted)"}}>{time}</div>
-              <div style={{minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.customer_name||"—"}</div>
-                <div style={{fontSize:10,color:"var(--muted)",marginTop:1}}>{j.job_type||"—"}</div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
-                {j.technician_color&&<div style={{width:7,height:7,borderRadius:"50%",background:j.technician_color,flexShrink:0}}/>}
-                <span style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:j.technician_name?"var(--text)":"var(--muted)"}}>{j.technician_name||"Unassigned"}</span>
-              </div>
-              <div style={{fontSize:10,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{j.address||"—"}</div>
-              {!dense&&<div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>{j.arrival_window||"—"}</div>}
-              <Pill status={j.status}/>
-            </div>
-          );
-        })}
-      </>
-    );
+  const bucketTitle = b => {
+    const [y,m,d] = String(b).slice(0,10).split('-').map(Number);
+    return new Date(y, m-1, d).toLocaleDateString('en-US', period==='year' ? {month:'long',year:'numeric'} : {weekday:'short',month:'short',day:'numeric'});
   };
+  const trendSales = trend.reduce((s,t) => s + t.sales, 0);
+  const trendCollected = trend.reduce((s,t) => s + t.collected, 0);
 
-  // Low stock panel
-  const StockPanel = () => {
-    const items = lowStock||[];
-    return (
-      <>
-        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
-          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",flex:1}}>INVENTORY ALERTS</span>
-          {items.length>0 && <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 6px",color:"#f56565"}}>{items.length} LOW</span>}
-        </div>
-        {items.slice(0,5).map((item,i)=>{
-          const isZero = parseInt(item.qty)===0;
-          return (
-            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:i<Math.min(items.length,5)-1?"1px solid var(--border)":"none"}}>
-              <div style={{width:4,height:32,borderRadius:2,background:isZero?"#f56565":"var(--amber)",flexShrink:0}}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
-                <div style={{fontSize:10,color:"var(--muted)",fontFamily:"var(--font-mono)",marginTop:1}}>{item.location_name}</div>
-              </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontFamily:"var(--font-mono)",fontSize:18,fontWeight:800,color:isZero?"#f56565":"var(--amber)",lineHeight:1}}>{item.qty}</div>
-                <div style={{fontSize:9,color:"var(--muted)",fontFamily:"var(--font-mono)"}}>min {item.min_qty}</div>
-              </div>
-            </div>
-          );
-        })}
-        {!items.length && (
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"12px 0"}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:"var(--green)"}}/>
-            <span style={{fontSize:12,color:"var(--green)",fontWeight:500}}>All stock levels healthy</span>
-          </div>
-        )}
-      </>
-    );
-  };
+  const techs = ov?.techs || [];
+  const techMax = Math.max(1, ...techs.map(t => t.sales));
 
-  // Layout switcher
-  const LayoutSwitcher = () => (
-    <div style={{display:"flex",gap:2,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:3}}>
-      {[['command','Command'],['brief','Brief'],['board','Live Board']].map(([id,lbl])=>(
-        <button key={id} onClick={()=>switchLayout(id)} style={{
-          padding:"5px 14px", borderRadius:6, border:"none", fontSize:11, fontWeight:600, cursor:"pointer",
-          background: dashLayout===id ? "var(--accent)" : "transparent",
-          color: dashLayout===id ? "#fff" : "var(--muted)",
-          transition:"all .15s",
-        }}>{lbl}</button>
-      ))}
-    </div>
-  );
+  const quickActions = [
+    {label:'New Job',   icon:'＋', primary:true, onClick:() => onNavigate('dispatch', {newJob:true})},
+    {label:'Dispatch',  icon:'📋', onClick:() => onNavigate('dispatch')},
+    {label:'Customers', icon:'👤', onClick:() => onNavigate('customers')},
+    {label:'Reports',   icon:'📊', onClick:() => onNavigate('reports')},
+  ];
 
-  // Shared page header
-  const DashHeader = ({title, subtitle}) => (
-    <div style={{display:"flex",alignItems:"flex-start",gap:12,flexShrink:0,marginBottom:20}}>
-      <div>
-        <div style={{fontFamily:"var(--font-head)",fontSize:22,fontWeight:800,lineHeight:1}}>{title}</div>
-        <div style={{fontSize:12,color:"var(--muted)",fontFamily:"var(--font-mono)",marginTop:4}}>{subtitle}</div>
-      </div>
-      <div style={{flex:1}}/>
-      <LayoutSwitcher/>
-      {unassigned.length>0&&(
-        <div style={{display:"flex",alignItems:"center",gap:6,background:"#f5656512",border:"1px solid #f5656540",borderRadius:8,padding:"6px 12px"}}>
-          <div style={{width:6,height:6,borderRadius:"50%",background:"#f56565",animation:"pulse2 1s infinite"}}/>
-          <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"#f56565",fontWeight:700}}>{unassigned.length} unassigned</span>
-        </div>
-      )}
-      <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--greendim)",border:"1px solid var(--green)33",borderRadius:8,padding:"5px 10px"}}>
-        <div style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite"}}/>
-        <span style={{fontSize:10,fontFamily:"var(--font-mono)",color:"var(--green)"}}>LIVE</span>
-      </div>
-      <button onClick={reload} style={{display:"flex",gap:5,alignItems:"center",padding:"6px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--muted)",fontSize:12,cursor:"pointer"}}>
-        <Icon n="refresh" size={12}/> Refresh
-      </button>
-    </div>
-  );
-
-  // Shared card wrapper
-  const Card = ({children, style={}, header, headerRight}) => (
-    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",...style}}>
-      {header && (
-        <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border)",background:"var(--surface2)",display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",flex:1,textTransform:"uppercase"}}>{header}</span>
-          {headerRight}
-        </div>
-      )}
-      <div style={{padding: header ? "0" : "16px 18px"}}>{children}</div>
-    </div>
-  );
-
-  const tableHeaderStyle = (cols) => ({
-    padding:"5px 16px 4px",
-    background:"var(--surface2)",
-    borderBottom:"1px solid var(--border)",
-    display:"grid",
-    gridTemplateColumns:cols,
-  });
-  const thStyle = {fontSize:8,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".07em"};
-
-  // ── LAYOUT A: COMMAND ──────────────────────────────────────────
-  if (dashLayout === 'command') return (
-    <div style={{animation:"fadeUp .35s ease",display:"flex",flexDirection:"column",gap:16,height:"100%",minHeight:0,overflowY:"auto",padding:"0 0 24px"}} className="scrollbar-thin">
-      <DashHeader
-        title="Command Center"
-        subtitle={`${now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`}
-      />
-
-      {/* KPI row */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,flexShrink:0}}>
-        {[
-          {label:"Revenue Today",   value:fmt$(stats?.revenue_today), accent:"var(--green)",   sub:`${completed.length} jobs closed`},
-          {label:"Jobs Complete",   value:`${completed.length} / ${todayJobs.length}`, accent:"var(--blue)",    sub:`${compPct}% done`},
-          {label:"On Site",         value:onSite.length,              accent:"var(--amber)",   sub:"technicians active"},
-          {label:"Avg Ticket",      value:fmt$(stats?.avg_ticket),    accent:"var(--purple)",  sub:"last 30 days"},
-          {label:"Follow-ups",      value:stats?.open_followups??0,   accent:stats?.open_followups>0?"#f56565":"var(--muted)", sub:"open"},
-        ].map(({label,value,accent,sub})=>(
-          <div key={label} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",borderTop:`3px solid ${accent}`,transition:"transform .15s,box-shadow .15s"}}
-            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 6px 20px ${accent}18`;}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-            <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:6}}>{label.toUpperCase()}</div>
-            {loading ? <Spinner/> : <>
-              <div style={{fontFamily:"var(--font-head)",fontSize:26,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>
-              <div style={{fontSize:10,color:"var(--muted)",marginTop:4,fontFamily:"var(--font-mono)"}}>{sub}</div>
-            </>}
-          </div>
-        ))}
-      </div>
-
-      {/* Main body — dispatch LEFT, sidebar RIGHT */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:14,flex:1,minHeight:0,alignItems:"start"}}>
-
-        {/* Dispatch table */}
-        <Card header="Today's Dispatch" headerRight={
-          <div style={{display:"flex",gap:6}}>
-            <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px",color:"var(--muted)"}}>{todayJobs.length} JOBS</span>
-            {unassigned.length>0&&<span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 7px",color:"#f56565"}}>{unassigned.length} UNASSIGNED</span>}
-          </div>
-        }>
-          <div style={tableHeaderStyle("72px 1fr 130px 100px 84px")}>
-            {["Time","Customer","Technician","Address","Status"].map(h=><div key={h} style={thStyle}>{h.toUpperCase()}</div>)}
-          </div>
-          {jobsLoading ? <div style={{padding:24,display:"flex",justifyContent:"center"}}><Spinner/></div> : <DispatchRows cols="dense"/>}
-        </Card>
-
-        {/* Right sidebar */}
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-
-          {/* Tech revenue leaderboard */}
-          <Card header="Technician Revenue" headerRight={
-            <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px"}}>{fmt$(stats?.revenue_today)} TOTAL</span>
-          }>
-            <div style={{padding:"4px 16px 8px"}}>
-              {loading ? <Spinner/> : <TechLeaderboard limit={5}/>}
-            </div>
-          </Card>
-
-          {/* Revenue chart */}
-          <Card header="Revenue — Last 7 Days" headerRight={
-            <span style={{fontSize:11,fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--green)"}}>{fmt$(stats?.revenue_today)} today</span>
-          }>
-            <div style={{padding:"14px 16px 12px"}}>
-              <BarChart height={80}/>
-            </div>
-          </Card>
-
-          {/* Stock */}
-          <Card>
-            <StockPanel/>
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── LAYOUT B: BRIEF ────────────────────────────────────────────
-  if (dashLayout === 'brief') return (
-    <div style={{animation:"fadeUp .35s ease",display:"flex",flexDirection:"column",gap:16,height:"100%",minHeight:0,overflowY:"auto",padding:"0 0 24px"}} className="scrollbar-thin">
-      <DashHeader
-        title="Operations Center"
-        subtitle={`${now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`}
-      />
-
-      {/* Hero KPI cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,flexShrink:0}}>
-        {[
-          {label:"Revenue Today",   value:fmt$(stats?.revenue_today), accent:"var(--green)",
-            extra:<><div style={{marginTop:8}}><Sparkline/></div><div style={{fontSize:10,color:"var(--green)",marginTop:4}}>{completed.length} jobs closed</div></>},
-          {label:"Jobs Complete",   value:`${completed.length} / ${todayJobs.length}`, accent:"var(--blue)",
-            extra:<><div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontFamily:"var(--font-mono)"}}>{compPct}% completion rate</div><div style={{marginTop:8,height:5,background:"var(--surface2)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${compPct}%`,background:"var(--blue)",borderRadius:3,transition:"width .6s"}}/></div></>},
-          {label:"Field Activity",  value:<span>{onSite.length}<span style={{fontSize:16,color:"var(--muted)",margin:"0 4px"}}>·</span>{enRoute.length}</span>, accent:"var(--amber)",
-            extra:<><div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontFamily:"var(--font-mono)"}}>on site · en route</div><div style={{display:"flex",gap:10,marginTop:8}}><span style={{fontSize:10,color:"var(--green)"}}>● {onSite.length} on site</span><span style={{fontSize:10,color:"var(--amber)"}}>● {enRoute.length} en route</span></div></>},
-          {label:"Avg Ticket",      value:fmt$(stats?.avg_ticket), accent:"var(--purple)",
-            extra:<><div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontFamily:"var(--font-mono)"}}>Last 30 days</div><div style={{fontSize:10,color:"var(--green)",marginTop:8}}>↑ trending up</div></>},
-        ].map(({label,value,accent,extra})=>(
-          <div key={label} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"18px 20px",borderTop:`3px solid ${accent}`,transition:"transform .15s,box-shadow .15s"}}
-            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 28px ${accent}18`;}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-            <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".09em",marginBottom:8}}>{label.toUpperCase()}</div>
-            {loading ? <Spinner/> : <>
-              <div style={{fontFamily:"var(--font-head)",fontSize:32,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>
-              {extra}
-            </>}
-          </div>
-        ))}
-      </div>
-
-      {/* Tech revenue — full width card */}
-      <Card header="Technician Revenue" headerRight={
-        <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{fmt$(stats?.revenue_today)} combined today</span>
-      }>
-        <div style={{padding:"4px 18px 12px"}}>
-          {loading ? <Spinner/> : <TechLeaderboard/>}
-        </div>
-      </Card>
-
-      {/* Dispatch table */}
-      <Card header="Dispatch Queue" headerRight={
-        <div style={{display:"flex",gap:6}}>
-          <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px",color:"var(--muted)"}}>{todayJobs.length} JOBS</span>
-          {unassigned.length>0&&<span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 7px",color:"#f56565"}}>{unassigned.length} UNASSIGNED</span>}
-        </div>
-      }>
-        <div style={tableHeaderStyle("90px 1fr 150px 140px 90px 100px")}>
-          {["Time","Customer / Type","Technician","Address","Window","Status"].map(h=><div key={h} style={thStyle}>{h.toUpperCase()}</div>)}
-        </div>
-        {jobsLoading ? <div style={{padding:24,display:"flex",justifyContent:"center"}}><Spinner/></div> : <DispatchRows cols="full"/>}
-      </Card>
-
-      {/* Bottom: bar chart + stock */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:12,flexShrink:0}}>
-        <Card header="Revenue — Last 7 Days" headerRight={
-          <span style={{fontSize:11,fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--green)"}}>{fmt$(stats?.revenue_today)} today</span>
-        }>
-          <div style={{padding:"14px 18px 16px"}}>
-            <BarChart height={100}/>
-          </div>
-        </Card>
-        <Card>
-          <StockPanel/>
-        </Card>
-      </div>
-    </div>
-  );
-
-  // ── LAYOUT C: LIVE BOARD ───────────────────────────────────────
   return (
-    <div style={{animation:"fadeUp .35s ease",display:"flex",flexDirection:"column",gap:16,height:"100%",minHeight:0,overflowY:"auto",padding:"0 0 24px"}} className="scrollbar-thin">
-      <DashHeader
-        title="Live Operations Board"
-        subtitle={`${now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`}
-      />
+    <div style={{animation:'fadeUp .35s ease',display:'flex',flexDirection:'column',gap:16,height:'100%',minHeight:0,overflowY:'auto',padding:'0 0 24px'}} className="scrollbar-thin">
 
-      {/* KPI strip — 5 cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,flexShrink:0}}>
-        {[
-          {label:"Revenue",     value:fmt$(stats?.revenue_today), accent:"var(--green)"},
-          {label:"Complete",    value:`${completed.length} / ${todayJobs.length}`, accent:"var(--blue)"},
-          {label:"On Site",     value:onSite.length,              accent:"var(--amber)"},
-          {label:"Avg Ticket",  value:fmt$(stats?.avg_ticket),    accent:"var(--purple)"},
-          {label:"Unassigned",  value:unassigned.length,          accent:unassigned.length>0?"#f56565":"var(--muted)"},
-        ].map(({label,value,accent})=>(
-          <div key={label} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",borderTop:`3px solid ${accent}`}}>
-            <div style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",letterSpacing:".08em",marginBottom:6}}>{label.toUpperCase()}</div>
-            {loading ? <Spinner/> : <div style={{fontFamily:"var(--font-head)",fontSize:28,fontWeight:800,color:accent,lineHeight:1}}>{value}</div>}
+      {/* ── Greeting + quick actions (Housecall Pro) ── */}
+      <div style={{display:'flex',alignItems:'flex-end',gap:16,flexWrap:'wrap'}}>
+        <div style={{flex:'1 1 260px'}}>
+          <div style={{fontSize:12,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div>
+          <h1 style={{fontFamily:'var(--font-head)',fontSize:26,fontWeight:800,margin:'2px 0 0',lineHeight:1.15}}>{greeting}{firstName ? `, ${firstName}` : ''}</h1>
+          <div style={{fontSize:13,color:'var(--muted)',marginTop:4}}>
+            {jobsLoading ? 'Loading today…' : todayJobs.length
+              ? `${todayJobs.length} job${todayJobs.length!==1?'s':''} on the board today · ${countBy('completed')} done · ${countBy('on_site')+countBy('en_route')} in the field`
+              : 'No jobs on the board today.'}
+            {attention.length > 0 && <> · <span style={{color:'var(--red)',fontWeight:600}}>{attention.length} thing{attention.length!==1?'s':''} need{attention.length===1?'s':''} attention</span></>}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {quickActions.map(a => (
+            <button key={a.label} onClick={a.onClick} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 14px',borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer',
+              background:a.primary?'var(--blue)':'var(--surface)',color:a.primary?'#fff':'var(--text)',border:a.primary?'1px solid var(--blue)':'1px solid var(--border)'}}>
+              <span style={{fontSize:a.primary?16:13,lineHeight:1}}>{a.icon}</span>{a.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Period picker ── */}
+      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div role="tablist" style={{display:'flex',gap:2,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:3}}>
+          {DASH_PERIODS.map(p => (
+            <button key={p.id} role="tab" aria-selected={period===p.id} onClick={() => pickPeriod(p.id)} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',
+              background:period===p.id?'var(--surface)':'transparent',color:period===p.id?'var(--text)':'var(--muted)',boxShadow:period===p.id?'0 1px 3px #0000001f':'none'}}>{p.label}</button>
+          ))}
+        </div>
+        <span style={{fontSize:11,color:'var(--muted)'}}>Changes {vsLabel}</span>
+        <div style={{flex:1}}/>
+        <button onClick={reload} style={{display:'flex',gap:5,alignItems:'center',padding:'6px 12px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,color:'var(--muted)',fontSize:12,cursor:'pointer'}}>
+          <Icon n="refresh" size={12}/> Refresh
+        </button>
+      </div>
+
+      {/* ── KPI tiles (ServiceTitan) ── */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}>
+        {kpis.map(k => (
+          <div key={k.label} title={k.hint} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 16px',position:'relative',overflow:'hidden'}}>
+            <div style={{position:'absolute',left:0,top:0,bottom:0,width:3,background:k.accent}}/>
+            <div style={{fontSize:11,color:'var(--muted)',fontWeight:600,marginBottom:6}}>{k.label}</div>
+            {loading && !ov ? <Spinner/> : <>
+              <div style={{fontFamily:'var(--font-head)',fontSize:26,fontWeight:800,lineHeight:1,fontVariantNumeric:'tabular-nums'}}>{k.value}</div>
+              <div style={{marginTop:8,minHeight:18}}>{k.delta}</div>
+            </>}
           </div>
         ))}
       </div>
 
-      {/* Two column: tech scoreboard + tech revenue */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:14,flexShrink:0}}>
-
-        {/* Tech scoreboard tiles */}
-        <Card header="Field Technicians" headerRight={
-          <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--muted)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px"}}>{techsWithPos.length} ACTIVE</span>
+      {/* ── Trend + Needs attention ── */}
+      <div style={{display:'flex',flexWrap:'wrap',gap:14,alignItems:'stretch'}}>
+        <Panel title="Sales vs. Collected" style={{flex:'2 1 520px'}} right={
+          <div style={{display:'flex',gap:14,fontSize:11,color:'var(--muted)'}}>
+            <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'#4a9eff',marginRight:5}}/>Sales {fmt$(trendSales)}</span>
+            <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:'#5daf7c',marginRight:5}}/>Collected {fmt$(trendCollected)}</span>
+          </div>
         }>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:1,background:"var(--border)"}}>
-            {techsWithPos.map(t=>{
-              const status = t.activeJob?.status || (t.jobsDone>0?'completed':'available');
-              const sm = statusMeta[status]||statusMeta.available;
-              const c = t.color||"#5daf7c";
+          {loading && !ov ? <div style={{height:180,display:'flex',alignItems:'center',justifyContent:'center'}}><Spinner/></div> : (
+            <div style={{position:'relative'}}>
+              <div style={{position:'absolute',left:0,top:0,fontSize:10,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>{fmtK$(trendMax)}</div>
+              <div style={{display:'flex',alignItems:'flex-end',gap:trend.length>20?2:6,height:180,paddingTop:16,borderBottom:'1px solid var(--border)'}} onMouseLeave={() => setHoverBar(null)}>
+                {trend.map((t,i) => (
+                  <div key={i} onMouseEnter={() => setHoverBar(i)} style={{flex:1,height:'100%',display:'flex',alignItems:'flex-end',justifyContent:'center',gap:1,position:'relative',cursor:'default',
+                    background:hoverBar===i?'var(--surface2)':'transparent',borderRadius:'4px 4px 0 0'}}>
+                    <div style={{width:'42%',maxWidth:18,height:`${(t.sales/trendMax)*100}%`,minHeight:t.sales?2:0,background:'#4a9eff',borderRadius:'3px 3px 0 0'}}/>
+                    <div style={{width:'42%',maxWidth:18,height:`${(t.collected/trendMax)*100}%`,minHeight:t.collected?2:0,background:'#5daf7c',borderRadius:'3px 3px 0 0'}}/>
+                    {hoverBar===i && (
+                      <div style={{position:'absolute',bottom:'100%',left:'50%',transform:'translateX(-50%)',marginBottom:4,background:'var(--text)',color:'var(--surface)',borderRadius:6,padding:'6px 9px',fontSize:11,whiteSpace:'nowrap',zIndex:5,pointerEvents:'none'}}>
+                        <div style={{fontWeight:700,marginBottom:2}}>{bucketTitle(t.bucket)}</div>
+                        <div>Sales {fmt$(t.sales)}</div><div>Collected {fmt$(t.collected)}</div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{display:'flex',gap:trend.length>20?2:6,marginTop:4}}>
+                {trend.map((t,i) => (
+                  <div key={i} style={{flex:1,textAlign:'center',fontSize:9,color:'var(--muted)',fontFamily:'var(--font-mono)',overflow:'hidden'}}>
+                    {trend.length > 16 && i % 3 !== 0 && i !== trend.length-1 ? '' : bucketLabel(t.bucket)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Needs Attention" pad={false} style={{flex:'1 1 320px'}} right={attention.length ? <span style={{fontSize:11,fontWeight:700,color:'var(--red)'}}>{attention.length}</span> : null}>
+          {loading && !ov ? <div style={{padding:24,display:'flex',justifyContent:'center'}}><Spinner/></div>
+            : attention.length === 0 ? (
+              <div style={{padding:'28px 18px',textAlign:'center'}}>
+                <div style={{fontSize:28}}>✅</div>
+                <div style={{fontSize:13,fontWeight:600,marginTop:6}}>You're all caught up</div>
+                <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>Nothing waiting on the office.</div>
+              </div>
+            ) : attention.map((a,i) => (
+              <button key={a.key} onClick={() => onNavigate(a.page)} style={{display:'flex',alignItems:'center',gap:12,width:'100%',textAlign:'left',padding:'10px 18px',background:'none',border:'none',borderTop:i?'1px solid var(--border)':'none',cursor:'pointer',color:'var(--text)'}}
+                onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'} onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                <div style={{width:34,height:34,borderRadius:9,background:`${a.tone}18`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{a.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600}}>{a.label}</div>
+                  <div style={{fontSize:11,color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.sub}</div>
+                </div>
+                <div style={{fontFamily:'var(--font-head)',fontSize:18,fontWeight:800,color:a.tone}}>{a.n}</div>
+                <span style={{color:'var(--muted)',fontSize:14}}>›</span>
+              </button>
+            ))}
+        </Panel>
+      </div>
+
+      {/* ── Today's schedule + Technician scorecard ── */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,420px),1fr))',gap:14,alignItems:'start'}}>
+        <Panel title="Today's Schedule" pad={false} right={<LinkBtn onClick={() => onNavigate('dispatch')}>Open dispatch board →</LinkBtn>}>
+          <div style={{display:'flex',gap:6,padding:'0 18px 10px',flexWrap:'wrap'}}>
+            {[['scheduled','Scheduled','#a78bfa'],['en_route','En route','#4a9eff'],['on_site','On site','#e8a84a'],['completed','Done','#5daf7c'],['unassigned','Unassigned','#f56565']].map(([s,l,c]) => (
+              <span key={s} style={{fontSize:11,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:999,padding:'2px 9px'}}>
+                <span style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:c,marginRight:5}}/>{l} <b style={{color:'var(--text)'}}>{countBy(s)}</b>
+              </span>
+            ))}
+          </div>
+          {jobsLoading ? <div style={{padding:24,display:'flex',justifyContent:'center'}}><Spinner/></div>
+            : todayJobs.length === 0 ? <div style={{padding:'20px 18px',fontSize:13,color:'var(--muted)',textAlign:'center'}}>Nothing scheduled today. <LinkBtn onClick={() => onNavigate('dispatch',{newJob:true})}>Book a job</LinkBtn></div>
+            : todayJobs.map((j,i) => {
+              const time = j.scheduled_start ? new Date(j.scheduled_start).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—';
               return (
-                <div key={t.id} style={{background:"var(--surface)",padding:"14px 16px",borderTop:`3px solid ${sm.color}`}}>
-                  <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
-                    <div style={{width:40,height:40,borderRadius:"50%",background:`${c}22`,border:`2px solid ${c}55`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-mono)",fontWeight:800,fontSize:13,color:c,flexShrink:0}}>
-                      {t.initials||t.first_name?.[0]||"?"}
+                <div key={j.id} style={{display:'grid',gridTemplateColumns:'68px 1fr auto',gap:12,alignItems:'center',padding:'9px 18px',borderTop:'1px solid var(--border)'}}>
+                  <div style={{fontFamily:'var(--font-mono)',fontSize:12,color:'var(--muted)'}}>{time}</div>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{j.customer_name || '—'}</div>
+                    <div style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'var(--muted)',minWidth:0}}>
+                      {j.technician_color && <span style={{width:7,height:7,borderRadius:'50%',background:j.technician_color,flexShrink:0}}/>}
+                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{j.technician_name || 'Unassigned'} · {j.job_type || 'Job'}{j.address ? ` · ${j.address}` : ''}</span>
                     </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.first_name} {t.last_name}</div>
-                      <span style={{fontSize:9,fontFamily:"var(--font-mono)",fontWeight:700,color:sm.color,letterSpacing:".04em"}}>{sm.label}</span>
-                    </div>
-                    {t.pos&&<div style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",animation:"pulse2 1.5s infinite",flexShrink:0}}/>}
                   </div>
-                  {t.activeJob&&<div style={{fontSize:11,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:6}}>{t.activeJob.job_type||'Job'} — {t.activeJob.customer_name||''}</div>}
-                  {!t.activeJob&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>No active job</div>}
-                  <div style={{display:"flex",gap:14}}>
-                    <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{t.jobsDone} done</span>
-                    <span style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--muted)"}}>{t.myJobs.length-t.jobsDone} left</span>
-                  </div>
+                  <Pill status={j.status}/>
                 </div>
               );
             })}
-            {techsWithPos.length===0&&<div style={{gridColumn:"1/-1",padding:"24px",color:"var(--muted)",fontSize:12,textAlign:"center"}}>No technicians — add in Settings.</div>}
+        </Panel>
+
+        <Panel title="Technician Scorecard" pad={false} right={<span style={{fontSize:11,color:'var(--muted)'}}>{DASH_PERIODS.find(p=>p.id===period)?.label}</span>}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 56px 84px 76px 64px',gap:8,padding:'0 18px 6px',fontSize:10,color:'var(--muted)',fontWeight:600,letterSpacing:'.03em'}}>
+            <div>TECHNICIAN</div><div style={{textAlign:'right'}}>JOBS</div><div style={{textAlign:'right'}}>SALES</div><div style={{textAlign:'right'}}>AVG TKT</div><div style={{textAlign:'right'}}>CLOSE</div>
           </div>
-        </Card>
-
-        {/* Tech revenue sidebar */}
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <Card header="Revenue by Technician" headerRight={
-            <span style={{fontSize:9,fontFamily:"var(--font-mono)",color:"var(--green)",fontWeight:700}}>{fmt$(stats?.revenue_today)}</span>
-          }>
-            <div style={{padding:"4px 16px 12px"}}>
-              {loading ? <Spinner/> : <TechLeaderboard/>}
-            </div>
-          </Card>
-          <Card>
-            <StockPanel/>
-          </Card>
-        </div>
+          {loading && !ov ? <div style={{padding:24,display:'flex',justifyContent:'center'}}><Spinner/></div>
+            : techs.length === 0 ? <div style={{padding:'20px 18px',fontSize:13,color:'var(--muted)',textAlign:'center'}}>No active technicians.</div>
+            : techs.map((t,i) => {
+              const c = t.color || '#5daf7c';
+              return (
+                <div key={t.id} style={{display:'grid',gridTemplateColumns:'1fr 56px 84px 76px 64px',gap:8,alignItems:'center',padding:'10px 18px',borderTop:'1px solid var(--border)',fontVariantNumeric:'tabular-nums'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}>
+                    <div style={{width:30,height:30,borderRadius:'50%',background:`${c}22`,border:`2px solid ${c}66`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:c,fontFamily:'var(--font-mono)',flexShrink:0}}>{t.initials || t.name?.[0]}</div>
+                    <div style={{minWidth:0,flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{i===0 && t.sales>0 ? '🏆 ' : ''}{t.name}</div>
+                      <div style={{height:4,background:'var(--surface2)',borderRadius:2,marginTop:4,overflow:'hidden'}}>
+                        <div style={{height:'100%',width:`${(t.sales/techMax)*100}%`,background:c,borderRadius:2}}/>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{textAlign:'right',fontSize:13}}>{t.jobs_completed}</div>
+                  <div style={{textAlign:'right',fontSize:13,fontWeight:700}}>{fmt$(t.sales)}</div>
+                  <div style={{textAlign:'right',fontSize:13,color:'var(--muted)'}}>{t.avg_ticket ? fmt$(t.avg_ticket) : '—'}</div>
+                  <div style={{textAlign:'right',fontSize:13,color:'var(--muted)'}}>{pct(t.close_rate)}</div>
+                </div>
+              );
+            })}
+        </Panel>
       </div>
-
-      {/* Full-width dispatch */}
-      <Card header="Dispatch Queue" headerRight={
-        <div style={{display:"flex",gap:6}}>
-          <span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:4,padding:"1px 7px",color:"var(--muted)"}}>{todayJobs.length} JOBS</span>
-          {unassigned.length>0&&<span style={{fontSize:9,fontFamily:"var(--font-mono)",background:"#f5656512",border:"1px solid #f5656540",borderRadius:4,padding:"1px 7px",color:"#f56565"}}>{unassigned.length} UNASSIGNED</span>}
-        </div>
-      }>
-        <div style={tableHeaderStyle("72px 1fr 130px 100px 84px")}>
-          {["Time","Customer","Technician","Address","Status"].map(h=><div key={h} style={thStyle}>{h.toUpperCase()}</div>)}
-        </div>
-        {jobsLoading ? <div style={{padding:24,display:"flex",justifyContent:"center"}}><Spinner/></div> : <DispatchRows cols="dense"/>}
-      </Card>
     </div>
   );
 }
@@ -11494,7 +11329,7 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
 }
 
 // ─── DISPATCH BOARD ───────────────────────────────────────────
-function DispatchPage({ activeAlerts = {} }) {
+function DispatchPage({ activeAlerts = {}, openNewJob = false, onOpened = () => {} }) {
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = useState(today);
   const [jobs, setJobs] = useState([]);
@@ -11507,7 +11342,8 @@ function DispatchPage({ activeAlerts = {} }) {
   const [dragPreviewX, setDragPreviewX] = useState(null); // px in timeline
   const [selected, setSelected] = useState(null);        // job shown in detail modal
   const [returnTripParent, setReturnTripParent] = useState(null); // job to schedule return for
-  const [showNewJob, setShowNewJob] = useState(false);
+  const [showNewJob, setShowNewJob] = useState(openNewJob);
+  useEffect(() => { if (openNewJob) onOpened(); }, []);   // shortcut from the dashboard is one-shot
   const [cancelledOpen, setCancelledOpen] = useState(false);
   const scrollRef = useRef(null);
 
@@ -22401,6 +22237,8 @@ function ClockButton() {
 export default function App() {
   const { user, logout } = useAuth();
   const [page, setPage] = useState("dashboard");
+  const [pageOpts, setPageOpts] = useState({});   // one-shot options for the page being opened (e.g. {newJob:true})
+  const navigate = (p, opts = {}) => { setPageOpts(opts); setPage(p); };
   const [time, setTime] = useState(new Date());
   const [expanded, setExpanded] = useState(true);
   const [settingsTab, setSettingsTab] = useState('account');
@@ -22574,8 +22412,8 @@ export default function App() {
 
         {/* ── Content ── */}
         <main style={{flex:1,overflow:"auto",padding:22,background:"var(--bg)"}} className="scrollbar-thin">
-          {page==="dashboard"    && <ErrorBoundary name="Dashboard"><DashboardPage/></ErrorBoundary>}
-          {page==="dispatch"     && <ErrorBoundary name="Dispatch"><DispatchPage activeAlerts={activeAlerts}/></ErrorBoundary>}
+          {page==="dashboard"    && <ErrorBoundary name="Dashboard"><DashboardPage onNavigate={navigate}/></ErrorBoundary>}
+          {page==="dispatch"     && <ErrorBoundary name="Dispatch"><DispatchPage activeAlerts={activeAlerts} openNewJob={!!pageOpts.newJob} onOpened={() => setPageOpts({})}/></ErrorBoundary>}
           {page==="jobs"         && <ErrorBoundary name="Jobs"><JobsHubPage user={user}/></ErrorBoundary>}
           {page==="customers"    && <ErrorBoundary name="Customers"><CustomersPage/></ErrorBoundary>}
           {page==="inbox"        && <ErrorBoundary name="Inbox"><InboxPage/></ErrorBoundary>}

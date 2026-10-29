@@ -33,6 +33,7 @@ export const api = {
 
   // Dashboard
   dashboardStats: () => req("GET", "/dashboard/stats"),
+  dashboardOverview: (params = {}) => req("GET", `/dashboard/overview?${new URLSearchParams(params)}`),
 
   // Jobs
   getJobs: (params = {}) => {
