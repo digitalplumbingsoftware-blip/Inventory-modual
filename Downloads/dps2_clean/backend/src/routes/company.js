@@ -6,18 +6,6 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const https = require('https');
-
-// Helper: fetch a Google Maps API URL server-side (key never leaves server)
-async function googleGet(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, res => {
-      let d = '';
-      res.on('data', c => d += c);
-      res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
-    }).on('error', reject);
-  });
-}
 
 async function getMapsKey() {
   const r = await query(`SELECT config FROM integrations WHERE name='google_maps'`);
@@ -168,6 +156,11 @@ router.put('/maps-key', authenticate, async (req, res) => {
 
 // ── Google Places proxy (key stays on server) ─────────────────
 
+// Uses Places API (New). Google turned off the legacy Places endpoints for this
+// project (REQUEST_DENIED "legacy API not enabled"), so these proxies call the new
+// API and reshape its responses into the legacy format the address forms read
+// (predictions[].place_id/description/structured_formatting, address_components, geometry).
+
 // GET /api/company/places-autocomplete?input=...
 router.get('/places-autocomplete', authenticate, async (req, res) => {
   try {
@@ -175,9 +168,26 @@ router.get('/places-autocomplete', authenticate, async (req, res) => {
     if (!input?.trim()) return res.json({ predictions: [] });
     const key = await getMapsKey();
     if (!key) return res.json({ predictions: [] });
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&types=address&components=country:us&key=${key}`;
-    const data = await googleGet(url);
-    res.json({ predictions: data.predictions || [], status: data.status });
+    const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
+      body: JSON.stringify({
+        input,
+        includedRegionCodes: ['us'],
+        includedPrimaryTypes: ['street_address', 'premise', 'subpremise', 'route'],
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) return res.json({ predictions: [], status: data.error?.status || 'ERROR', error_message: data.error?.message });
+    const predictions = (data.suggestions || []).filter(s => s.placePrediction).map(({ placePrediction: p }) => ({
+      place_id: p.placeId,
+      description: p.text?.text || '',
+      structured_formatting: {
+        main_text: p.structuredFormat?.mainText?.text || p.text?.text || '',
+        secondary_text: p.structuredFormat?.secondaryText?.text || '',
+      },
+    }));
+    res.json({ predictions, status: 'OK' });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -188,9 +198,15 @@ router.get('/place-details', authenticate, async (req, res) => {
     if (!place_id) return res.status(400).json({ error: 'Missing place_id' });
     const key = await getMapsKey();
     if (!key) return res.status(404).json({ error: 'Maps key not configured' });
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(place_id)}&fields=address_components,geometry&key=${key}`;
-    const data = await googleGet(url);
-    res.json(data.result || {});
+    const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(place_id)}`, {
+      headers: { 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'addressComponents,location' },
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(502).json({ error: data.error?.message || 'Place lookup failed' });
+    res.json({
+      address_components: (data.addressComponents || []).map(c => ({ long_name: c.longText, short_name: c.shortText, types: c.types || [] })),
+      geometry: data.location ? { location: { lat: data.location.latitude, lng: data.location.longitude } } : undefined,
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
