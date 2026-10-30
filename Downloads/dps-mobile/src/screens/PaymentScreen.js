@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { C } from '../theme';
-import api, { recordInvoicePayment } from '../services/api';
+import api from '../services/api';
+import SquareCardField from '../components/SquareCardField';
 
 const TIPS = [0, 10, 15, 20];
 
@@ -17,73 +18,40 @@ export default function PaymentScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
-  // Card fields
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [cardName, setCardName] = useState('');
-  const [zip, setZip] = useState('');
+  // Square card form (secure fields inside a WebView)
+  const cardRef = useRef(null);
+  const [squareCfg, setSquareCfg] = useState(null);
+  const [cfgError, setCfgError]   = useState('');
+  const [cardReady, setCardReady] = useState(false);
+  useEffect(() => {
+    api.get('/api/square/config')
+      .then(r => (r.data?.applicationId && r.data?.locationId) ? setSquareCfg(r.data) : setCfgError('Square is not set up on the server.'))
+      .catch(e => setCfgError(e.message));
+  }, []);
 
   const baseAmount = parseFloat(amount) || 0;
   const tipAmount  = baseAmount * (tipPercent / 100);
   const total      = baseAmount + tipAmount;
 
-  // Format card number with spaces every 4 digits
-  const formatCard = (val) => {
-    const digits = val.replace(/\D/g, '').slice(0, 16);
-    return digits.replace(/(.{4})/g, '$1 ').trim();
-  };
-
-  // Format expiry MM/YY
-  const formatExpiry = (val) => {
-    const digits = val.replace(/\D/g, '').slice(0, 4);
-    if (digits.length >= 3) return digits.slice(0,2) + '/' + digits.slice(2);
-    return digits;
-  };
-
-  const cardBrand = () => {
-    const d = cardNumber.replace(/\s/g, '');
-    if (d.startsWith('4')) return 'Visa';
-    if (d.startsWith('5')) return 'Mastercard';
-    if (d.startsWith('3')) return 'Amex';
-    if (d.startsWith('6')) return 'Discover';
-    return '';
-  };
-
   const charge = async () => {
     if (baseAmount <= 0) { Alert.alert('Enter Amount', 'Please enter the service amount.'); return; }
-    const rawCard = cardNumber.replace(/\s/g, '');
-    if (rawCard.length < 15) { Alert.alert('Invalid Card', 'Please enter a valid card number.'); return; }
-    if (!expiry || expiry.length < 5) { Alert.alert('Invalid Expiry', 'Please enter expiry as MM/YY.'); return; }
-    if (!cvv || cvv.length < 3) { Alert.alert('Invalid CVV', 'Please enter the CVV.'); return; }
 
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLoading(true);
     try {
-      const amountCents = Math.round(total * 100);
-      const [expMonth, expYear] = expiry.split('/');
-      const res = await api.post('/api/square/charge', {
-        jobId,
-        amount: amountCents,
-        tip: Math.round(tipAmount * 100),
-        note: `ServiceCore Pro - Job #${jobId}`,
-        card: {
-          number: rawCard,
-          exp_month: expMonth,
-          exp_year: '20' + expYear,
-          cvv,
-          name: cardName,
-          zip,
-        },
+      const card = await cardRef.current.tokenize();   // throws if the card is invalid
+      // Charges Square and, when an invoice is attached, records the payment on it
+      const res = await api.post('/api/square/payment', {
+        source_id:     card.token,
+        amount_cents:  Math.round(baseAmount * 100),
+        tip_cents:     Math.round(tipAmount * 100),
+        invoice_id:    invoiceId || undefined,
+        customer_note: `ServiceCore Pro - Job #${jobId}`,
       });
-      setResult(res.data);
-      // Mark invoice as paid via credit card
-      if (invoiceId) {
-        try { await recordInvoicePayment(invoiceId, total, 'credit_card'); } catch (_) { /* non-fatal */ }
-      }
+      setResult({ ...res.data, card_brand: res.data.card_brand || card.brand, last4: res.data.last4 || card.last4 });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch(e) {
-      Alert.alert('Payment Failed', e.response?.data?.error || 'Please try again.');
+      Alert.alert('Payment Failed', e.response?.data?.error || e.message || 'Please try again.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
@@ -96,7 +64,7 @@ export default function PaymentScreen({ route, navigation }) {
         <View style={styles.successIcon}><Text style={{fontSize:48}}>✅</Text></View>
         <Text style={styles.successTitle}>Payment Successful</Text>
         <Text style={styles.successAmount}>${total.toFixed(2)}</Text>
-        <Text style={styles.successSub}>{result.card_brand || cardBrand()} ···· {result.last_four || cardNumber.slice(-4)}</Text>
+        <Text style={styles.successSub}>{(result.card_brand || 'Card').replace(/_/g, ' ')} ···· {result.last4 || '····'}</Text>
         <View style={styles.receiptCard}>
           {[
             ['Customer', customerName || '—'],
@@ -154,47 +122,17 @@ export default function PaymentScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* Card details */}
+        {/* Card details — Square's secure fields */}
         <View style={styles.section}>
           <Text style={styles.label}>CARD DETAILS</Text>
-          <View style={styles.cardForm}>
-            {/* Card number */}
-            <View style={styles.fieldRow}>
-              <TextInput
-                value={cardNumber}
-                onChangeText={v => setCardNumber(formatCard(v))}
-                placeholder="Card Number"
-                placeholderTextColor={C.dim}
-                keyboardType="number-pad"
-                style={styles.field}
-                maxLength={19}
-              />
-              {cardBrand() ? <Text style={styles.brandTag}>{cardBrand()}</Text> : null}
-            </View>
-
-            {/* Cardholder name */}
-            <TextInput value={cardName} onChangeText={setCardName}
-              placeholder="Cardholder Name" placeholderTextColor={C.dim}
-              style={[styles.field, styles.fieldBorderTop]} autoCapitalize="words"/>
-
-            {/* Expiry + CVV + ZIP */}
-            <View style={styles.fieldRowThree}>
-              <TextInput value={expiry} onChangeText={v => setExpiry(formatExpiry(v))}
-                placeholder="MM/YY" placeholderTextColor={C.dim}
-                keyboardType="number-pad" style={[styles.fieldSmall, styles.fieldBorderTop]}
-                maxLength={5}/>
-              <View style={styles.fieldDividerV}/>
-              <TextInput value={cvv} onChangeText={v => setCvv(v.replace(/\D/g,'').slice(0,4))}
-                placeholder="CVV" placeholderTextColor={C.dim}
-                keyboardType="number-pad" style={[styles.fieldSmall, styles.fieldBorderTop]}
-                maxLength={4} secureTextEntry/>
-              <View style={styles.fieldDividerV}/>
-              <TextInput value={zip} onChangeText={v => setZip(v.replace(/\D/g,'').slice(0,5))}
-                placeholder="ZIP" placeholderTextColor={C.dim}
-                keyboardType="number-pad" style={[styles.fieldSmall, styles.fieldBorderTop]}
-                maxLength={5}/>
-            </View>
-          </View>
+          {squareCfg
+            ? <SquareCardField ref={cardRef} config={squareCfg} onReady={() => setCardReady(true)}/>
+            : cfgError
+              ? <Text style={styles.cfgError}>⚠ Card payments unavailable: {cfgError}</Text>
+              : <ActivityIndicator color={C.green}/>}
+          {squareCfg?.environment === 'sandbox' && (
+            <Text style={styles.sandboxHint}>Square test mode — card 4111 1111 1111 1111, any future date, CVV 111, ZIP 12345. No real money moves.</Text>
+          )}
         </View>
 
         {/* Total */}
@@ -210,8 +148,8 @@ export default function PaymentScreen({ route, navigation }) {
         )}
 
         {/* Charge */}
-        <TouchableOpacity style={[styles.chargeBtn, (!baseAmount || loading) && styles.chargeBtnDisabled]}
-          onPress={charge} disabled={!baseAmount || loading}>
+        <TouchableOpacity style={[styles.chargeBtn, (!baseAmount || loading || !cardReady) && styles.chargeBtnDisabled]}
+          onPress={charge} disabled={!baseAmount || loading || !cardReady}>
           {loading
             ? <ActivityIndicator color={C.bg} size="small"/>
             : <Text style={styles.chargeBtnText}>💳  Charge ${total > 0 ? total.toFixed(2) : '0.00'}</Text>
@@ -239,14 +177,6 @@ const styles = StyleSheet.create({
   tipBtnText: { fontSize:15, fontWeight:'600', color:C.muted },
   tipBtnTextActive: { color:C.green },
   tipAmt: { fontSize:11, color:C.dim },
-  cardForm: { backgroundColor:C.surface, borderRadius:14, borderWidth:1.5, borderColor:C.border2, overflow:'hidden' },
-  fieldRow: { flexDirection:'row', alignItems:'center', paddingHorizontal:16 },
-  fieldRowThree: { flexDirection:'row', alignItems:'center' },
-  field: { flex:1, color:C.text, fontSize:16, paddingVertical:16, paddingHorizontal:16 },
-  fieldSmall: { flex:1, color:C.text, fontSize:16, paddingVertical:16, paddingHorizontal:14, textAlign:'center' },
-  fieldBorderTop: { borderTopWidth:1, borderTopColor:C.border },
-  fieldDividerV: { width:1, height:50, backgroundColor:C.border },
-  brandTag: { fontSize:11, color:C.blue, fontWeight:'700', paddingRight:8 },
   totalCard: { backgroundColor:C.surface, borderRadius:14, padding:16, borderWidth:1, borderColor:C.border, gap:10 },
   totalRow: { flexDirection:'row', justifyContent:'space-between' },
   totalLabel: { fontSize:14, color:C.muted },
@@ -257,6 +187,8 @@ const styles = StyleSheet.create({
   chargeBtn: { backgroundColor:C.green, borderRadius:14, padding:18, alignItems:'center' },
   chargeBtnDisabled: { backgroundColor:C.surface2, borderWidth:1, borderColor:C.border },
   chargeBtnText: { fontSize:18, fontWeight:'800', color:C.bg },
+  cfgError: { color:C.red, fontSize:13 },
+  sandboxHint: { fontSize:11, color:C.muted, lineHeight:16 },
   poweredBy: { textAlign:'center', fontSize:11, color:C.dim },
   successContainer: { flex:1, backgroundColor:C.bg, padding:32, alignItems:'center', gap:16, justifyContent:'center' },
   successIcon: { width:100, height:100, borderRadius:50, backgroundColor:C.green+'22', borderWidth:2, borderColor:C.green, justifyContent:'center', alignItems:'center' },
