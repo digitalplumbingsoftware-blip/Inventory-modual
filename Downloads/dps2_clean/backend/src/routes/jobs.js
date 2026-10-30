@@ -139,10 +139,10 @@ const JOB_SELECT = `
   LEFT JOIN users u ON u.id = j.technician_id
 `;
 
-// GET /api/jobs  (with optional ?date=YYYY-MM-DD, ?tech=uuid, ?status=, ?dispatch_alert=active)
+// GET /api/jobs  (with optional ?date=YYYY-MM-DD, ?tech=uuid, ?customer_id=uuid, ?status=, ?dispatch_alert=active)
 router.get("/", authenticate, async (req, res) => {
   try {
-    const { date, from, to, tech, status, dispatch_alert } = req.query;
+    const { date, from, to, tech, customer_id, status, dispatch_alert } = req.query;
     const conditions = [];
     const params = [];
 
@@ -165,6 +165,10 @@ router.get("/", authenticate, async (req, res) => {
     if (tech) {
       params.push(tech);
       conditions.push(`j.technician_id = $${params.length}`);
+    }
+    if (customer_id) {
+      params.push(customer_id);
+      conditions.push(`j.customer_id = $${params.length}`);
     }
     if (status) {
       params.push(status);

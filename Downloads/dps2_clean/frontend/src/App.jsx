@@ -3869,6 +3869,189 @@ function OutstandingBalanceAlert({ customerId, customerName, compact = false }) 
   );
 }
 
+// ─── Customer history (opened from New Job) ───────────────────
+// One customer's jobs, invoices and estimates, layered over the booking form
+// so the CSR doesn't lose what they've typed.
+function CustomerHistoryModal({ customer, onClose }) {
+  const [tab, setTab]           = useState('jobs');
+  const [jobs, setJobs]         = useState(null);
+  const [invoices, setInvoices] = useState(null);
+  const [estimates, setEstimates] = useState(null);
+  const [openJob, setOpenJob]   = useState(null);
+
+  useEffect(() => {
+    const id = customer.id;
+    api.getJobs({ customer_id: id }).then(r => setJobs((r || []).sort((a,b) => new Date(b.scheduled_start || b.created_at) - new Date(a.scheduled_start || a.created_at)))).catch(() => setJobs([]));
+    api.getInvoices({ customer_id: id }).then(r => setInvoices((Array.isArray(r) ? r : r?.invoices || []).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)))).catch(() => setInvoices([]));
+    api.getEstimates({ customer_id: id }).then(r => setEstimates((Array.isArray(r) ? r : r?.estimates || []).sort((a,b) => new Date(b.created_at) - new Date(a.created_at)))).catch(() => setEstimates([]));
+  }, [customer.id]);
+
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const fmt$ = n => `$${parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+  const name = customer.customer_type === 'commercial' && customer.business_name ? customer.business_name : `${customer.first_name} ${customer.last_name}`;
+  const addr = customer.addresses?.[0];
+
+  const liveInvoices = (invoices || []).filter(i => i.status !== 'void');
+  const lifetime  = liveInvoices.reduce((s,i) => s + parseFloat(i.total || 0), 0);
+  const completed = (jobs || []).filter(j => j.status === 'completed');
+  const lastVisit = completed[0]?.completed_at || completed[0]?.scheduled_start;
+  const invByJob  = Object.fromEntries((invoices || []).filter(i => i.job_id && i.status !== 'void').map(i => [i.job_id, i]));
+
+  const invStatus = i => {
+    const bal = parseFloat(i.total || 0) - parseFloat(i.amount_paid || 0);
+    if (i.status === 'void') return { label:'VOID', color:'var(--muted)' };
+    if (i.status === 'paid' || bal <= 0.005) return { label:'PAID', color:'#2f9e62' };
+    if (i.due_date && new Date(String(i.due_date).slice(0,10)+'T23:59') < new Date()) return { label:'OVERDUE', color:'#e5484d' };
+    if (i.status === 'draft') return { label:'DRAFT', color:'var(--muted)' };
+    return { label:'OPEN', color:'#4a9eff' };
+  };
+  const estColor = s => ({ draft:'var(--muted)', sent:'#4a9eff', signed:'#2f9e62', converted:'#2f9e62', declined:'#e5484d' }[s] || 'var(--muted)');
+
+  const tabs = [
+    { id:'jobs',      label:'Jobs',      n: jobs?.length },
+    { id:'invoices',  label:'Invoices',  n: invoices?.length },
+    { id:'estimates', label:'Estimates', n: estimates?.length },
+  ];
+  const Empty = ({ children }) => <div style={{padding:'40px 20px',textAlign:'center',fontSize:13,color:'var(--muted)'}}>{children}</div>;
+  const rowStyle = i => ({ borderTop: i ? '1px solid var(--border)' : 'none' });
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:3500,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-label={`${name} history`} style={{background:'var(--bg)',borderRadius:16,width:'100%',maxWidth:820,height:'86vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 28px 80px rgba(0,0,0,.4)',animation:'fadeUp .2s ease'}}>
+
+        {/* Header */}
+        <div style={{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'16px 22px 0',flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'flex-start',gap:12}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11,fontFamily:'var(--font-mono)',color:'var(--muted)',letterSpacing:'.06em'}}>CUSTOMER HISTORY</div>
+              <div style={{fontFamily:'var(--font-head)',fontSize:20,fontWeight:800,marginTop:2}}>{name}</div>
+              <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>
+                {customer.phone && formatPhone(customer.phone)}{addr ? ` · ${addr.street}${addr.city ? `, ${addr.city}` : ''}` : ''}
+              </div>
+            </div>
+            <button onClick={onClose} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 14px',color:'var(--muted)',fontSize:12,fontWeight:600,cursor:'pointer'}}>← Back to job</button>
+          </div>
+
+          {/* Summary */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8,margin:'14px 0'}}>
+            {[
+              ['Jobs',           jobs ? `${jobs.length}` : '…', jobs ? `${completed.length} completed` : ''],
+              ['Lifetime sales', invoices ? fmt$(lifetime) : '…', invoices ? `${liveInvoices.length} invoice${liveInvoices.length!==1?'s':''}` : ''],
+              ['Last visit',     jobs ? fmtDate(lastVisit) : '…', completed[0]?.job_type || ''],
+              ['Customer since', fmtDate(customer.created_at), customer.marketing_src ? `via ${customer.marketing_src}` : ''],
+            ].map(([l,v,s]) => (
+              <div key={l} style={{background:'var(--surface2)',borderRadius:10,padding:'9px 12px'}}>
+                <div style={{fontSize:10,color:'var(--muted)',fontWeight:600}}>{l}</div>
+                <div style={{fontFamily:'var(--font-head)',fontSize:17,fontWeight:800,marginTop:2}}>{v}</div>
+                <div style={{fontSize:10,color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{marginBottom:12}}><OutstandingBalanceAlert customerId={customer.id} customerName={name} compact/></div>
+
+          <div role="tablist" style={{display:'flex',gap:4}}>
+            {tabs.map(t => (
+              <button key={t.id} role="tab" aria-selected={tab===t.id} onClick={() => setTab(t.id)} style={{padding:'9px 14px',background:'none',border:'none',borderBottom:`2px solid ${tab===t.id?'var(--blue)':'transparent'}`,color:tab===t.id?'var(--text)':'var(--muted)',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                {t.label} {t.n != null && <span style={{fontSize:11,fontWeight:600,color:'var(--muted)'}}>{t.n}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{flex:1,overflowY:'auto',padding:16}} className="scrollbar-thin">
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden'}}>
+            {tab === 'jobs' && (jobs === null ? <div style={{padding:30,display:'flex',justifyContent:'center'}}><Spinner/></div>
+              : jobs.length === 0 ? <Empty>No jobs yet — this will be their first.</Empty>
+              : jobs.map((j,i) => {
+                const inv = invByJob[j.id];
+                const expanded = openJob === j.id;
+                return (
+                  <div key={j.id} style={rowStyle(i)}>
+                    <button onClick={() => setOpenJob(expanded ? null : j.id)} aria-expanded={expanded}
+                      style={{width:'100%',display:'grid',gridTemplateColumns:'92px 1fr auto auto 16px',gap:12,alignItems:'center',padding:'11px 16px',background:'none',border:'none',textAlign:'left',cursor:'pointer',color:'var(--text)'}}>
+                      <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--muted)'}}>{fmtDate(j.completed_at || j.scheduled_start || j.created_at)}</div>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700}}>{j.display_number || `#${j.job_number}`} · {j.job_type || 'Job'}</div>
+                        <div style={{fontSize:11,color:'var(--muted)',display:'flex',alignItems:'center',gap:6,minWidth:0}}>
+                          {j.technician_color && <span style={{width:7,height:7,borderRadius:'50%',background:j.technician_color,flexShrink:0}}/>}
+                          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{j.technician_name || 'Unassigned'}{j.address ? ` · ${j.address}` : ''}</span>
+                        </div>
+                      </div>
+                      <div style={{fontSize:12,fontFamily:'var(--font-mono)',fontWeight:700,textAlign:'right'}}>{inv ? fmt$(inv.total) : ''}</div>
+                      <Pill status={j.status}/>
+                      <span style={{color:'var(--muted)',fontSize:12,transform:expanded?'rotate(90deg)':'none',transition:'transform .15s'}}>›</span>
+                    </button>
+                    {expanded && (
+                      <div style={{padding:'0 16px 14px 120px',display:'flex',flexDirection:'column',gap:8}}>
+                        {j.description ? <div style={{fontSize:12,whiteSpace:'pre-wrap',lineHeight:1.5,background:'var(--surface2)',borderRadius:8,padding:'8px 10px'}}>{j.description}</div>
+                          : <div style={{fontSize:12,color:'var(--muted)'}}>No description recorded.</div>}
+                        {j.notes && <div style={{fontSize:12,color:'var(--muted)',whiteSpace:'pre-wrap'}}><b>Notes:</b> {j.notes}</div>}
+                        <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>
+                          {j.is_callback && <span style={{color:'#e5484d',fontWeight:700}}>CALLBACK</span>}
+                          {j.is_warranty && <span style={{color:'#e8a84a',fontWeight:700}}>WARRANTY</span>}
+                          {j.arrival_window && <span>Window {j.arrival_window}</span>}
+                          {inv && <span>{inv.display_number || `Invoice #${inv.invoice_number}`} · {invStatus(inv).label}</span>}
+                          {j.source && <span>Source: {j.source}</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }))}
+
+            {tab === 'invoices' && (invoices === null ? <div style={{padding:30,display:'flex',justifyContent:'center'}}><Spinner/></div>
+              : invoices.length === 0 ? <Empty>No invoices yet.</Empty>
+              : invoices.map((inv,i) => {
+                const st = invStatus(inv);
+                const bal = parseFloat(inv.total || 0) - parseFloat(inv.amount_paid || 0);
+                return (
+                  <div key={inv.id} style={{...rowStyle(i),display:'grid',gridTemplateColumns:'92px 1fr auto auto',gap:12,alignItems:'center',padding:'11px 16px',opacity:inv.status==='void'?0.55:1}}>
+                    <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--muted)'}}>{fmtDate(inv.created_at)}</div>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700}}>{inv.display_number ? `Invoice ${inv.display_number}` : `Invoice #${inv.invoice_number}`}</div>
+                      <div style={{fontSize:11,color:'var(--muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                        {inv.job_description || (inv.line_items?.length ? `${inv.line_items.length} line item${inv.line_items.length!==1?'s':''}` : '')}
+                        {inv.due_date && inv.status !== 'void' && bal > 0.005 ? ` · due ${fmtDate(String(inv.due_date).slice(0,10)+'T00:00')}` : ''}
+                      </div>
+                    </div>
+                    <div style={{textAlign:'right',fontFamily:'var(--font-mono)'}}>
+                      <div style={{fontSize:13,fontWeight:700,textDecoration:inv.status==='void'?'line-through':'none'}}>{fmt$(inv.total)}</div>
+                      {inv.status !== 'void' && bal > 0.005 && parseFloat(inv.amount_paid) > 0 && <div style={{fontSize:10,color:'var(--muted)'}}>{fmt$(bal)} left</div>}
+                    </div>
+                    <span style={{fontSize:10,fontWeight:800,fontFamily:'var(--font-mono)',color:st.color,border:`1px solid ${st.color}`,borderRadius:4,padding:'2px 6px',minWidth:64,textAlign:'center'}}>{st.label}</span>
+                  </div>
+                );
+              }))}
+
+            {tab === 'estimates' && (estimates === null ? <div style={{padding:30,display:'flex',justifyContent:'center'}}><Spinner/></div>
+              : estimates.length === 0 ? <Empty>No estimates yet.</Empty>
+              : estimates.map((e,i) => (
+                <div key={e.id} style={{...rowStyle(i),display:'grid',gridTemplateColumns:'92px 1fr auto auto',gap:12,alignItems:'center',padding:'11px 16px'}}>
+                  <div style={{fontSize:12,fontFamily:'var(--font-mono)',color:'var(--muted)'}}>{fmtDate(e.created_at)}</div>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700}}>{e.display_number ? `Estimate ${e.display_number}` : 'Estimate'}{e.job_number ? ` · ${String(e.job_number).startsWith('Job-') ? e.job_number : `Job #${e.job_number}`}` : ''}</div>
+                    <div style={{fontSize:11,color:'var(--muted)'}}>{e.technician_name || '—'}{e.item_count ? ` · ${e.item_count} item${e.item_count!=1?'s':''}` : ''}{e.signed_at ? ` · signed ${fmtDate(e.signed_at)}` : ''}</div>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,fontFamily:'var(--font-mono)'}}>{fmt$(e.total)}</div>
+                  <span style={{fontSize:10,fontWeight:800,fontFamily:'var(--font-mono)',color:estColor(e.status),border:`1px solid ${estColor(e.status)}`,borderRadius:4,padding:'2px 6px',minWidth:72,textAlign:'center',textTransform:'uppercase'}}>{e.status}</span>
+                </div>
+              )))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── JOB EDIT MODAL (from Calls page) ─────────────────────────────────────────
 function JobEditModal({ jobId, onClose, jobTypes = [], arrivalWindows = [] }) {
   const [job, setJob]         = useState(null);
@@ -11197,6 +11380,7 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
   const [questions, setQuestions]     = useState([]);
   const [jobDone, setJobDone]         = useState(null);
   const [jobCreating, setJobCreating] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const searchTimer = useRef(null);
 
@@ -11307,6 +11491,7 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
       onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      {showHistory && activeCustomer && <CustomerHistoryModal customer={activeCustomer} onClose={() => setShowHistory(false)}/>}
       <div style={{background:'var(--bg)',borderRadius:16,width:'100%',maxWidth:960,height:'88vh',display:'flex',flexDirection:'column',boxShadow:'0 28px 80px rgba(0,0,0,.4)',animation:'fadeUp .2s ease',overflow:'hidden'}}>
 
         {/* Header */}
@@ -11392,11 +11577,20 @@ function NewJobModal({ defaultDate, techs, onClose, onCreated }) {
                       <div style={{fontSize:11,color:'var(--muted)'}}>{activeCustomer.addresses[0].city}{activeCustomer.addresses[0].state?`, ${activeCustomer.addresses[0].state}`:''}</div>
                     </div>
                   )}
-                  {(activeCustomer.job_count > 0 || lookup?.jobs?.length > 0) && (
-                    <div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>
-                      {activeCustomer.job_count||lookup?.jobs?.length||0} previous job{(activeCustomer.job_count||0)!==1?'s':''}
-                    </div>
-                  )}
+                  {(() => {
+                    const n = parseInt(activeCustomer.job_count) || lookup?.jobs?.length || 0;
+                    return (
+                      <div style={{display:'flex',alignItems:'center',gap:10}}>
+                        <div style={{flex:1,fontSize:11,color:'var(--muted)',fontFamily:'var(--font-mono)'}}>
+                          {n ? `${n} previous job${n!==1?'s':''}` : 'New customer — no previous jobs'}
+                        </div>
+                        <button onClick={() => setShowHistory(true)}
+                          style={{display:'flex',alignItems:'center',gap:5,padding:'5px 11px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:7,color:'var(--blue)',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                          🕘 View history
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {lookup?.jobs?.length > 0 && (
                     <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:4}}>
                       {lookup.jobs.slice(0,4).map(j=>(
